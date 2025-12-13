@@ -53,7 +53,8 @@ export async function searchPrice(materialName: string): Promise<number> {
         }
 
         const humanSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-        console.info('[priceService] searchPrice start', { materialName, query, humanSearchUrl });
+        const apiSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${NUM_PER_PAGE}&start=1`;
+        console.info('[priceService] searchPrice start', { materialName, query, apiSearchUrl });
 
         // We'll aggregate prices across multiple pages to get reliable frequency counts
         // Use per-price sets of unique links (count unique URLs per price)
@@ -122,9 +123,10 @@ export async function searchPrice(materialName: string): Promise<number> {
         for (let page = 0; page < MAX_PAGES; page++) {
             const startIndex = page * NUM_PER_PAGE + 1;
             const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${NUM_PER_PAGE}&start=${startIndex}`;
-            // Log full URL (key masked) and a human-search link so you can view the query in browser
+            // Full API URL (contains API key) and a masked version for safer logs
+            const apiUrlFull = url;
             const maskedUrl = url.replace(/(key=)[^&]+/, '$1***');
-            console.debug('[priceService] fetching page', { page: page + 1, startIndex, apiUrl: maskedUrl, humanSearchUrl });
+            console.debug('[priceService] fetching page', { page: page + 1, startIndex, apiUrl: apiUrlFull, apiUrlMasked: maskedUrl });
 
             const cacheKey = `cs:${encodeURIComponent(query)}:start=${startIndex}`;
             let data: any = null;
