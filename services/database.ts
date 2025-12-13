@@ -63,6 +63,22 @@ export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
 
 export const loadEstimates = async (): Promise<Estimate[]> => readTable(fetchEstimates);
 
+export const deleteEstimatesByNumber = async (estimateNumber: string | number): Promise<void> => {
+  if (!isSupabaseConfigured()) return;
+  const client = ensureSupabase();
+  try {
+    const key = String(estimateNumber);
+    const { error } = await client.from('estimates').delete().eq("payload->>estimateNumber", key);
+    if (error) {
+      console.error('Failed to delete estimates by estimateNumber:', error);
+      throw error;
+    }
+  } catch (err) {
+    console.error('deleteEstimatesByNumber error:', err);
+    throw err;
+  }
+};
+
 export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void> => {
   await upsertRecords(upsertTemplates, templates);
 };

@@ -14,8 +14,10 @@ import ScrollToTop from './components/ScrollToTop';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { searchPrice } from './services/priceService';
-import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 
+
+type SaveMode = 'overwrite' | 'new';
 
 const App: React.FC = () => {
     const [view, setView] = useState<View>(View.HISTORY);
@@ -29,6 +31,12 @@ const App: React.FC = () => {
     const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
     const [showPdfStyleModal, setShowPdfStyleModal] = useState(false);
     const [pendingPdfEstimate, setPendingPdfEstimate] = useState<Estimate | null>(null);
+    const [editorDirty, setEditorDirty] = useState(false);
+    const [editorDraft, setEditorDraft] = useState<Estimate | null>(null);
+    const [showSaveOptions, setShowSaveOptions] = useState(false);
+    const [viewAfterSave, setViewAfterSave] = useState<View>(View.HISTORY);
+    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
+    const [pendingView, setPendingView] = useState<View | null>(null);
 
     // Load estimates and templates from database on mount
     useEffect(() => {
@@ -121,68 +129,143 @@ const App: React.FC = () => {
     }, [bundles, isLoading]);
 
 
+    const goToView = useCallback((target: View) => {
+        setView(target);
+        if (target !== View.EDITOR) {
+            setCurrentEstimate(null);
+        }
+    }, [setView, setCurrentEstimate]);
+
+    const handleNavigationAttempt = useCallback((target: View) => {
+        if (view === View.EDITOR && editorDirty && target !== View.EDITOR) {
+            setPendingView(target);
+            setShowUnsavedModal(true);
+            return;
+        }
+        goToView(target);
+    }, [view, editorDirty, goToView]);
+
     const handleCreateNew = () => {
         setCurrentEstimate(null);
-        setView(View.EDITOR);
+        setEditorDirty(false);
+        setEditorDraft(null);
+        setPendingView(null);
+        setShowSaveOptions(false);
+        setShowUnsavedModal(false);
+        goToView(View.EDITOR);
     };
 
     const handleEdit = (estimate: Estimate) => {
         setCurrentEstimate(estimate);
-        setView(View.EDITOR);
+        setEditorDirty(false);
+        setEditorDraft(null);
+        setPendingView(null);
+        setShowSaveOptions(false);
+        setShowUnsavedModal(false);
+        goToView(View.EDITOR);
     };
 
     const handleBackToHistory = () => {
-        setCurrentEstimate(null);
-        setView(View.HISTORY);
+        handleNavigationAttempt(View.HISTORY);
     };
 
-    const handleSaveEstimate = useCallback((newEstimate: Estimate) => {
+    const handleSaveEstimate = useCallback((draft: Estimate, saveMode: SaveMode, afterSaveView: View = View.HISTORY) => {
+        if (!draft) return;
         setEstimates(prevEstimates => {
-            // The editor passes the ID of the version being edited.
-            const existingIndex = prevEstimates.findIndex(e => e.id === newEstimate.id);
-            
-            // If it exists and is not archived, we create a NEW version.
-            if (existingIndex !== -1 && !prevEstimates[existingIndex].isArchived) {
-                const oldEstimate = prevEstimates[existingIndex];
-                
-                // Create new version with a new unique ID
-                const newVersion = { 
-                    ...newEstimate, 
-                    id: `sm-id-${Date.now()}`, 
-                    version: oldEstimate.version + 1, 
-                    parentId: oldEstimate.parentId || oldEstimate.id 
+            const existingIndex = prevEstimates.findIndex(e => e.id === draft.id);
+            if (existingIndex !== -1) {
+                const existing = prevEstimates[existingIndex];
+                if (saveMode === 'overwrite') {
+                    const updated = { ...draft, version: existing.version, parentId: existing.parentId };
+                    const updatedEstimates = [...prevEstimates];
+                    updatedEstimates[existingIndex] = updated;
+                    return updatedEstimates;
+                }
+                const archivedEstimate = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
+                const newVersion: Estimate = {
+                    ...draft,
+                    id: `sm-id-${Date.now()}`,
+                    version: existing.version + 1,
+                    parentId: existing.parentId || existing.id,
                 };
-                
-                // Archive old version
-                const archivedEstimate = { 
-                    ...oldEstimate, 
-                    isArchived: true,
-                    status: EstimateStatus.ARCHIVED 
-                };
-
                 const updatedEstimates = [...prevEstimates];
                 updatedEstimates[existingIndex] = archivedEstimate;
-                
                 return [...updatedEstimates, newVersion];
-            } else {
-                // This is for a completely new estimate.
-                // The ID and number were already generated in the editor.
-                return [...prevEstimates, newEstimate];
             }
+            return [...prevEstimates, draft];
         });
-        setView(View.HISTORY);
-    }, []);
+        setEditorDirty(false);
+        setEditorDraft(null);
+        setShowSaveOptions(false);
+        setPendingView(null);
+        setShowUnsavedModal(false);
+        setViewAfterSave(View.HISTORY);
+        goToView(afterSaveView);
+    }, [goToView, setEstimates]);
 
-    const handleDeleteEstimate = useCallback((estimateToDelete: Estimate) => {
-        if (window.confirm(`Вы уверены, что хотите удалить смету №${estimateToDelete.estimateNumber} и все ее версии? Это действие необратимо.`)) {
-            setEstimates(prevEstimates => {
-                // A much more reliable way to delete: filter out ALL estimates
-                // that share the same estimateNumber. This removes all versions.
-                const estimateNumberToDelete = estimateToDelete.estimateNumber;
-                return prevEstimates.filter(e => e.estimateNumber !== estimateNumberToDelete);
-            });
+    const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
+        if (!window.confirm(`Вы уверены, что хотите удалить смету №${estimateToDelete.estimateNumber} и все ее версии? Это действие необратимо.`)) return;
+        const estimateNumberToDelete = estimateToDelete.estimateNumber;
+        try {
+            // Delete from Supabase first
+            await deleteEstimatesByNumber(estimateNumberToDelete);
+            // Update local state
+            setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateNumberToDelete));
+            setSync({ visible: true, message: 'Сметы удалены из БД', type: 'success' });
+            setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
+        } catch (error) {
+            console.error('Failed to delete estimates from DB:', error);
+            setSync({ visible: true, message: 'Ошибка удаления смет в БД', type: 'error' });
+            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
         }
     }, []);
+
+    const handleDraftChange = useCallback((draft: Estimate) => {
+        setEditorDraft(draft);
+    }, []);
+
+    const handleDirtyChange = useCallback((dirty: boolean) => {
+        setEditorDirty(dirty);
+    }, []);
+
+    const handleSaveRequest = useCallback((draft: Estimate) => {
+        setEditorDraft(draft);
+        setViewAfterSave(View.HISTORY);
+        setShowSaveOptions(true);
+        setShowUnsavedModal(false);
+        setPendingView(null);
+    }, []);
+
+    const handleConfirmSave = useCallback((mode: SaveMode) => {
+        if (!editorDraft) return;
+        handleSaveEstimate(editorDraft, mode, viewAfterSave);
+    }, [editorDraft, handleSaveEstimate, viewAfterSave]);
+
+    const handleUnsavedSave = useCallback(() => {
+        const target = pendingView ?? View.HISTORY;
+        setViewAfterSave(target);
+        setShowUnsavedModal(false);
+        setShowSaveOptions(true);
+    }, [pendingView]);
+
+    const handleUnsavedDiscard = useCallback(() => {
+        const target = pendingView ?? View.HISTORY;
+        setShowUnsavedModal(false);
+        setPendingView(null);
+        setEditorDirty(false);
+        setEditorDraft(null);
+        goToView(target);
+    }, [pendingView, goToView]);
+
+    useEffect(() => {
+        if (view !== View.EDITOR) {
+            setShowSaveOptions(false);
+            setShowUnsavedModal(false);
+            setEditorDirty(false);
+            setEditorDraft(null);
+            setPendingView(null);
+        }
+    }, [view]);
 
     const handleGeneratePdf = useCallback((estimate: Estimate) => {
         setPendingPdfEstimate(estimate);
@@ -397,7 +480,7 @@ const App: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-background text-text-primary">
-            <Header currentView={view} onViewChange={setView} />
+            <Header currentView={view} onViewChange={handleNavigationAttempt} />
             <main className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
                 {isLoading ? (
                     <div className="flex justify-center items-center h-64">
@@ -422,7 +505,9 @@ const App: React.FC = () => {
                                 materials={materials}
                                 works={works}
                                 bundles={bundles}
-                                onSave={handleSaveEstimate}
+                                onRequestSave={handleSaveRequest}
+                                onDraftChange={handleDraftChange}
+                                onDirtyChange={handleDirtyChange}
                                 onSaveAsTemplate={handleSaveAsTemplate}
                                 onDeleteTemplate={handleDeleteTemplate}
                                 onBack={handleBackToHistory}
@@ -470,6 +555,62 @@ const App: React.FC = () => {
                     </>
                 )}
             </main>
+            {showSaveOptions && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                    <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-md">
+                        <h3 className="text-xl font-semibold mb-3">Сохранить изменения</h3>
+                        <p className="text-sm text-text-secondary mb-5">Выберите, хотите ли вы обновить текущую версию сметы или создать новую.</p>
+                        <div className="flex flex-col gap-3">
+                            <button
+                                onClick={() => handleConfirmSave('overwrite')}
+                                className="w-full bg-primary text-white py-2 rounded-md font-semibold"
+                            >
+                                Сохранить в текущую версию
+                            </button>
+                            <button
+                                onClick={() => handleConfirmSave('new')}
+                                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-2 rounded-md font-semibold"
+                            >
+                                Создать новую версию
+                            </button>
+                            <button
+                                onClick={() => setShowSaveOptions(false)}
+                                className="w-full border border-border rounded-md py-2 font-semibold"
+                            >
+                                Отменить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {showUnsavedModal && (
+                <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-40">
+                    <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-sm">
+                        <h3 className="text-lg font-semibold mb-2">Несохранённые изменения</h3>
+                        <p className="text-sm text-text-secondary mb-4">Вы внесли изменения в смету. Перейти к другой вкладке без сохранения приведёт к потере правок.</p>
+                        <div className="flex flex-col gap-3">
+                            <button
+                                onClick={handleUnsavedSave}
+                                className="w-full bg-primary text-white py-2 rounded-md font-semibold"
+                            >
+                                Сохранить изменения и продолжить
+                            </button>
+                            <button
+                                onClick={handleUnsavedDiscard}
+                                className="w-full bg-red-600 text-white py-2 rounded-md font-semibold"
+                            >
+                                Не сохранять и продолжить
+                            </button>
+                            <button
+                                onClick={() => setShowUnsavedModal(false)}
+                                className="w-full border border-border rounded-md py-2 font-semibold"
+                            >
+                                Отмена
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {showPdfStyleModal && (
                 <PdfStyleModal
                     onClose={() => {

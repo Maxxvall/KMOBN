@@ -52,7 +52,8 @@ export async function searchPrice(materialName: string): Promise<number> {
             throw new Error('Search API: max retry attempts reached');
         }
 
-        console.info('[priceService] searchPrice start', { materialName, query });
+        const humanSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+        console.info('[priceService] searchPrice start', { materialName, query, humanSearchUrl });
 
         // We'll aggregate prices across multiple pages to get reliable frequency counts
         // Use per-price sets of unique links (count unique URLs per price)
@@ -121,8 +122,9 @@ export async function searchPrice(materialName: string): Promise<number> {
         for (let page = 0; page < MAX_PAGES; page++) {
             const startIndex = page * NUM_PER_PAGE + 1;
             const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${NUM_PER_PAGE}&start=${startIndex}`;
-            // Log full URL (note: contains API key)
-            console.debug('[priceService] fetching page', { page: page + 1, startIndex, url });
+            // Log full URL (key masked) and a human-search link so you can view the query in browser
+            const maskedUrl = url.replace(/(key=)[^&]+/, '$1***');
+            console.debug('[priceService] fetching page', { page: page + 1, startIndex, apiUrl: maskedUrl, humanSearchUrl });
 
             const cacheKey = `cs:${encodeURIComponent(query)}:start=${startIndex}`;
             let data: any = null;

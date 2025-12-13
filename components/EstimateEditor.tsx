@@ -12,7 +12,9 @@ interface EstimateEditorProps {
     materials: Material[];
     works: Work[];
     bundles: WorkBundle[];
-    onSave: (estimate: Estimate) => void;
+    onRequestSave: (estimate: Estimate) => void;
+    onDraftChange?: (estimate: Estimate) => void;
+    onDirtyChange?: (dirty: boolean) => void;
     onSaveAsTemplate: (estimate: Estimate) => void;
     onDeleteTemplate: (templateId: string) => void;
     onBack: () => void;
@@ -20,20 +22,23 @@ interface EstimateEditorProps {
 }
 
 const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onSave, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates }) => {
-    const [estimate, setEstimate] = useState<Estimate>(
-        initialEstimate || {
-            id: `sm-temp-${Date.now()}`,
-            estimateNumber: `SM-${new Date().getFullYear()}-...`,
-            client: '',
-            date: new Date().toISOString().split('T')[0],
-            status: EstimateStatus.DRAFT,
-            version: 1,
-            items: [],
-            total: 0,
-            buildingType: '',
-            area: 0,
-        }
-    );
+    const createEmptyEstimate = useCallback((): Estimate => ({
+        id: `sm-temp-${Date.now()}`,
+        estimateNumber: `SM-${new Date().getFullYear()}-...`,
+        client: '',
+        date: new Date().toISOString().split('T')[0],
+        status: EstimateStatus.DRAFT,
+        version: 1,
+        items: [],
+        total: 0,
+        buildingType: '',
+        area: 0,
+    }), []);
+    const baselineEstimate = useMemo(() => initialEstimate ?? createEmptyEstimate(), [initialEstimate, createEmptyEstimate]);
+    const [estimate, setEstimate] = useState<Estimate>(baselineEstimate);
+    useEffect(() => {
+        setEstimate(baselineEstimate);
+    }, [baselineEstimate]);
     const [genParams, setGenParams] = useState<GenerationParams>({
         area: 120,
         projectTemplateId: '3',
@@ -64,6 +69,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             delete debounceTimers.current[itemId];
         }
     };
+
+    const baselineSnapshot = useMemo(() => JSON.stringify(baselineEstimate), [baselineEstimate]);
+    useEffect(() => {
+        const currentSnapshot = JSON.stringify(estimate);
+        const dirty = currentSnapshot !== baselineSnapshot;
+        onDirtyChange?.(dirty);
+    }, [baselineSnapshot, estimate, onDirtyChange]);
+
+    useEffect(() => {
+        onDraftChange?.(estimate);
+    }, [estimate, onDraftChange]);
 
     const scheduleSuggestions = (itemId: string, query: string, pool: (Material | Work)[]) => {
         clearDebounce(itemId);
@@ -346,7 +362,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             id: initialEstimate ? estimate.id : `sm-id-${Date.now()}`,
             estimateNumber: initialEstimate ? estimate.estimateNumber : `SM-${new Date().getFullYear()}-${String(allEstimates.length + 1).padStart(3, '0')}`
         };
-        onSave(finalEstimate);
+        setEstimate(finalEstimate);
+        onRequestSave(finalEstimate);
     };
 
     const getPreviousVersion = (): Estimate | undefined => {
