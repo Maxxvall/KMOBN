@@ -156,20 +156,6 @@ export const generatePdf = async (estimate: Estimate) => {
             const worksTotal = itemsInCategory.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS).reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
             const materialsTotal = itemsInCategory.filter(i => i.subgroup === EstimateSubgroup.MATERIALS).reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
             const deliveryTotal = itemsInCategory.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
-            const breakdownText = category === EstimateCategory.LOGISTICS
-                ? `Итого по разделу: ${categoryTotal.toLocaleString('ru-RU')} ₽ (Работы: ${worksTotal.toLocaleString('ru-RU')} ₽, Доставка: ${deliveryTotal.toLocaleString('ru-RU')} ₽)`
-                : `Итого по разделу: ${categoryTotal.toLocaleString('ru-RU')} ₽ (Работы: ${worksTotal.toLocaleString('ru-RU')} ₽, Материалы: ${materialsTotal.toLocaleString('ru-RU')} ₽)`;
-            tableBody.push([{ 
-                content: breakdownText, 
-                colSpan: 5, 
-                styles: {
-                    font: FONT_NAME,
-                    fontStyle: 'normal',
-                    fillColor: [74, 78, 84],
-                    textColor: [247, 249, 249],
-                    halign: 'left'
-                }
-            }]);
 
             const subgroupList = category === EstimateCategory.LOGISTICS ? [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY] : [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS];
             subgroupList.forEach(subgroup => {
@@ -200,31 +186,22 @@ export const generatePdf = async (estimate: Estimate) => {
                     ]);
                 });
 
-                // Subgroup total
-                tableBody.push([{ 
-                    content: `Итого ${subgroup.toLowerCase()}: ${subTotal.toLocaleString('ru-RU')} ₽`, 
-                    colSpan: 5, 
-                    styles: { 
-                        font: FONT_NAME, 
-                        fontStyle: 'normal', 
-                        fillColor: [220, 237, 200], // #dcedc8
-                        textColor: [51, 105, 30],    // #33691e
-                        halign: 'right' 
-                    } 
-                }]);
+                // (removed subgroup total row - totals will be shown as summary at block end)
             });
-
-            // Category total
+            // At end of category block: show the gray summary line (moved here)
+            const breakdownText = category === EstimateCategory.LOGISTICS
+                ? `Итого по разделу: ${categoryTotal.toLocaleString('ru-RU')} ₽ (Работы: ${worksTotal.toLocaleString('ru-RU')} ₽, Доставка: ${deliveryTotal.toLocaleString('ru-RU')} ₽)`
+                : `Итого по разделу: ${categoryTotal.toLocaleString('ru-RU')} ₽ (Работы: ${worksTotal.toLocaleString('ru-RU')} ₽, Материалы: ${materialsTotal.toLocaleString('ru-RU')} ₽)`;
             tableBody.push([{ 
-                content: `Итого по разделу: ${categoryTotal.toLocaleString('ru-RU')} ₽`, 
+                content: breakdownText, 
                 colSpan: 5, 
-                styles: { 
-                    font: FONT_NAME, 
-                    fontStyle: 'normal', 
-                    fillColor: [220, 237, 200],
-                    textColor: [51, 105, 30],
-                    halign: 'right' 
-                } 
+                styles: {
+                    font: FONT_NAME,
+                    fontStyle: 'normal',
+                    fillColor: [74, 78, 84],
+                    textColor: [247, 249, 249],
+                    halign: 'left'
+                }
             }]);
         }
     });
