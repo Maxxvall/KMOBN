@@ -21,7 +21,7 @@ interface EstimateEditorProps {
     allEstimates: Estimate[];
 }
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onSave, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates }) => {
     const createEmptyEstimate = useCallback((): Estimate => ({
         id: `sm-temp-${Date.now()}`,
         estimateNumber: `SM-${new Date().getFullYear()}-...`,
