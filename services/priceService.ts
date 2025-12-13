@@ -157,14 +157,16 @@ export async function searchPrice(materialName: string): Promise<number> {
             for (const item of items) {
             const snippet = (item as any).snippet || (item as any).htmlSnippet || '';
             const title = item.title || (item as any).htmlTitle || '';
-            console.debug('[priceService] inspecting item', { title, link: item.link, snippet });
+            const sourceLink = item.link || (item as any).formattedUrl || '';
+            const cacheUrl = sourceLink ? `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(sourceLink)}` : '';
+            console.debug('[priceService] inspecting item', { title, link: sourceLink, cacheUrl, snippet });
 
             // 1) Try to read structured price from pagemap (most reliable)
                 const pagemapPrice = tryPagemapPrice(item as any);
                 if (pagemapPrice) {
-                    console.debug('[priceService] pagemap price found', { price: pagemapPrice, source: item.link });
+                    console.debug('[priceService] pagemap price found', { price: pagemapPrice, source: sourceLink, cacheUrl });
                     if (pagemapPrice > 50 && pagemapPrice < 1000000) {
-                        pushPrice(pagemapPrice, item.link || '');
+                        pushPrice(pagemapPrice, sourceLink || '');
                     } else console.debug('[priceService] pagemap price filtered by range', { pagemapPrice });
                     continue;
                 }
@@ -172,7 +174,7 @@ export async function searchPrice(materialName: string): Promise<number> {
             // 2) Fallback: search for price patterns in title/snippet
             const text = (snippet + ' ' + title);
             const priceMatches = text.match(/(\d{1,3}(?:[\s\u00A0]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)[^\d]{0,3}\s*(руб|₽|р\.|рублей)/i);
-            if (priceMatches) {
+                if (priceMatches) {
                 const rawMatch = priceMatches[1];
                 // Normalize: remove spaces (including NBSP), replace comma with dot for decimal
                 const normalized = String(rawMatch).replace(/[\s\u00A0]+/g, '').replace(',', '.');
@@ -183,9 +185,14 @@ export async function searchPrice(materialName: string): Promise<number> {
                 } else {
                     console.debug('[priceService] price filtered out by range or NaN', { price });
                 }
-            } else {
-                console.debug('[priceService] no price regex match in title/snippet for this item');
-            }
+                    if (!isNaN(price) && price > 50 && price < 1000000) {
+                        pushPrice(price, sourceLink || '');
+                    } else {
+                        console.debug('[priceService] price filtered out by range or NaN', { price });
+                    }
+                } else {
+                    console.debug('[priceService] no price regex match in title/snippet for this item', { sourceLink, cacheUrl });
+                }
             }
         }
 
@@ -219,8 +226,12 @@ export async function searchPrice(materialName: string): Promise<number> {
             chosenPrice = Math.max(...prices);
         }
 
-        console.info('[priceService] selected price by frequency', { materialName, totalFound: prices.length, counts: countsObj, chosen: Math.round(chosenPrice) });
-        return Math.round(chosenPrice);
+        const chosenRounded = Math.round(chosenPrice);
+        // find example source link(s) for chosen price
+        const chosenLinks = linkSets[String(chosenRounded)] ? Array.from(linkSets[String(chosenRounded)]) : [];
+        const chosenCacheLinks = chosenLinks.map(l => `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(l)}`);
+        console.info('[priceService] selected price by frequency', { materialName, totalFound: prices.length, counts: countsObj, chosen: chosenRounded, chosenLinks, chosenCacheLinks });
+        return chosenRounded;
     } catch (error) {
         console.error('[priceService] Error searching price:', { materialName, error });
         throw error;

@@ -218,24 +218,29 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }
         console.debug('[EstimateEditor] found material', material);
 
-        // Check if price needs update (older than 24 hours)
-        const lastUpdated = new Date(material.lastUpdated);
-        const now = new Date();
-        const hoursDiff = (now.getTime() - lastUpdated.getTime()) / (1000 * 60 * 60);
+        // If material is marked as manual price, do not perform search
         let price = material.price;
-        console.debug('[EstimateEditor] price age check', { currentPrice: material.price, lastUpdated: material.lastUpdated, hoursDiff });
-        if (hoursDiff > 24) {
-            try {
-                console.info('[EstimateEditor] querying searchPrice for material', material.name);
-                price = await searchPrice(material.name);
-                console.info('[EstimateEditor] searchPrice returned', { material: material.name, price });
-                // Update material in parent state? But since it's props, maybe not, or pass callback
-                // For now, just use updated price locally
-            } catch (error) {
-                console.warn('[EstimateEditor] Failed to update price via searchPrice', { material: material.name, error });
-            }
+        if (material.isManualPrice) {
+            console.debug('[EstimateEditor] material isManualPrice=true, using manual price', { material: material.name, price });
         } else {
-            console.debug('[EstimateEditor] using existing material price (no search)', { price });
+            // Check if price needs update (older than 24 hours)
+            const lastUpdated = new Date(material.lastUpdated);
+            const now = new Date();
+            const hoursDiff = (now.getTime() - lastUpdated.getTime()) / (1000 * 60 * 60);
+            console.debug('[EstimateEditor] price age check', { currentPrice: material.price, lastUpdated: material.lastUpdated, hoursDiff });
+            if (hoursDiff > 24) {
+                try {
+                    console.info('[EstimateEditor] querying searchPrice for material', material.name);
+                    price = await searchPrice(material.name);
+                    console.info('[EstimateEditor] searchPrice returned', { material: material.name, price });
+                    // Update material in parent state? But since it's props, maybe not, or pass callback
+                    // For now, just use updated price locally
+                } catch (error) {
+                    console.warn('[EstimateEditor] Failed to update price via searchPrice', { material: material.name, error });
+                }
+            } else {
+                console.debug('[EstimateEditor] using existing material price (no search)', { price });
+            }
         }
 
         console.info('[EstimateEditor] applying price to item', { itemId, name: material.name, price, unit: 'шт' });
