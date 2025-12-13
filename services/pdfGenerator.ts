@@ -141,6 +141,20 @@ export const generatePdf = async (estimate: Estimate) => {
 
     // --- Table Body ---
     const tableBody = [];
+
+    const safeTotal = (item) => item.total ?? item.quantity * item.price;
+    const worksTotal = estimate.items.reduce((sum, item) => {
+        const value = safeTotal(item);
+        return sum + ((item.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS ? value : 0);
+    }, 0);
+    const materialsTotal = estimate.items.reduce((sum, item) => {
+        const value = safeTotal(item);
+        return sum + (item.subgroup === EstimateSubgroup.MATERIALS ? value : 0);
+    }, 0);
+    const deliveryTotal = estimate.items.reduce((sum, item) => {
+        const value = safeTotal(item);
+        return sum + (item.subgroup === EstimateSubgroup.DELIVERY ? value : 0);
+    }, 0);
     // Add column headers
     tableBody.push([
         { content: 'Наименование', styles: { font: FONT_NAME, fontStyle: 'bold', halign: 'center' } },
@@ -314,6 +328,35 @@ export const generatePdf = async (estimate: Estimate) => {
                     drawPageDecor(data.pageNumber);
                     drawnPages.add(data.pageNumber);
                 }
+
+                // Fix: when a cell uses colSpan (e.g. category header)
+                // ensure its background fills the whole spanned width on new pages.
+                const cell = data.cell;
+                const raw = cell.raw || {};
+                const colSpan = raw.colSpan || raw.colSpan === 0 ? raw.colSpan : (cell.colSpan || 1);
+                const styles = cell.styles || {};
+                if (colSpan > 1 && styles.fillColor) {
+                    // Normalize fillColor to rgb array
+                    let fill = styles.fillColor;
+                    if (typeof fill === 'string') {
+                        // hex like '#2e5d41'
+                        const hex = fill.replace('#', '');
+                        if (hex.length === 6) {
+                            fill = [parseInt(hex.substring(0,2),16), parseInt(hex.substring(2,4),16), parseInt(hex.substring(4,6),16)];
+                        }
+                    }
+
+                    // compute total width across spanned columns
+                    let spanWidth = 0;
+                    for (let i = data.column.index; i < data.column.index + colSpan; i++) {
+                        const col = data.table.columns[i];
+                        if (col && typeof col.width === 'number') spanWidth += col.width;
+                    }
+
+                    // draw rectangle behind the whole spanned area
+                    doc.setFillColor(Array.isArray(fill) ? fill : [220,220,220]);
+                    doc.rect(cell.x, cell.y, spanWidth, cell.height, 'F');
+                }
             } catch (e) {
                 // ignore
             }
@@ -328,6 +371,46 @@ export const generatePdf = async (estimate: Estimate) => {
             doc.text('Смета создана в системе "Каркас Мастер"', margin, pageHeight - 10);
         }
     });
+
+    // --- Final Breakdown Block ---
+    const tableEndY = doc.autoTable.previous ? doc.autoTable.previous.finalY : 0;
+    const breakdownBlockHeight = 44;
+    let blockStartY = tableEndY + 15;
+    if (blockStartY + breakdownBlockHeight > pageHeight - margin) {
+        doc.addPage();
+        const newPageNumber = doc.internal.getNumberOfPages();
+        drawPageDecor(newPageNumber);
+        drawnPages.add(newPageNumber);
+        blockStartY = 40;
+    }
+
+    const blockX = margin;
+    const blockWidth = pageWidth - margin * 2;
+    doc.setFillColor(16, 30, 42);
+    doc.roundedRect(blockX, blockStartY, blockWidth, breakdownBlockHeight, 4, 4, 'F');
+
+    doc.setFont(FONT_NAME, 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    const breakdownLines = [
+        { label: 'Работы', value: worksTotal },
+        { label: 'Материалы', value: materialsTotal },
+        { label: 'Доставка', value: deliveryTotal },
+    ];
+    let lineY = blockStartY + 10;
+    breakdownLines.forEach(line => {
+        doc.text(`${line.label}: ${line.value.toLocaleString('ru-RU')} ₽`, blockX + 8, lineY);
+        lineY += 7;
+    });
+
+    doc.setFont(FONT_NAME, 'bold');
+    doc.setFontSize(14);
+    doc.text(
+        `ОБЩИЙ ИТОГ: ${estimate.total.toLocaleString('ru-RU')} ₽`,
+        blockX + blockWidth - 8,
+        blockStartY + breakdownBlockHeight - 8,
+        { align: 'right' }
+    );
 
     // --- Save ---
     doc.save(`Смета_${estimate.estimateNumber}_${estimate.client}.pdf`);

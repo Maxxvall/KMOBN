@@ -123,6 +123,20 @@ export const generatePdf = async (estimate: Estimate) => {
     // --- TABLE BODY ---
     const tableBody = [];
 
+    const safeTotal = (item) => item.total ?? item.quantity * item.price;
+    const worksTotal = estimate.items.reduce((sum, item) => {
+        const value = safeTotal(item);
+        return sum + ((item.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS ? value : 0);
+    }, 0);
+    const materialsTotal = estimate.items.reduce((sum, item) => {
+        const value = safeTotal(item);
+        return sum + (item.subgroup === EstimateSubgroup.MATERIALS ? value : 0);
+    }, 0);
+    const deliveryTotal = estimate.items.reduce((sum, item) => {
+        const value = safeTotal(item);
+        return sum + (item.subgroup === EstimateSubgroup.DELIVERY ? value : 0);
+    }, 0);
+
     ESTIMATE_CATEGORIES.forEach((category) => {
         const itemsInCategory = estimate.items.filter(item => item.category === category);
         if (itemsInCategory.length > 0) {
@@ -257,9 +271,38 @@ export const generatePdf = async (estimate: Estimate) => {
             4: { halign: 'right', cellWidth: colWidthsFixed[3] },
         },
         willDrawCell: (data) => {
-            if (!drawnPages.has(data.pageNumber)) {
-                drawPageDecor(data.pageNumber);
-                drawnPages.add(data.pageNumber);
+            try {
+                if (!drawnPages.has(data.pageNumber)) {
+                    drawPageDecor(data.pageNumber);
+                    drawnPages.add(data.pageNumber);
+                }
+
+                // Ensure background for colSpan cells fills full spanned width
+                const cell = data.cell;
+                const raw = cell.raw || {};
+                const colSpan = raw.colSpan || raw.colSpan === 0 ? raw.colSpan : (cell.colSpan || 1);
+                const styles = cell.styles || {};
+                if (colSpan > 1 && styles.fillColor) {
+                    let fill = styles.fillColor;
+                    if (Array.isArray(fill) && fill.length === 3) {
+                        // ok
+                    } else if (typeof fill === 'string') {
+                        const hex = fill.replace('#','');
+                        if (hex.length === 6) fill = [parseInt(hex.substring(0,2),16), parseInt(hex.substring(2,4),16), parseInt(hex.substring(4,6),16)];
+                        else fill = [220,220,220];
+                    }
+
+                    let spanWidth = 0;
+                    for (let i = data.column.index; i < data.column.index + colSpan; i++) {
+                        const col = data.table.columns[i];
+                        if (col && typeof col.width === 'number') spanWidth += col.width;
+                    }
+
+                    doc.setFillColor(Array.isArray(fill) ? fill : [220,220,220]);
+                    doc.rect(cell.x, cell.y, spanWidth, cell.height, 'F');
+                }
+            } catch (e) {
+                // ignore
             }
         },
         didDrawPage: (data) => {
@@ -273,30 +316,44 @@ export const generatePdf = async (estimate: Estimate) => {
         }
     });
 
-    // --- GRAND TOTAL ---
-    let finalY = doc.autoTable.previous.finalY;
-    if (finalY > pageHeight - 40) {
+    // --- Final Breakdown Block ---
+    const tableEndY = doc.autoTable.previous ? doc.autoTable.previous.finalY : 0;
+    const breakdownBlockHeight = 44;
+    let blockStartY = tableEndY + 15;
+    if (blockStartY + breakdownBlockHeight > pageHeight - margin) {
         doc.addPage();
-        finalY = 40;
+        const newPageNumber = doc.internal.getNumberOfPages();
+        drawPageDecor(newPageNumber);
+        drawnPages.add(newPageNumber);
+        blockStartY = 40;
     }
-    
-    const totalY = finalY + 15;
 
-    // Total block with brand colors
-    doc.setFillColor(220, 237, 200); // #dcedc8
     const blockX = margin;
     const blockWidth = pageWidth - margin * 2;
-    const blockHeight = 14;
-    doc.roundedRect(blockX, totalY, blockWidth, blockHeight, 2, 2, 'F');
-    
-    doc.setTextColor(51, 105, 30); // #33691e
-    doc.setFontSize(14);
+    doc.setFillColor(16, 30, 42);
+    doc.roundedRect(blockX, blockStartY, blockWidth, breakdownBlockHeight, 4, 4, 'F');
+
     doc.setFont(FONT_NAME, 'normal');
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    const breakdownLines = [
+        { label: 'Работы', value: worksTotal },
+        { label: 'Материалы', value: materialsTotal },
+        { label: 'Доставка', value: deliveryTotal },
+    ];
+    let detailY = blockStartY + 10;
+    breakdownLines.forEach(line => {
+        doc.text(`${line.label}: ${line.value.toLocaleString('ru-RU')} ₽`, blockX + 8, detailY);
+        detailY += 7;
+    });
+
+    doc.setFont(FONT_NAME, 'bold');
+    doc.setFontSize(14);
     doc.text(
-        `ОБЩИЙ ИТОГ: ${estimate.total.toLocaleString('ru-RU')} рублей`, 
-        pageWidth / 2, 
-        totalY + blockHeight / 2 + 2, 
-        { align: 'center' }
+        `ОБЩИЙ ИТОГ: ${estimate.total.toLocaleString('ru-RU')} ₽`,
+        blockX + blockWidth - 8,
+        blockStartY + breakdownBlockHeight - 8,
+        { align: 'right' }
     );
 
     // --- SAVE PDF ---
