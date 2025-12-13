@@ -53,7 +53,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange }) => {
     return (
         <>
             <header className="bg-surface shadow-lg">
-                <div className="max-w-7xl mx-auto py-3 px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+                <div className="max-w-8xl mx-auto py-3 px-3 sm:px-4 lg:px-6 flex items-center justify-between">
                     <div className="flex items-center">
                         <h1 className="text-2xl sm:text-3xl font-bold text-text-primary">
                             KARKAS MASTER <span className="text-primary font-light">| Генератор Смет</span>

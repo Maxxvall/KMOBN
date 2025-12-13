@@ -159,6 +159,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         return subtotals;
     }, [groupedItems]);
 
+    // Totals by subgroup for summary (Работы / Материалы / Доставка)
+    const subgroupTotals = useMemo(() => {
+        const works = estimate.items.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+        const materials = estimate.items.filter(i => i.subgroup === EstimateSubgroup.MATERIALS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+        const delivery = estimate.items.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+        return { works, materials, delivery };
+    }, [estimate.items]);
+
     // Update a single field on an item (safe: uses prev state)
     const updateItem = (itemId: string, field: keyof EstimateItem, value: string | number) => {
         setEstimate(prev => {
@@ -454,10 +462,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </select>
                     </div>
                     <div className="p-2 flex items-center justify-end gap-4 bg-background border border-border rounded-md">
-                        <span className="text-lg font-bold text-primary">ИТОГ: {estimate.total.toLocaleString('ru-RU')} ₽</span>
-                        <button onClick={handleSave} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300">
-                            Сохранить
-                        </button>
+                        <div className="flex flex-col items-end mr-4">
+                            <div className="text-sm text-text-secondary">Работы: {subgroupTotals.works.toLocaleString('ru-RU')} ₽</div>
+                            <div className="text-sm text-text-secondary">Материалы: {subgroupTotals.materials.toLocaleString('ru-RU')} ₽</div>
+                            <div className="text-sm text-text-secondary">Доставка: {subgroupTotals.delivery.toLocaleString('ru-RU')} ₽</div>
+                            <div className="text-lg font-bold text-primary mt-1">ИТОГ: {estimate.total.toLocaleString('ru-RU')} ₽</div>
+                        </div>
+                        <div>
+                            <button onClick={handleSave} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300">
+                                Сохранить
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -469,19 +484,33 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         return (
                             <div key={category} className="border border-border rounded-lg bg-background/30">
                                 <div className="bg-gray-900/50 p-3 flex justify-between items-center rounded-t-lg border-b border-border">
-                                    <h3 className="text-lg font-bold text-text-primary">{catIndex + 1}. {category}</h3>
-                                    <div className="font-semibold text-text-secondary">
-                                        Итого по разделу: {(categorySubtotals.get(category) || 0).toLocaleString('ru-RU')} ₽
-                                    </div>
+                                                <h3 className="text-lg font-bold text-text-primary">{catIndex + 1}. {category}</h3>
+                                                {(() => {
+                                                    const catTotal = categorySubtotals.get(category) || 0;
+                                                    const catItems = items;
+                                                    const worksTotal = catItems.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+                                                    const materialsTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.MATERIALS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+                                                    const deliveryTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+                                                    if (category === EstimateCategory.LOGISTICS) {
+                                                        return (
+                                                            <div className="font-semibold text-text-secondary">Итого по разделу: {catTotal.toLocaleString('ru-RU')} ₽ (Работы: {worksTotal.toLocaleString('ru-RU')} ₽, Доставка: {deliveryTotal.toLocaleString('ru-RU')} ₽)</div>
+                                                        );
+                                                    }
+                                                    return (
+                                                        <div className="font-semibold text-text-secondary">Итого по разделу: {catTotal.toLocaleString('ru-RU')} ₽ (Работы: {worksTotal.toLocaleString('ru-RU')} ₽, Материалы: {materialsTotal.toLocaleString('ru-RU')} ₽)</div>
+                                                    );
+                                                })()}
                                     {visibleCategories.includes(category) && (
                                         <div className="ml-4">
                                             <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-sm">Удалить раздел</button>
                                         </div>
                                     )}
                                 </div>
-                                {/* Split into Работы и Материалы внутри раздела */}
+                                {/* Split into Работы и Материалы/Доставка внутри раздела */}
                                 <div className="p-3 space-y-4">
-                                    {[EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS].map((subgroup) => {
+                                    {((category: EstimateCategory) => {
+                                        return (category === EstimateCategory.LOGISTICS) ? [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY] : [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS];
+                                    })(category).map((subgroup) => {
                                         const subItems = items.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
                                         const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
                                         return (
@@ -516,7 +545,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 return (
                                                                 <tr key={item.id} className="border-b border-border last:border-b-0">
                                                                     <td className="p-1">
-                                                                        {subgroup === EstimateSubgroup.MATERIALS ? (
+                                                                        { (subgroup === EstimateSubgroup.MATERIALS || subgroup === EstimateSubgroup.DELIVERY) ? (
                                                                             useTypeaheadMaterials ? (
                                                                                 <div className="relative">
                                                                                     <input
@@ -607,7 +636,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     </table>
                                                 </div>
                                                 <div className="p-2 bg-gray-900/30 border-t border-border rounded-b-md flex justify-end">
-                                                    <button onClick={() => addItem(category, subgroup)} className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-1 px-3 rounded transition-colors">+ Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : 'позицию (Материалы)'}</button>
+                                                    <button onClick={() => addItem(category, subgroup)} className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-1 px-3 rounded transition-colors">+ Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : subgroup === EstimateSubgroup.DELIVERY ? 'позицию (Доставка)' : 'позицию (Материалы)'}</button>
                                                 </div>
                                             </div>
                                         );
@@ -619,8 +648,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 </div>
 
                 <div className="flex justify-end items-center mt-8 pt-6 border-t border-border">
-                    <div className="text-right">
-                        <div className="text-3xl font-bold text-text-primary">ОБЩИЙ ИТОГ: {estimate.total.toLocaleString('ru-RU')} ₽</div>
+                    <div className="flex flex-col items-end mr-6">
+                        <div className="text-sm text-text-secondary">Работы: {subgroupTotals.works.toLocaleString('ru-RU')} ₽</div>
+                        <div className="text-sm text-text-secondary">Материалы: {subgroupTotals.materials.toLocaleString('ru-RU')} ₽</div>
+                        <div className="text-sm text-text-secondary">Доставка: {subgroupTotals.delivery.toLocaleString('ru-RU')} ₽</div>
+                        <div className="text-3xl font-bold text-text-primary mt-1">ОБЩИЙ ИТОГ: {estimate.total.toLocaleString('ru-RU')} ₽</div>
                     </div>
                 </div>
 

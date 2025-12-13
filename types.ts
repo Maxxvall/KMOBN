@@ -64,6 +64,7 @@ export interface ProjectTemplate {
 export enum EstimateSubgroup {
     WORKS = 'Работы',
     MATERIALS = 'Материалы',
+    DELIVERY = 'Доставка',
 }
 
 export interface Material {

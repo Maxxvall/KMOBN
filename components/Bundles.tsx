@@ -244,7 +244,11 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                                                     onChange={(e) => setNewItemSubgroup(e.target.value as EstimateSubgroup)}
                                                 >
                                                     <option value={EstimateSubgroup.WORKS}>Работы</option>
-                                                    <option value={EstimateSubgroup.MATERIALS}>Материалы</option>
+                                                    {selectedCategory === EstimateCategory.LOGISTICS ? (
+                                                        <option value={EstimateSubgroup.DELIVERY}>Доставка</option>
+                                                    ) : (
+                                                        <option value={EstimateSubgroup.MATERIALS}>Материалы</option>
+                                                    )}
                                                 </select>
                                                 {newItemSubgroup === EstimateSubgroup.WORKS ? (
                                                     <select

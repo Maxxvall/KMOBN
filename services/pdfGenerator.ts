@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Estimate, EstimateSubgroup } from '../types';
+import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
 import { ESTIMATE_CATEGORIES } from '../constants';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
 import logoUrl from '../logo/acetone-2025920-104546-498.png?url';
@@ -166,13 +166,30 @@ export const generatePdf = async (estimate: Estimate) => {
                 } 
             }]);
 
-            // For each subgroup (Работы / Материалы) push items and then total
-            let categoryTotal = 0;
-            [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS].forEach(subgroup => {
+            const categoryTotal = itemsInCategory.reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
+            const worksTotal = itemsInCategory.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS).reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
+            const materialsTotal = itemsInCategory.filter(i => i.subgroup === EstimateSubgroup.MATERIALS).reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
+            const deliveryTotal = itemsInCategory.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
+            const breakdownText = category === EstimateCategory.LOGISTICS
+                ? `Итого по разделу: ${categoryTotal.toLocaleString('ru-RU')} ₽ (Работы: ${worksTotal.toLocaleString('ru-RU')} ₽, Доставка: ${deliveryTotal.toLocaleString('ru-RU')} ₽)`
+                : `Итого по разделу: ${categoryTotal.toLocaleString('ru-RU')} ₽ (Работы: ${worksTotal.toLocaleString('ru-RU')} ₽, Материалы: ${materialsTotal.toLocaleString('ru-RU')} ₽)`;
+            tableBody.push([{ 
+                content: breakdownText, 
+                colSpan: 5, 
+                styles: {
+                    font: FONT_NAME,
+                    fontStyle: 'bold',
+                    fillColor: '#4a4e54',
+                    textColor: '#f7f9f9',
+                    halign: 'left'
+                }
+            }]);
+
+            const subgroupList = category === EstimateCategory.LOGISTICS ? [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY] : [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS];
+            subgroupList.forEach(subgroup => {
                 const subItems = itemsInCategory.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
                 if (subItems.length === 0) return;
                 const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-                categoryTotal += subTotal;
 
                 // Subgroup header
                 tableBody.push([{ 

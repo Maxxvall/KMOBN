@@ -6,6 +6,11 @@ const MATERIAL_KEYWORDS = [
 const classifySubgroup = (name: string, unit?: string): EstimateSubgroup => {
     if (!name) return EstimateSubgroup.WORKS;
     const lower = name.toLowerCase();
+    // Detect delivery-related items
+    const deliveryKeywords = ['достав', 'доставка', 'транспорт', 'перевоз', 'курьер'];
+    for (const kw of deliveryKeywords) {
+        if (lower.includes(kw)) return EstimateSubgroup.DELIVERY;
+    }
     for (const kw of MATERIAL_KEYWORDS) {
         if (lower.includes(kw)) return EstimateSubgroup.MATERIALS;
     }

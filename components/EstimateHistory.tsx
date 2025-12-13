@@ -106,7 +106,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
     }
 
     return (
-        <div className="bg-surface p-6 rounded-lg shadow-2xl">
+        <div className="bg-surface p-4 rounded-lg shadow-2xl">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-bold text-text-primary">История смет</h2>
                 <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
@@ -166,15 +166,15 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
-                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Номер</th>
-                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Клиент</th>
-                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Дата</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Версия</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Статус</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Вид Стр.</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Площадь</th>
-                            <th className="text-right py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Сумма</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Действия</th>
+                            <th className="text-left py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Номер</th>
+                            <th className="text-left py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Клиент</th>
+                            <th className="text-left py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Дата</th>
+                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Версия</th>
+                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Статус</th>
+                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Вид Стр.</th>
+                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Площадь</th>
+                            <th className="text-right py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Сумма</th>
+                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Действия</th>
                         </tr>
                     </thead>
                     <tbody className="text-text-primary">
@@ -185,10 +185,10 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                             
                             return (
                                 <tr key={estimate.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
-                                    <td className="text-left py-3 px-4">{estimate.estimateNumber}</td>
-                                    <td className="text-left py-3 px-4">{estimate.client}</td>
-                                    <td className="text-left py-3 px-4">{new Date(estimate.date).toLocaleDateString()}</td>
-                                    <td className="text-center py-3 px-4">
+                                    <td className="text-left py-2 px-3">{estimate.estimateNumber}</td>
+                                    <td className="text-left py-2 px-3">{estimate.client}</td>
+                                    <td className="text-left py-2 px-3">{new Date(estimate.date).toLocaleDateString()}</td>
+                                    <td className="text-center py-2 px-3">
                                         <select 
                                             className="p-1 bg-background border border-border rounded-md text-sm"
                                             value={selectedVersions[parentId] || estimate.id}
@@ -204,10 +204,10 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                                             {estimate.status}
                                         </span>
                                     </td>
-                                    <td className="text-center py-3 px-4">{estimate.buildingType}</td>
-                                    <td className="text-center py-3 px-4">{estimate.area} м²</td>
-                                    <td className="text-right py-3 px-4 font-medium">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</td>
-                                    <td className="text-center py-3 px-4">
+                                    <td className="text-center py-2 px-3">{estimate.buildingType}</td>
+                                    <td className="text-center py-2 px-3">{estimate.area} м²</td>
+                                    <td className="text-right py-2 px-3 font-medium">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</td>
+                                    <td className="text-center py-2 px-3">
                                         <div className="flex item-center justify-center gap-3">
                                             <button onClick={() => onEdit(selectedEstimate)} className="text-blue-400 hover:text-blue-300 font-semibold transition-colors">Просмотр</button>
                                             <button onClick={() => onGeneratePdf(selectedEstimate)} className="text-purple-400 hover:text-purple-300 font-semibold transition-colors">PDF</button>

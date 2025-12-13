@@ -481,7 +481,7 @@ const App: React.FC = () => {
     return (
         <div className="min-h-screen bg-background text-text-primary">
             <Header currentView={view} onViewChange={handleNavigationAttempt} />
-            <main className="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
+            <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto">
                 {isLoading ? (
                     <div className="flex justify-center items-center h-64">
                         <div className="text-xl text-text-secondary">Загрузка смет...</div>
