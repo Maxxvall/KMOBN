@@ -6,12 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    
   },
   "dependencies": {
     "dexie": "^4.2.1",
     "@supabase/supabase-js": "^2.28.0",
-    "pg": "^8.11.0",
     "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
     "react": "^19.2.0",
@@ -24,9 +24,5 @@
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
-  }
-  ,
-  "scripts": {
-    "migrate:supabase": "node ./scripts/create_supabase_tables.cjs"
   }
 }
