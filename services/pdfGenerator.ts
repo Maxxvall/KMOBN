@@ -403,14 +403,15 @@ export const generatePdf = async (estimate: Estimate) => {
         lineY += 7;
     });
 
-    doc.setFont(FONT_NAME, 'bold');
+    // Draw total left-aligned under the breakdown lines (use normal font; emulate bold)
+    doc.setFont(FONT_NAME, 'normal');
     doc.setFontSize(14);
-    doc.text(
-        `ОБЩИЙ ИТОГ: ${estimate.total.toLocaleString('ru-RU')} ₽`,
-        blockX + blockWidth - 8,
-        blockStartY + breakdownBlockHeight - 8,
-        { align: 'right' }
-    );
+    const totalText = `ОБЩИЙ ИТОГ: ${estimate.total.toLocaleString('ru-RU')} ₽`;
+    const totalX = blockX + 8;
+    const totalY = blockStartY + breakdownBlockHeight - 8;
+    // Emulate bold by drawing twice with tiny offset (since bold font file may be missing)
+    doc.text(totalText, totalX + 0.2, totalY + 0.2);
+    doc.text(totalText, totalX, totalY);
 
     // --- Save ---
     doc.save(`Смета_${estimate.estimateNumber}_${estimate.client}.pdf`);
