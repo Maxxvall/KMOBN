@@ -1,0 +1,288 @@
+// @ts-nocheck
+import { Estimate, EstimateSubgroup } from '../types';
+import { ESTIMATE_CATEGORIES } from '../constants';
+import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
+import logoUrl from '../logo/acetone-2025920-104546-498.png?url';
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+    }
+    return btoa(binary);
+}
+
+export const generatePdf = async (estimate: Estimate) => {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+
+    const FONT_NAME = 'LiberationSans';
+
+    // --- Font Setup ---
+    try {
+        const resp = await fetch(LiberationFontUrl);
+        const ab = await resp.arrayBuffer();
+        const b64 = arrayBufferToBase64(ab);
+        doc.addFileToVFS('LiberationSans-Regular.ttf', b64);
+        doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'normal');
+        doc.setFont(FONT_NAME, 'normal');
+    } catch (e) {
+        console.error('Failed to load LiberationSans font for PDF generation:', e);
+    }
+
+    // --- Logo Setup ---
+    let logoBase64 = '';
+    try {
+        const logoResp = await fetch(logoUrl);
+        const logoAb = await logoResp.arrayBuffer();
+        logoBase64 = arrayBufferToBase64(logoAb);
+    } catch (e) {
+        console.error('Failed to load logo for PDF generation:', e);
+    }
+
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 14;
+
+    // Keep track of decorated pages
+    const drawnPages = new Set<number>();
+
+    const drawPageDecor = (pageNumber: number) => {
+        // Switch to target page
+        try {
+            doc.setPage(pageNumber);
+        } catch (e) {}
+
+        // --- BACKGROUND ---
+        // Light green background (brand color #f8fff8)
+        doc.setFillColor(248, 255, 248);
+        doc.rect(0, 0, pageWidth, pageHeight, 'F');
+
+        // --- HEADER BAND (brand color #2e5d41) ---
+        doc.setFillColor(46, 93, 65); // HEX #2e5d41
+        doc.rect(0, 0, pageWidth, 40, 'F'); // 40mm high header band
+
+        // --- HEADER CONTENT (white text on green band) ---
+        doc.setTextColor(255, 255, 255); // White text
+        doc.setFontSize(16);
+        doc.setFont(FONT_NAME, 'normal');
+        doc.text('Каркас Мастер', margin, 15);
+
+        doc.setFontSize(9);
+        doc.setFont(FONT_NAME, 'normal');
+        doc.text('Строительство каркасных домов', margin, 22);
+        doc.text('kmobn.ru', margin, 29);
+
+        // --- COMPANY LOGO (30x30mm - matching simple PDF) ---
+        if (logoBase64) {
+            doc.addImage(
+                logoBase64, 
+                'PNG', 
+                pageWidth - margin - 30,  // X position
+                6,                        // Y position
+                30,                       // Width (mm)
+                30                        // Height (mm)
+            );
+        }
+
+        // --- WATERMARK (subtle brand reinforcement) ---
+        if (logoBase64 && pageNumber === 1) {
+            doc.addImage(
+                logoBase64, 
+                'PNG', 
+                pageWidth / 2 - 50, 
+                pageHeight / 2 - 15, 
+                100, 
+                30, 
+                undefined, 
+                'FAST', 
+                0.05 // 5% opacity
+            );
+        }
+
+        // --- CLIENT INFO (only on first page) ---
+        if (pageNumber === 1) {
+            doc.setTextColor(0, 0, 0); // Black text
+            doc.setFontSize(10);
+            doc.setFont(FONT_NAME, 'normal');
+            doc.text(`Подготовлено для: ${estimate.client}`, margin, 50);
+            doc.text(`Вид строения: ${estimate.buildingType}, Площадь: ${estimate.area} м²`, pageWidth - margin, 50, { align: 'right' });
+
+            // --- ESTIMATE TITLE ---
+            doc.setFontSize(26);
+            doc.setFont(FONT_NAME, 'normal');
+            doc.text('СМЕТА', pageWidth / 2, 68, { align: 'center' });
+            
+            doc.setFontSize(12);
+            doc.text(`№ ${estimate.estimateNumber} от ${new Date(estimate.date).toLocaleDateString('ru-RU')}`, pageWidth / 2, 76, { align: 'center' });
+        }
+    };
+
+    // --- TABLE BODY ---
+    const tableBody = [];
+
+    ESTIMATE_CATEGORIES.forEach((category) => {
+        const itemsInCategory = estimate.items.filter(item => item.category === category);
+        if (itemsInCategory.length > 0) {
+            // Category Header
+            tableBody.push([{ 
+                content: category, 
+                colSpan: 5, 
+                styles: { 
+                    font: FONT_NAME, 
+                    fontStyle: 'normal', 
+                    fillColor: [46, 93, 65], // #2e5d41
+                    textColor: [255, 255, 255],
+                    halign: 'center' 
+                } 
+            }]);
+
+            // For each subgroup (Работы / Материалы)
+            let categoryTotal = 0;
+            [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS].forEach(subgroup => {
+                const subItems = itemsInCategory.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
+                if (subItems.length === 0) return;
+                const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+                categoryTotal += subTotal;
+
+                // Subgroup header
+                tableBody.push([{ 
+                    content: subgroup, 
+                    colSpan: 5, 
+                    styles: { 
+                        font: FONT_NAME, 
+                        fontStyle: 'normal', 
+                        fillColor: [27, 94, 32], // #1b5e20
+                        textColor: [255, 255, 255],
+                        halign: 'left' 
+                    } 
+                }]);
+
+                subItems.forEach(item => {
+                    tableBody.push([
+                        item.name,
+                        item.unit,
+                        item.quantity.toLocaleString('ru-RU', {minimumFractionDigits: 0, maximumFractionDigits: 2}),
+                        item.price.toLocaleString('ru-RU') + ' ₽',
+                        item.total.toLocaleString('ru-RU') + ' ₽'
+                    ]);
+                });
+
+                // Subgroup total
+                tableBody.push([{ 
+                    content: `Итого ${subgroup.toLowerCase()}: ${subTotal.toLocaleString('ru-RU')} ₽`, 
+                    colSpan: 5, 
+                    styles: { 
+                        font: FONT_NAME, 
+                        fontStyle: 'normal', 
+                        fillColor: [220, 237, 200], // #dcedc8
+                        textColor: [51, 105, 30],    // #33691e
+                        halign: 'right' 
+                    } 
+                }]);
+            });
+
+            // Category total
+            tableBody.push([{ 
+                content: `Итого по разделу: ${categoryTotal.toLocaleString('ru-RU')} ₽`, 
+                colSpan: 5, 
+                styles: { 
+                    font: FONT_NAME, 
+                    fontStyle: 'normal', 
+                    fillColor: [220, 237, 200],
+                    textColor: [51, 105, 30],
+                    halign: 'right' 
+                } 
+            }]);
+        }
+    });
+
+    // --- AUTO TABLE GENERATION ---
+    const availablePageWidth = pageWidth - margin * 2;
+    const colWidthsFixed = [15, 20, 25, 28];
+    const fixedSum = colWidthsFixed.reduce((s, v) => s + v, 0);
+    const firstColWidth = Math.max(availablePageWidth - fixedSum - 2, 40);
+
+    doc.autoTable({
+        startY: 85, // Adjusted for new header height
+        margin: { top: 45, left: margin, right: margin, bottom: 15 }, // Увеличен top margin для второй страницы
+        head: [['Наименование работ/материалов', 'Ед. изм.', 'Кол-во', 'Цена за ед.', 'Сумма']],
+        body: tableBody,
+        theme: 'grid',
+        tableWidth: availablePageWidth,
+        showHead: 'firstPage', // Показывать заголовок только на первой странице
+        rowPageBreak: 'avoid', // Избегать разрыва строк между страницами
+        styles: {
+            font: FONT_NAME,
+            fontStyle: 'normal',
+            fontSize: 8,
+            cellPadding: { top: 1.2, right: 2, bottom: 1.2, left: 2 },
+            minCellHeight: 6,
+            overflow: 'linebreak',
+        },
+        headStyles: { 
+            font: FONT_NAME,
+            fontSize: 9,
+            fillColor: [232, 245, 233], // #e8f5e9
+            textColor: [27, 94, 32],     // #1b5e20
+            fontStyle: 'normal',
+            halign: 'center'
+        },
+        alternateRowStyles: { 
+            fillColor: [241, 248, 233] // #f1f8e9
+        },
+        columnStyles: {
+            0: { cellWidth: firstColWidth },
+            1: { cellWidth: colWidthsFixed[0], halign: 'center' },
+            2: { halign: 'right', cellWidth: colWidthsFixed[1] },
+            3: { halign: 'right', cellWidth: colWidthsFixed[2] },
+            4: { halign: 'right', cellWidth: colWidthsFixed[3] },
+        },
+        willDrawCell: (data) => {
+            if (!drawnPages.has(data.pageNumber)) {
+                drawPageDecor(data.pageNumber);
+                drawnPages.add(data.pageNumber);
+            }
+        },
+        didDrawPage: (data) => {
+            // --- FOOTER ---
+            const pageCount = doc.internal.getNumberOfPages();
+            doc.setFont(FONT_NAME, 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(100);
+            doc.text(`Страница ${data.pageNumber} из ${pageCount}`, pageWidth - margin, pageHeight - 10, { align: 'right' });
+            doc.text('Смета создана в системе "Каркас Мастер"', margin, pageHeight - 10);
+        }
+    });
+
+    // --- GRAND TOTAL ---
+    let finalY = doc.autoTable.previous.finalY;
+    if (finalY > pageHeight - 40) {
+        doc.addPage();
+        finalY = 40;
+    }
+    
+    const totalY = finalY + 15;
+
+    // Total block with brand colors
+    doc.setFillColor(220, 237, 200); // #dcedc8
+    const blockX = margin;
+    const blockWidth = pageWidth - margin * 2;
+    const blockHeight = 14;
+    doc.roundedRect(blockX, totalY, blockWidth, blockHeight, 2, 2, 'F');
+    
+    doc.setTextColor(51, 105, 30); // #33691e
+    doc.setFontSize(14);
+    doc.setFont(FONT_NAME, 'normal');
+    doc.text(
+        `ОБЩИЙ ИТОГ: ${estimate.total.toLocaleString('ru-RU')} рублей`, 
+        pageWidth / 2, 
+        totalY + blockHeight / 2 + 2, 
+        { align: 'center' }
+    );
+
+    // --- SAVE PDF ---
+    doc.save(`Смета_${estimate.estimateNumber}_${estimate.client}.pdf`);
+};
