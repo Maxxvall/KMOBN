@@ -27,10 +27,20 @@ export const upsertTable = async (table: string, records: any[]) => {
 export const fetchTable = async (table: string) => {
   if (!supabase) return { data: null, error: new Error('Supabase not configured') };
 
-  // Expect rows with `id` and `payload` columns
-  const { data, error } = await supabase.from(table).select('id, payload');
+  // Select all columns. Some rows may store the object under `payload` (jsonb),
+  // older rows may store object fields as top-level columns. Handle both.
+  const { data, error } = await supabase.from(table).select('*');
   if (error) return { data: null, error };
-  const parsed = (data as any[]).map(row => row.payload);
+
+  const parsed = (data as any[]).map(row => {
+    // If row has payload column, prefer it
+    if (row && Object.prototype.hasOwnProperty.call(row, 'payload') && row.payload != null) {
+      return row.payload;
+    }
+    // Otherwise return the row as-is (remove any metadata if needed)
+    return row;
+  });
+
   return { data: parsed, error: null };
 };
 
