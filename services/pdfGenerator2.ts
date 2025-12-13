@@ -219,7 +219,7 @@ export const generatePdf = async (estimate: Estimate) => {
         body: tableBody,
         theme: 'grid',
         tableWidth: availablePageWidth,
-        showHead: 'firstPage', // Показывать заголовок только на первой странице
+        showHead: 'everyPage', // Показывать заголовок на каждой странице
         rowPageBreak: 'avoid', // Избегать разрыва строк между страницами
         styles: {
             font: FONT_NAME,
@@ -254,28 +254,39 @@ export const generatePdf = async (estimate: Estimate) => {
                     drawnPages.add(data.pageNumber);
                 }
 
-                // Ensure background for colSpan cells fills full spanned width
-                const cell = data.cell || {};
-                const raw = cell.raw || {};
-                const colSpan = raw.colSpan ?? cell.colSpan ?? 1;
-                const styles = cell.styles || {};
-                if (colSpan > 1 && styles.fillColor) {
-                    let fill = styles.fillColor;
-                    if (typeof fill === 'string') {
-                        const hex = fill.replace('#','');
-                        if (hex.length === 6) fill = [parseInt(hex.substring(0,2),16), parseInt(hex.substring(2,4),16), parseInt(hex.substring(4,6),16)];
-                        else fill = [220,220,220];
-                    }
+                if (data.row && data.row.section === 'body') {
+                    const cell = data.cell || {};
+                    const raw = cell.raw || {};
+                    const colSpan = raw.colSpan ?? cell.colSpan ?? 1;
+                    const styles = raw.styles ?? cell.styles ?? {};
 
-                    let spanWidth = 0;
-                    for (let i = data.column.index; i < data.column.index + colSpan; i++) {
-                        const col = data.table.columns[i];
-                        if (col && typeof col.width === 'number') spanWidth += col.width;
-                    }
-                    if (!spanWidth || spanWidth < 1) spanWidth = availablePageWidth;
+                    if (colSpan > 1 && styles.fillColor) {
+                        let fill = styles.fillColor;
+                        if (typeof fill === 'string') {
+                            const hex = fill.replace('#', '');
+                            if (hex.length === 6) {
+                                fill = [
+                                    parseInt(hex.substring(0, 2), 16),
+                                    parseInt(hex.substring(2, 4), 16),
+                                    parseInt(hex.substring(4, 6), 16),
+                                ];
+                            } else {
+                                fill = [220, 220, 220];
+                            }
+                        }
 
-                    doc.setFillColor(Array.isArray(fill) ? fill : [220,220,220]);
-                    doc.rect(cell.x, cell.y, spanWidth, cell.height, 'F');
+                        let spanWidth = 0;
+                        const startColIndex = data.column.index;
+                        for (let i = startColIndex; i < startColIndex + colSpan; i++) {
+                            const col = data.table.columns[i];
+                            if (col && typeof col.width === 'number') spanWidth += col.width;
+                            else spanWidth += (availablePageWidth / data.table.columns.length);
+                        }
+                        if (!spanWidth || spanWidth < 1) spanWidth = availablePageWidth;
+
+                        doc.setFillColor(Array.isArray(fill) ? fill : [220, 220, 220]);
+                        doc.rect(cell.x, cell.y, spanWidth, cell.height, 'F');
+                    }
                 }
             } catch (e) {
                 // ignore
