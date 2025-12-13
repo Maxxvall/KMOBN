@@ -1,221 +1,162 @@
-import Dexie, { Table } from 'dexie';
 import { Estimate, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation } from '../types';
-import { isSupabaseConfigured, upsertEstimates, upsertTemplates, upsertMaterials, upsertWorks, upsertBundles } from './supabase';
+import supabase, {
+  isSupabaseConfigured,
+  upsertEstimates,
+  upsertTemplates,
+  upsertMaterials,
+  upsertWorks,
+  upsertBundles,
+  upsertSalaryCalculations,
+  fetchEstimates,
+  fetchTemplates,
+  fetchMaterials,
+  fetchWorks,
+  fetchBundles,
+  fetchSalaryCalculations,
+} from './supabase';
 
-export class EstimateDatabase extends Dexie {
-  estimates!: Table<Estimate>;
-  templates!: Table<ProjectTemplate>;
-  materials!: Table<Material>;
-  works!: Table<Work>;
-  bundles!: Table<WorkBundle>;
-  salaryCalculations!: Table<SalaryCalculation>;
-
-  constructor() {
-    super('EstimateDatabase');
-    this.version(7).stores({
-      estimates: 'id, estimateNumber, client, date, status, version, parentId, isArchived',
-      templates: 'id, name',
-      materials: 'id, name, category, isManualPrice',
-      works: 'id, name, category',
-      bundles: 'id, name, mainWorkId, category',
-      salaryCalculations: 'id, estimateId, createdDate'
-    });
+const ensureSupabase = () => {
+  if (!supabase) {
+    throw new Error('Supabase is not configured');
   }
-}
+  return supabase;
+};
 
-export const db = new EstimateDatabase();
+const readTable = async <T>(fetcher: () => Promise<{ data: T[] | null; error: any }>): Promise<T[]> => {
+  if (!isSupabaseConfigured()) {
+    return [];
+  }
+  const { data, error } = await fetcher();
+  if (error) {
+    console.error('Supabase fetch error:', error);
+    return [];
+  }
+  return data ?? [];
+};
 
-// Функции для работы с базой данных
+const deleteRecord = async (table: string, id: string) => {
+  if (!isSupabaseConfigured()) {
+    return;
+  }
+  const client = ensureSupabase();
+  const { error } = await client.from(table).delete().eq('id', id);
+  if (error) {
+    console.error(`Failed to delete from ${table}:`, error);
+    throw error;
+  }
+};
+
+const upsertRecords = async (upserter: (records: any[]) => Promise<{ data: any; error: any }>, records: any[]) => {
+  if (!records.length || !isSupabaseConfigured()) {
+    return;
+  }
+  const { error } = await upserter(records);
+  if (error) {
+    console.error('Supabase upsert error:', error);
+    throw error;
+  }
+};
+
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
-  try {
-    if (isSupabaseConfigured()) {
-      await upsertEstimates(estimates);
-    }
-  } catch (err) {
-    console.warn('Failed to save estimates to Supabase:', err);
-  }
-
-  await db.estimates.clear();
-  await db.estimates.bulkAdd(estimates);
+  await upsertRecords(upsertEstimates, estimates);
 };
 
-export const loadEstimates = async (): Promise<Estimate[]> => {
-  try {
-    const estimates = await db.estimates.toArray();
-    return estimates.length > 0 ? estimates : []; 
-  } catch (error) {
-    console.error('Failed to load estimates from database:', error);
-    return [];
-  }
-};
+export const loadEstimates = async (): Promise<Estimate[]> => readTable(fetchEstimates);
 
-// Функции для шаблонов
 export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void> => {
-  try {
-    if (isSupabaseConfigured()) {
-      await upsertTemplates(templates);
-    }
-  } catch (err) {
-    console.warn('Failed to save templates to Supabase:', err);
-  }
-
-  await db.templates.clear();
-  await db.templates.bulkAdd(templates);
+  await upsertRecords(upsertTemplates, templates);
 };
 
-export const loadTemplates = async (): Promise<ProjectTemplate[]> => {
-  try {
-    const templates = await db.templates.toArray();
-    return templates.length > 0 ? templates : []; 
-  } catch (error) {
-    console.error('Failed to load templates from database:', error);
-    return [];
-  }
-};
+export const loadTemplates = async (): Promise<ProjectTemplate[]> => readTable(fetchTemplates);
 
 export const addTemplate = async (template: ProjectTemplate): Promise<void> => {
-  await db.templates.add(template);
+  await upsertRecords(upsertTemplates, [template]);
 };
 
-// Функции для материалов
+export const deleteTemplate = async (templateId: string): Promise<void> => {
+  await deleteRecord('templates', templateId);
+};
+
 export const saveMaterials = async (materials: Material[]): Promise<void> => {
-  try {
-    if (isSupabaseConfigured()) {
-      await upsertMaterials(materials);
-    }
-  } catch (err) {
-    console.warn('Failed to save materials to Supabase:', err);
-  }
-
-  await db.materials.clear();
-  await db.materials.bulkAdd(materials);
+  await upsertRecords(upsertMaterials, materials);
 };
 
-export const loadMaterials = async (): Promise<Material[]> => {
-  try {
-    const materials = await db.materials.toArray();
-    return materials.length > 0 ? materials : []; 
-  } catch (error) {
-    console.error('Failed to load materials from database:', error);
-    return [];
-  }
-};
+export const loadMaterials = async (): Promise<Material[]> => readTable(fetchMaterials);
 
 export const addMaterial = async (material: Material): Promise<void> => {
-  await db.materials.add(material);
+  await upsertRecords(upsertMaterials, [material]);
 };
 
 export const updateMaterial = async (material: Material): Promise<void> => {
-  await db.materials.put(material);
+  await upsertRecords(upsertMaterials, [material]);
 };
 
-// Функции для работ
+export const deleteMaterial = async (materialId: string): Promise<void> => {
+  await deleteRecord('materials', materialId);
+};
+
 export const saveWorks = async (works: Work[]): Promise<void> => {
-  try {
-    if (isSupabaseConfigured()) {
-      await upsertWorks(works);
-    }
-  } catch (err) {
-    console.warn('Failed to save works to Supabase:', err);
-  }
-
-  await db.works.clear();
-  await db.works.bulkAdd(works);
+  await upsertRecords(upsertWorks, works);
 };
 
-export const loadWorks = async (): Promise<Work[]> => {
-  try {
-    const works = await db.works.toArray();
-    return works.length > 0 ? works : []; 
-  } catch (error) {
-    console.error('Failed to load works from database:', error);
-    return [];
-  }
-};
+export const loadWorks = async (): Promise<Work[]> => readTable(fetchWorks);
 
 export const addWork = async (work: Work): Promise<void> => {
-  await db.works.add(work);
+  await upsertRecords(upsertWorks, [work]);
 };
 
 export const updateWork = async (work: Work): Promise<void> => {
-  await db.works.put(work);
+  await upsertRecords(upsertWorks, [work]);
 };
 
 export const deleteWork = async (workId: string): Promise<void> => {
-  await db.works.delete(workId);
+  await deleteRecord('works', workId);
 };
 
-// Функции для комплектов работ
 export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
-  try {
-    if (isSupabaseConfigured()) {
-      await upsertBundles(bundles);
-    }
-  } catch (err) {
-    console.warn('Failed to save bundles to Supabase:', err);
-  }
-
-  await db.bundles.clear();
-  await db.bundles.bulkAdd(bundles);
+  await upsertRecords(upsertBundles, bundles);
 };
 
-export const loadBundles = async (): Promise<WorkBundle[]> => {
-  try {
-    const bundles = await db.bundles.toArray();
-    return bundles.length > 0 ? bundles : []; 
-  } catch (error) {
-    console.error('Failed to load bundles from database:', error);
-    return [];
-  }
-};
+export const loadBundles = async (): Promise<WorkBundle[]> => readTable(fetchBundles);
 
 export const addBundle = async (bundle: WorkBundle): Promise<void> => {
-  await db.bundles.add(bundle);
+  await upsertRecords(upsertBundles, [bundle]);
 };
 
 export const updateBundle = async (bundle: WorkBundle): Promise<void> => {
-  await db.bundles.put(bundle);
+  await upsertRecords(upsertBundles, [bundle]);
 };
 
 export const deleteBundle = async (bundleId: string): Promise<void> => {
-  await db.bundles.delete(bundleId);
+  await deleteRecord('bundles', bundleId);
 };
 
-// Функции для расчетов зарплаты
 export const saveSalaryCalculation = async (calculation: SalaryCalculation): Promise<void> => {
-  await db.salaryCalculations.put(calculation);
+  await upsertRecords(upsertSalaryCalculations, [calculation]);
 };
 
 export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
-  try {
-    return await db.salaryCalculations.where('estimateId').equals(estimateId).first();
-  } catch (error) {
-    console.error('Failed to load salary calculation:', error);
-    return undefined;
-  }
+  const calculations = await readTable(fetchSalaryCalculations);
+  return calculations.find(calc => calc.estimateId === estimateId);
 };
 
 export const loadAllSalaryCalculations = async (): Promise<SalaryCalculation[]> => {
-  try {
-    const calculations = await db.salaryCalculations.toArray();
-    return calculations.length > 0 ? calculations : [];
-  } catch (error) {
-    console.error('Failed to load salary calculations:', error);
-    return [];
-  }
+  return readTable(fetchSalaryCalculations);
 };
 
 export const deleteSalaryCalculation = async (calculationId: string): Promise<void> => {
-  await db.salaryCalculations.delete(calculationId);
+  await deleteRecord('salary_calculations', calculationId);
 };
 
-// Функции для экспорта и импорта данных
 export const exportData = async (): Promise<string> => {
-  const estimates = await loadEstimates();
-  const templates = await loadTemplates();
-  const materials = await loadMaterials();
-  const works = await loadWorks();
-  const bundles = await loadBundles();
+  const [estimates, templates, materials, works, bundles, salaryCalculations] = await Promise.all([
+    loadEstimates(),
+    loadTemplates(),
+    loadMaterials(),
+    loadWorks(),
+    loadBundles(),
+    loadAllSalaryCalculations(),
+  ]);
 
   const data = {
     estimates,
@@ -223,6 +164,7 @@ export const exportData = async (): Promise<string> => {
     materials,
     works,
     bundles,
+    salaryCalculations,
     exportedAt: new Date().toISOString(),
   };
 
@@ -230,55 +172,23 @@ export const exportData = async (): Promise<string> => {
 };
 
 export const importData = async (jsonData: string): Promise<void> => {
+  if (!isSupabaseConfigured()) {
+    console.warn('Supabase not configured, skipping import');
+    return;
+  }
   try {
     const data = JSON.parse(jsonData);
-
     await Promise.all([
-      addNewEstimates(data.estimates),
-      addUniqueById(db.templates, data.templates),
-      addUniqueById(db.materials, data.materials),
-      addUniqueById(db.works, data.works),
-      addUniqueById(db.bundles, data.bundles),
+      data.estimates ? upsertRecords(upsertEstimates, data.estimates) : Promise.resolve(),
+      data.templates ? upsertRecords(upsertTemplates, data.templates) : Promise.resolve(),
+      data.materials ? upsertRecords(upsertMaterials, data.materials) : Promise.resolve(),
+      data.works ? upsertRecords(upsertWorks, data.works) : Promise.resolve(),
+      data.bundles ? upsertRecords(upsertBundles, data.bundles) : Promise.resolve(),
+      data.salaryCalculations ? upsertRecords(upsertSalaryCalculations, data.salaryCalculations) : Promise.resolve(),
     ]);
-
     console.log('Data imported successfully');
   } catch (error) {
     console.error('Failed to import data:', error);
     throw new Error('Ошибка при импорте данных. Проверьте формат файла.');
   }
-};
-
-const normalizeClient = (client?: string): string => client?.trim().toLowerCase() ?? '';
-
-const addNewEstimates = async (estimates?: Estimate[]): Promise<void> => {
-  if (!estimates?.length) {
-    return;
-  }
-
-  const existingClients = new Set((await db.estimates.toArray()).map((estimate) => normalizeClient(estimate.client)));
-  const newItems = estimates.filter((estimate) => {
-    const normalized = normalizeClient(estimate.client);
-    return normalized ? !existingClients.has(normalized) : true;
-  });
-
-  if (!newItems.length) {
-    return;
-  }
-
-  await db.estimates.bulkAdd(newItems);
-};
-
-const addUniqueById = async <T extends { id: string }>(table: Table<T>, records?: T[]): Promise<void> => {
-  if (!records?.length) {
-    return;
-  }
-
-  const existingIds = new Set((await table.toArray()).map((item) => item.id));
-  const newItems = records.filter((record) => !existingIds.has(record.id));
-
-  if (!newItems.length) {
-    return;
-  }
-
-  await table.bulkAdd(newItems);
 };

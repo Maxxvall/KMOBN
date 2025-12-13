@@ -14,7 +14,7 @@ import ScrollToTop from './components/ScrollToTop';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { searchPrice } from './services/priceService';
-import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, loadMaterials, saveMaterials, addMaterial, updateMaterial, loadWorks, saveWorks, addWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle, db } from './services/database';
+import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 
 
 const App: React.FC = () => {
@@ -230,15 +230,8 @@ const App: React.FC = () => {
     const handleDeleteTemplate = useCallback(async (templateId: string) => {
         if (window.confirm('Вы уверены, что хотите удалить этот шаблон?')) {
             try {
-                await db.templates.delete(templateId);
+                await deleteTemplate(templateId);
                 setTemplates(prev => prev.filter(t => t.id !== templateId));
-                // Если удаленный шаблон был выбран, сбросить на первый
-                setEstimates(prevEstimates => prevEstimates.map(est => ({
-                    ...est,
-                    // Если genParams есть, но это не здесь
-                })));
-                // Для EstimateEditor, нужно обновить genParams если выбранный шаблон удален
-                // Но поскольку это callback, лучше обновить в EstimateEditor
             } catch (error) {
                 console.error('Failed to delete template:', error);
                 alert('Не удалось удалить шаблон.');
@@ -322,7 +315,7 @@ const App: React.FC = () => {
     const handleDeleteMaterial = useCallback(async (materialId: string) => {
         if (window.confirm('Вы уверены, что хотите удалить этот материал?')) {
             try {
-                await db.materials.delete(materialId);
+                await deleteMaterial(materialId);
                 setMaterials(prev => prev.filter(m => m.id !== materialId));
             } catch (error) {
                 console.error('Failed to delete material:', error);
@@ -349,7 +342,7 @@ const App: React.FC = () => {
 
     const handleUpdateWork = useCallback(async (work: Work) => {
         try {
-            await db.works.put(work);
+            await updateWork(work);
             setWorks(prev => prev.map(w => w.id === work.id ? work : w));
         } catch (error) {
             console.error('Failed to update work:', error);

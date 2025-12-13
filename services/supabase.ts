@@ -59,4 +59,7 @@ export const fetchWorks = async () => fetchTable('works');
 export const upsertBundles = async (bundles: any[]) => upsertTable('bundles', bundles);
 export const fetchBundles = async () => fetchTable('bundles');
 
+export const upsertSalaryCalculations = async (calculations: any[]) => upsertTable('salary_calculations', calculations);
+export const fetchSalaryCalculations = async () => fetchTable('salary_calculations');
+
 export default supabase;
