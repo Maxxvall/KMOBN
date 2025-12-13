@@ -1,5 +1,6 @@
 import Dexie, { Table } from 'dexie';
 import { Estimate, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation } from '../types';
+import { isSupabaseConfigured, upsertEstimates, upsertTemplates, upsertMaterials, upsertWorks, upsertBundles } from './supabase';
 
 export class EstimateDatabase extends Dexie {
   estimates!: Table<Estimate>;
@@ -26,6 +27,14 @@ export const db = new EstimateDatabase();
 
 // Функции для работы с базой данных
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
+  try {
+    if (isSupabaseConfigured()) {
+      await upsertEstimates(estimates);
+    }
+  } catch (err) {
+    console.warn('Failed to save estimates to Supabase:', err);
+  }
+
   await db.estimates.clear();
   await db.estimates.bulkAdd(estimates);
 };
@@ -33,7 +42,7 @@ export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
 export const loadEstimates = async (): Promise<Estimate[]> => {
   try {
     const estimates = await db.estimates.toArray();
-    return estimates.length > 0 ? estimates : [];
+    return estimates.length > 0 ? estimates : []; 
   } catch (error) {
     console.error('Failed to load estimates from database:', error);
     return [];
@@ -42,6 +51,14 @@ export const loadEstimates = async (): Promise<Estimate[]> => {
 
 // Функции для шаблонов
 export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void> => {
+  try {
+    if (isSupabaseConfigured()) {
+      await upsertTemplates(templates);
+    }
+  } catch (err) {
+    console.warn('Failed to save templates to Supabase:', err);
+  }
+
   await db.templates.clear();
   await db.templates.bulkAdd(templates);
 };
@@ -49,7 +66,7 @@ export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void>
 export const loadTemplates = async (): Promise<ProjectTemplate[]> => {
   try {
     const templates = await db.templates.toArray();
-    return templates.length > 0 ? templates : [];
+    return templates.length > 0 ? templates : []; 
   } catch (error) {
     console.error('Failed to load templates from database:', error);
     return [];
@@ -62,6 +79,14 @@ export const addTemplate = async (template: ProjectTemplate): Promise<void> => {
 
 // Функции для материалов
 export const saveMaterials = async (materials: Material[]): Promise<void> => {
+  try {
+    if (isSupabaseConfigured()) {
+      await upsertMaterials(materials);
+    }
+  } catch (err) {
+    console.warn('Failed to save materials to Supabase:', err);
+  }
+
   await db.materials.clear();
   await db.materials.bulkAdd(materials);
 };
@@ -69,7 +94,7 @@ export const saveMaterials = async (materials: Material[]): Promise<void> => {
 export const loadMaterials = async (): Promise<Material[]> => {
   try {
     const materials = await db.materials.toArray();
-    return materials.length > 0 ? materials : [];
+    return materials.length > 0 ? materials : []; 
   } catch (error) {
     console.error('Failed to load materials from database:', error);
     return [];
@@ -86,6 +111,14 @@ export const updateMaterial = async (material: Material): Promise<void> => {
 
 // Функции для работ
 export const saveWorks = async (works: Work[]): Promise<void> => {
+  try {
+    if (isSupabaseConfigured()) {
+      await upsertWorks(works);
+    }
+  } catch (err) {
+    console.warn('Failed to save works to Supabase:', err);
+  }
+
   await db.works.clear();
   await db.works.bulkAdd(works);
 };
@@ -93,7 +126,7 @@ export const saveWorks = async (works: Work[]): Promise<void> => {
 export const loadWorks = async (): Promise<Work[]> => {
   try {
     const works = await db.works.toArray();
-    return works.length > 0 ? works : [];
+    return works.length > 0 ? works : []; 
   } catch (error) {
     console.error('Failed to load works from database:', error);
     return [];
@@ -114,6 +147,14 @@ export const deleteWork = async (workId: string): Promise<void> => {
 
 // Функции для комплектов работ
 export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
+  try {
+    if (isSupabaseConfigured()) {
+      await upsertBundles(bundles);
+    }
+  } catch (err) {
+    console.warn('Failed to save bundles to Supabase:', err);
+  }
+
   await db.bundles.clear();
   await db.bundles.bulkAdd(bundles);
 };
@@ -121,7 +162,7 @@ export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
 export const loadBundles = async (): Promise<WorkBundle[]> => {
   try {
     const bundles = await db.bundles.toArray();
-    return bundles.length > 0 ? bundles : [];
+    return bundles.length > 0 ? bundles : []; 
   } catch (error) {
     console.error('Failed to load bundles from database:', error);
     return [];

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle } from './types';
-import { MOCK_ESTIMATES, PROJECT_TEMPLATES } from './constants';
+import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import EstimateHistory from './components/EstimateHistory';
 import EstimateEditor from './components/EstimateEditor';
@@ -26,6 +26,7 @@ const App: React.FC = () => {
     const [bundles, setBundles] = useState<WorkBundle[]>([]);
     const [currentEstimate, setCurrentEstimate] = useState<Estimate | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
     const [showPdfStyleModal, setShowPdfStyleModal] = useState(false);
     const [pendingPdfEstimate, setPendingPdfEstimate] = useState<Estimate | null>(null);
 
@@ -39,27 +40,27 @@ const App: React.FC = () => {
                 const loadedWorks = await loadWorks();
                 const loadedBundles = await loadBundles();
                 if (loadedEstimates.length === 0) {
-                    // If no estimates in DB, use mock data
-                    setEstimates(MOCK_ESTIMATES);
-                    await saveEstimates(MOCK_ESTIMATES);
+                    setEstimates([]);
                 } else {
                     setEstimates(loadedEstimates);
                 }
                 if (loadedTemplates.length === 0) {
-                    // If no templates in DB, use default templates
-                    setTemplates(PROJECT_TEMPLATES);
-                    await saveTemplates(PROJECT_TEMPLATES);
+                    setTemplates([]);
                 } else {
                     setTemplates(loadedTemplates);
                 }
                 setMaterials(loadedMaterials || []);
                 setWorks(loadedWorks || []);
                 setBundles(loadedBundles || []);
+                setSync({ visible: true, message: 'Данные загружены', type: 'success' });
+                setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
             } catch (error) {
                 console.error('Failed to load data:', error);
-                setEstimates(MOCK_ESTIMATES);
-                setTemplates(PROJECT_TEMPLATES);
+                setEstimates([]);
+                setTemplates([]);
                 setMaterials([]);
+                setSync({ visible: true, message: 'Ошибка загрузки данных', type: 'error' });
+                setTimeout(() => setSync(s => ({ ...s, visible: false })), 5000);
             } finally {
                 setIsLoading(false);
             }
@@ -69,36 +70,52 @@ const App: React.FC = () => {
 
     // Save estimates to database whenever they change
     useEffect(() => {
-        if (!isLoading && estimates.length > 0) {
-            saveEstimates(estimates).catch(error => {
+        if (!isLoading) {
+            saveEstimates(estimates).then(() => {
+                setSync({ visible: true, message: 'Сметы сохранены', type: 'success' });
+                setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
+            }).catch(error => {
                 console.error('Failed to save estimates to database:', error);
+                setSync({ visible: true, message: 'Ошибка сохранения смет', type: 'error' });
             });
         }
     }, [estimates, isLoading]);
 
     // Save materials to database whenever they change
     useEffect(() => {
-        if (!isLoading && materials.length >= 0) {
-            saveMaterials(materials).catch(error => {
+        if (!isLoading) {
+            saveMaterials(materials).then(() => {
+                setSync({ visible: true, message: 'Материалы сохранены', type: 'success' });
+                setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
+            }).catch(error => {
                 console.error('Failed to save materials to database:', error);
+                setSync({ visible: true, message: 'Ошибка сохранения материалов', type: 'error' });
             });
         }
     }, [materials, isLoading]);
 
     // Save works to database whenever they change
     useEffect(() => {
-        if (!isLoading && works.length >= 0) {
-            saveWorks(works).catch(error => {
+        if (!isLoading) {
+            saveWorks(works).then(() => {
+                setSync({ visible: true, message: 'Работы сохранены', type: 'success' });
+                setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
+            }).catch(error => {
                 console.error('Failed to save works to database:', error);
+                setSync({ visible: true, message: 'Ошибка сохранения работ', type: 'error' });
             });
         }
     }, [works, isLoading]);
 
     // Save bundles to database whenever they change
     useEffect(() => {
-        if (!isLoading && bundles.length >= 0) {
-            saveBundles(bundles).catch(error => {
+        if (!isLoading) {
+            saveBundles(bundles).then(() => {
+                setSync({ visible: true, message: 'Комплекты сохранены', type: 'success' });
+                setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
+            }).catch(error => {
                 console.error('Failed to save bundles to database:', error);
+                setSync({ visible: true, message: 'Ошибка сохранения комплектов', type: 'error' });
             });
         }
     }, [bundles, isLoading]);
@@ -469,6 +486,7 @@ const App: React.FC = () => {
                     onSelectStyle={handlePdfStyleSelect}
                 />
             )}
+            <SyncToast visible={sync.visible} message={sync.message} type={sync.type} onClose={() => setSync(s => ({ ...s, visible: false }))} />
             <ScrollToTop />
         </div>
     );
