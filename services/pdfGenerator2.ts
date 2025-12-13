@@ -278,15 +278,13 @@ export const generatePdf = async (estimate: Estimate) => {
                 }
 
                 // Ensure background for colSpan cells fills full spanned width
-                const cell = data.cell;
+                const cell = data.cell || {};
                 const raw = cell.raw || {};
-                const colSpan = raw.colSpan || raw.colSpan === 0 ? raw.colSpan : (cell.colSpan || 1);
+                const colSpan = raw.colSpan ?? cell.colSpan ?? 1;
                 const styles = cell.styles || {};
                 if (colSpan > 1 && styles.fillColor) {
                     let fill = styles.fillColor;
-                    if (Array.isArray(fill) && fill.length === 3) {
-                        // ok
-                    } else if (typeof fill === 'string') {
+                    if (typeof fill === 'string') {
                         const hex = fill.replace('#','');
                         if (hex.length === 6) fill = [parseInt(hex.substring(0,2),16), parseInt(hex.substring(2,4),16), parseInt(hex.substring(4,6),16)];
                         else fill = [220,220,220];
@@ -297,6 +295,7 @@ export const generatePdf = async (estimate: Estimate) => {
                         const col = data.table.columns[i];
                         if (col && typeof col.width === 'number') spanWidth += col.width;
                     }
+                    if (!spanWidth || spanWidth < 1) spanWidth = availablePageWidth;
 
                     doc.setFillColor(Array.isArray(fill) ? fill : [220,220,220]);
                     doc.rect(cell.x, cell.y, spanWidth, cell.height, 'F');
@@ -330,12 +329,13 @@ export const generatePdf = async (estimate: Estimate) => {
 
     const blockX = margin;
     const blockWidth = pageWidth - margin * 2;
-    doc.setFillColor(16, 30, 42);
+    // Use light green block with dark green text to match estimate theme
+    doc.setFillColor(220, 237, 200); // #dcedc8
     doc.roundedRect(blockX, blockStartY, blockWidth, breakdownBlockHeight, 4, 4, 'F');
 
     doc.setFont(FONT_NAME, 'normal');
     doc.setFontSize(10);
-    doc.setTextColor(255, 255, 255);
+    doc.setTextColor(51, 105, 30); // #33691e
     const breakdownLines = [
         { label: 'Работы', value: worksTotal },
         { label: 'Материалы', value: materialsTotal },
