@@ -1,6 +1,22 @@
+import type { MaterialSearchSource } from '../types';
+
 // Google Custom Search API constants
 const GOOGLE_API_KEY = 'AIzaSyBkTLQk7oZLfTuLo6AyjqunfrBGb4Au3yQ'; // Your API key
 const SEARCH_ENGINE_ID = '6509e897dabc947f9'; // Your Custom Search Engine ID
+
+export interface SearchPriceOptions {
+    source?: MaterialSearchSource;
+    minPrice?: number;
+    maxPrice?: number;
+}
+
+const SOURCE_QUERY: Record<MaterialSearchSource, string> = {
+    JUKOV_LES: 'site:jukovles40.ru',
+    PETROVICH: 'site:kaluga.petrovich.ru',
+    LEMANO_PRO: 'site:kaluga.lemanapro.ru',
+    VSEINSTRUMENTI: 'site:vseinstrumenti.ru',
+    GRANDLINE: 'site:grandline.ru inurl:katalog',
+};
 
 export interface SearchResult {
     title: string;
@@ -8,10 +24,27 @@ export interface SearchResult {
     snippet: string;
 }
 
-export async function searchPrice(materialName: string): Promise<number> {
+export async function searchPrice(materialName: string, options: SearchPriceOptions = {}): Promise<number> {
     try {
         // Query for price search, focusing on Russian sites
-        const query = `цена ${materialName}`;
+        let query = `цена ${materialName}`;
+        if (options.source) {
+            query += ` ${SOURCE_QUERY[options.source]}`;
+        }
+
+        let minAllowed = typeof options.minPrice === 'number' && isFinite(options.minPrice) ? options.minPrice : undefined;
+        let maxAllowed = typeof options.maxPrice === 'number' && isFinite(options.maxPrice) ? options.maxPrice : undefined;
+        if (minAllowed != null && maxAllowed != null && minAllowed > maxAllowed) {
+            [minAllowed, maxAllowed] = [maxAllowed, minAllowed];
+        }
+
+        const isInAllowedRange = (p: number) => {
+            if (!isFinite(p)) return false;
+            if (p <= 50 || p >= 1000000) return false;
+            if (minAllowed != null && p < minAllowed) return false;
+            if (maxAllowed != null && p > maxAllowed) return false;
+            return true;
+        };
         const NUM_PER_PAGE = 10;
         const MAX_PAGES = 2; // fetch up to 20 results by default (adjust if needed)
         const PER_PAGE_DELAY_MS = 350; // small delay between page requests to avoid rate limits
@@ -52,9 +85,15 @@ export async function searchPrice(materialName: string): Promise<number> {
             throw new Error('Search API: max retry attempts reached');
         }
 
-        const humanSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
         const apiSearchUrl = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${NUM_PER_PAGE}&start=1`;
-        console.info('[priceService] searchPrice start', { materialName, query, apiSearchUrl });
+        const apiSearchUrlMasked = apiSearchUrl.replace(/(key=)[^&]+/, '$1***');
+        console.info('[priceService] searchPrice start', {
+            materialName,
+            query,
+            apiSearchUrl,
+            apiSearchUrlMasked,
+            filters: { source: options.source, minPrice: minAllowed, maxPrice: maxAllowed },
+        });
 
         // We'll aggregate prices across multiple pages to get reliable frequency counts
         // Use per-price sets of unique links (count unique URLs per price)
@@ -63,8 +102,10 @@ export async function searchPrice(materialName: string): Promise<number> {
 
         // Helper to add a found price together with its source link
         const pushPrice = (p: number, link: string) => {
-            prices.push(p);
-            const k = String(p);
+            const rounded = Math.round(p);
+            if (!isInAllowedRange(rounded)) return;
+            prices.push(rounded);
+            const k = String(rounded);
             if (!linkSets[k]) linkSets[k] = new Set();
             if (link) linkSets[k].add(link);
         };
@@ -123,10 +164,8 @@ export async function searchPrice(materialName: string): Promise<number> {
         for (let page = 0; page < MAX_PAGES; page++) {
             const startIndex = page * NUM_PER_PAGE + 1;
             const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${NUM_PER_PAGE}&start=${startIndex}`;
-            // Full API URL (contains API key) and a masked version for safer logs
-            const apiUrlFull = url;
             const maskedUrl = url.replace(/(key=)[^&]+/, '$1***');
-            console.debug('[priceService] fetching page', { page: page + 1, startIndex, apiUrl: apiUrlFull, apiUrlMasked: maskedUrl });
+            console.debug('[priceService] fetching page', { page: page + 1, startIndex, apiUrl: url, apiUrlMasked: maskedUrl });
 
             const cacheKey = `cs:${encodeURIComponent(query)}:start=${startIndex}`;
             let data: any = null;
@@ -167,34 +206,31 @@ export async function searchPrice(materialName: string): Promise<number> {
                 const pagemapPrice = tryPagemapPrice(item as any);
                 if (pagemapPrice) {
                     console.debug('[priceService] pagemap price found', { price: pagemapPrice, source: sourceLink, cacheUrl });
-                    if (pagemapPrice > 50 && pagemapPrice < 1000000) {
-                        pushPrice(pagemapPrice, sourceLink || '');
-                    } else console.debug('[priceService] pagemap price filtered by range', { pagemapPrice });
+                    pushPrice(pagemapPrice, sourceLink || '');
                     continue;
                 }
 
             // 2) Fallback: search for price patterns in title/snippet
             const text = (snippet + ' ' + title);
-            const priceMatches = text.match(/(\d{1,3}(?:[\s\u00A0]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)[^\d]{0,3}\s*(руб|₽|р\.|рублей)/i);
-                if (priceMatches) {
-                const rawMatch = priceMatches[1];
-                // Normalize: remove spaces (including NBSP), replace comma with dot for decimal
-                const normalized = String(rawMatch).replace(/[\s\u00A0]+/g, '').replace(',', '.');
+            const foundPricesForLink = new Set<number>();
+            const priceRe = /(\d{1,3}(?:[\s\u00A0\u202F]\d{3})*(?:[.,]\d+)?|\d+(?:[.,]\d+)?)[^\d]{0,3}\s*(руб|₽|р\.|рублей)/gi;
+            for (const m of text.matchAll(priceRe)) {
+                const rawMatch = m[1];
+                const normalized = String(rawMatch).replace(/[\s\u00A0\u202F]+/g, '').replace(',', '.');
                 const price = parseFloat(normalized);
-                console.debug('[priceService] found price candidate in text', { raw: rawMatch, normalized, price, source: item.link });
-                if (!isNaN(price) && price > 50 && price < 1000000) {
-                    pushPrice(price, item.link || '');
-                } else {
-                    console.debug('[priceService] price filtered out by range or NaN', { price });
+                if (!Number.isFinite(price)) continue;
+                // Avoid overcounting repeated values in the same snippet/title for the same URL
+                foundPricesForLink.add(Math.round(price));
+            }
+
+            if (foundPricesForLink.size > 0) {
+                for (const p of foundPricesForLink) {
+                    console.debug('[priceService] found price candidate in text', { price: p, source: sourceLink });
+                    pushPrice(p, sourceLink || '');
                 }
-                    if (!isNaN(price) && price > 50 && price < 1000000) {
-                        pushPrice(price, sourceLink || '');
-                    } else {
-                        console.debug('[priceService] price filtered out by range or NaN', { price });
-                    }
-                } else {
-                    console.debug('[priceService] no price regex match in title/snippet for this item', { sourceLink, cacheUrl });
-                }
+            } else {
+                console.debug('[priceService] no price regex match in title/snippet for this item', { sourceLink, cacheUrl });
+            }
             }
         }
 

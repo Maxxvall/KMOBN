@@ -1,20 +1,39 @@
 import React, { useState, useMemo } from 'react';
-import { Material, EstimateCategory } from '../types';
+import { Material, EstimateCategory, MaterialSearchSource } from '../types';
 
 interface PricesProps {
     materials: Material[];
-    onAddMaterial: (name: string, category: EstimateCategory, price?: number, isManualPrice?: boolean) => void;
+    onAddMaterial: (
+        name: string,
+        category: EstimateCategory,
+        price?: number,
+        isManualPrice?: boolean,
+        searchSource?: MaterialSearchSource,
+        searchMinPrice?: number,
+        searchMaxPrice?: number
+    ) => void;
     onUpdatePrice: (materialId: string) => void;
     onUpdateAllPrices: () => void;
     onDeleteMaterial: (materialId: string) => void;
     onEditMaterialPrice: (materialId: string, newPrice: number) => void;
 }
 
+const MATERIAL_SOURCES: Array<{ value: MaterialSearchSource; label: string }> = [
+    { value: 'JUKOV_LES', label: 'Жуков лес' },
+    { value: 'PETROVICH', label: 'Петрович' },
+    { value: 'LEMANO_PRO', label: 'ЛеманоПро' },
+    { value: 'VSEINSTRUMENTI', label: 'Все инструменты' },
+    { value: 'GRANDLINE', label: 'Грандлайн' },
+];
+
 const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice, onUpdateAllPrices, onDeleteMaterial, onEditMaterialPrice }) => {
     const [newMaterialName, setNewMaterialName] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [newMaterialPrice, setNewMaterialPrice] = useState('');
     const [isManualPrice, setIsManualPrice] = useState(false);
+    const [newMaterialSource, setNewMaterialSource] = useState<MaterialSearchSource | 'any'>('any');
+    const [newMaterialMinPrice, setNewMaterialMinPrice] = useState('');
+    const [newMaterialMaxPrice, setNewMaterialMaxPrice] = useState('');
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
     const [editingPrice, setEditingPrice] = useState<{ id: string; price: string } | null>(null);
 
@@ -43,10 +62,25 @@ const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice
     const handleAdd = () => {
         if (newMaterialName.trim()) {
             const price = isManualPrice && newMaterialPrice ? parseFloat(newMaterialPrice) : undefined;
-            onAddMaterial(newMaterialName.trim(), selectedCategory, price, isManualPrice);
+            const minPrice = !isManualPrice && newMaterialMinPrice ? Number(newMaterialMinPrice) : undefined;
+            const maxPrice = !isManualPrice && newMaterialMaxPrice ? Number(newMaterialMaxPrice) : undefined;
+            const source = !isManualPrice && newMaterialSource !== 'any' ? newMaterialSource : undefined;
+
+            onAddMaterial(
+                newMaterialName.trim(),
+                selectedCategory,
+                price,
+                isManualPrice,
+                source,
+                !isNaN(Number(minPrice)) ? minPrice : undefined,
+                !isNaN(Number(maxPrice)) ? maxPrice : undefined
+            );
             setNewMaterialName('');
             setNewMaterialPrice('');
             setIsManualPrice(false);
+            setNewMaterialSource('any');
+            setNewMaterialMinPrice('');
+            setNewMaterialMaxPrice('');
         }
     };
 
@@ -93,6 +127,37 @@ const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice
                         />
                     )}
                 </div>
+
+                {!isManualPrice && (
+                    <>
+                        <select
+                            className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                            value={newMaterialSource}
+                            onChange={(e) => setNewMaterialSource(e.target.value as MaterialSearchSource | 'any')}
+                        >
+                            <option value="any">Любой сайт</option>
+                            {MATERIAL_SOURCES.map(s => (
+                                <option key={s.value} value={s.value}>{s.label}</option>
+                            ))}
+                        </select>
+                        <input
+                            type="number"
+                            placeholder="Мин (₽)"
+                            className="w-24 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                            value={newMaterialMinPrice}
+                            onChange={(e) => setNewMaterialMinPrice(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                        />
+                        <input
+                            type="number"
+                            placeholder="Макс (₽)"
+                            className="w-24 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                            value={newMaterialMaxPrice}
+                            onChange={(e) => setNewMaterialMaxPrice(e.target.value)}
+                            onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                        />
+                    </>
+                )}
                 <button
                     onClick={handleAdd}
                     className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"

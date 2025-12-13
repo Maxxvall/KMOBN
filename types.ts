@@ -67,6 +67,13 @@ export enum EstimateSubgroup {
     DELIVERY = 'Доставка',
 }
 
+export type MaterialSearchSource =
+    | 'JUKOV_LES'
+    | 'PETROVICH'
+    | 'LEMANO_PRO'
+    | 'VSEINSTRUMENTI'
+    | 'GRANDLINE';
+
 export interface Material {
     id: string;
     name: string;
@@ -74,6 +81,9 @@ export interface Material {
     lastUpdated: string;
     category: EstimateCategory;
     isManualPrice?: boolean;
+    searchSource?: MaterialSearchSource;
+    searchMinPrice?: number;
+    searchMaxPrice?: number;
 }
 
 export interface Work {

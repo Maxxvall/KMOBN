@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle } from './types';
+import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, MaterialSearchSource } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import EstimateHistory from './components/EstimateHistory';
@@ -13,6 +13,7 @@ import Analytics from './components/Analytics';
 import ScrollToTop from './components/ScrollToTop';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
+import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
 import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 
@@ -31,6 +32,7 @@ const App: React.FC = () => {
     const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
     const [showPdfStyleModal, setShowPdfStyleModal] = useState(false);
     const [pendingPdfEstimate, setPendingPdfEstimate] = useState<Estimate | null>(null);
+    const [editorValidationResult, setEditorValidationResult] = useState<ReturnType<typeof validateEstimate> | null>(null);
     const [editorDirty, setEditorDirty] = useState(false);
     const [editorDraft, setEditorDraft] = useState<Estimate | null>(null);
     const [showSaveOptions, setShowSaveOptions] = useState(false);
@@ -147,6 +149,7 @@ const App: React.FC = () => {
 
     const handleCreateNew = () => {
         setCurrentEstimate(null);
+        setEditorValidationResult(null);
         setEditorDirty(false);
         setEditorDraft(null);
         setPendingView(null);
@@ -157,6 +160,7 @@ const App: React.FC = () => {
 
     const handleEdit = (estimate: Estimate) => {
         setCurrentEstimate(estimate);
+        setEditorValidationResult(null);
         setEditorDirty(false);
         setEditorDraft(null);
         setPendingView(null);
@@ -268,9 +272,28 @@ const App: React.FC = () => {
     }, [view]);
 
     const handleGeneratePdf = useCallback((estimate: Estimate) => {
+        const validation = validateEstimate(estimate);
+        if (validation.issues.length > 0) {
+            setEditorValidationResult(validation);
+            setCurrentEstimate(estimate);
+            setEditorDirty(false);
+            setEditorDraft(null);
+            setPendingView(null);
+            setShowSaveOptions(false);
+            setShowUnsavedModal(false);
+            goToView(View.EDITOR);
+
+            alert(
+                `Перед PDF нужно исправить ошибки в смете.\n` +
+                `Проблемных строк: ${validation.invalidItemIds.size}. Ошибок: ${validation.issues.length}.\n` +
+                `Я открыл смету в редакторе и подсветил проблемные строки.`
+            );
+            return;
+        }
+
         setPendingPdfEstimate(estimate);
         setShowPdfStyleModal(true);
-    }, []);
+    }, [goToView]);
 
     const handlePdfStyleSelect = useCallback((style: 'simple' | 'colored') => {
         if (!pendingPdfEstimate) return;
@@ -339,7 +362,15 @@ const App: React.FC = () => {
         });
     }, []);
 
-    const handleAddMaterial = useCallback(async (name: string, category: EstimateCategory, price?: number, isManualPrice?: boolean) => {
+    const handleAddMaterial = useCallback(async (
+        name: string,
+        category: EstimateCategory,
+        price?: number,
+        isManualPrice?: boolean,
+        searchSource?: MaterialSearchSource,
+        searchMinPrice?: number,
+        searchMaxPrice?: number
+    ) => {
         const newMaterial: Material = {
             id: `material-${Date.now()}`,
             name,
@@ -347,6 +378,9 @@ const App: React.FC = () => {
             lastUpdated: new Date().toISOString(),
             category,
             isManualPrice: isManualPrice || false,
+            searchSource,
+            searchMinPrice,
+            searchMaxPrice,
         };
         try {
             await addMaterial(newMaterial);
@@ -362,7 +396,11 @@ const App: React.FC = () => {
         if (!material || material.isManualPrice) return;
 
         try {
-            const newPrice = await searchPrice(material.name);
+            const newPrice = await searchPrice(material.name, {
+                source: material.searchSource,
+                minPrice: material.searchMinPrice,
+                maxPrice: material.searchMaxPrice,
+            });
             const updatedMaterial = { ...material, price: newPrice, lastUpdated: new Date().toISOString() };
             await updateMaterial(updatedMaterial);
             setMaterials(prev => prev.map(m => m.id === materialId ? updatedMaterial : m));
@@ -502,6 +540,7 @@ const App: React.FC = () => {
                             <EstimateEditor
                                 initialEstimate={currentEstimate}
                                 templates={templates}
+                                validationResult={editorValidationResult}
                                 materials={materials}
                                 works={works}
                                 bundles={bundles}

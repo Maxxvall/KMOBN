@@ -4,6 +4,7 @@ import { Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCateg
 import { ESTIMATE_CATEGORIES } from '../constants';
 import { generateEstimateWithAI } from '../services/geminiService';
 import { searchPrice } from '../services/priceService';
+import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
 
 interface EstimateEditorProps {
@@ -19,9 +20,10 @@ interface EstimateEditorProps {
     onDeleteTemplate: (templateId: string) => void;
     onBack: () => void;
     allEstimates: Estimate[];
+    validationResult?: EstimateValidationResult | null;
 }
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates, validationResult }) => {
     const createEmptyEstimate = useCallback((): Estimate => ({
         id: `sm-temp-${Date.now()}`,
         estimateNumber: `SM-${new Date().getFullYear()}-...`,
@@ -239,7 +241,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             if (hoursDiff > 24) {
                 try {
                     console.info('[EstimateEditor] querying searchPrice for material', material.name);
-                    price = await searchPrice(material.name);
+                    price = await searchPrice(material.name, {
+                        source: material.searchSource,
+                        minPrice: material.searchMinPrice,
+                        maxPrice: material.searchMaxPrice,
+                    });
                     console.info('[EstimateEditor] searchPrice returned', { material: material.name, price });
                     // Update material in parent state? But since it's props, maybe not, or pass callback
                     // For now, just use updated price locally
@@ -387,6 +393,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const inputStyles = "p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full";
 
+    const hasValidationIssues = Boolean(validationResult && validationResult.issues.length > 0);
+    const getFieldClass = (itemId: string, field: 'name' | 'quantity' | 'price', base: string) => {
+        const invalid = Boolean(validationResult?.invalidFieldsByItemId?.[itemId]?.[field]);
+        return invalid ? `${base} border-red-500` : base;
+    };
+
+    const getItemIssueMessages = (itemId: string) => {
+        const issues = (validationResult?.issues || []).filter(i => i.itemId === itemId);
+        return Array.from(new Set(issues.map(i => i.message)));
+    };
+
     return (
         <div className="space-y-6">
             <div className="bg-surface p-6 rounded-lg shadow-2xl">
@@ -394,6 +411,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     <h2 className="text-2xl font-bold text-text-primary">{initialEstimate ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
                     <button onClick={onBack} className="text-text-secondary hover:text-text-primary">&larr; Назад к истории</button>
                 </div>
+
+                {hasValidationIssues && (
+                    <div className="mb-4 p-3 border border-red-500/40 bg-background/40 rounded-md">
+                        <div className="font-semibold text-red-400">Есть ошибки в смете — исправьте перед PDF/отправкой</div>
+                        <div className="text-sm text-text-secondary">Проблемных строк: {validationResult!.invalidItemIds.size}. Ошибок: {validationResult!.issues.length}.</div>
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-7 gap-4 mb-6">
                     <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Клиент" className={inputStyles} />
@@ -543,7 +567,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                                 return (
-                                                                <tr key={item.id} className="border-b border-border last:border-b-0">
+                                                                <tr key={item.id} className={"border-b border-border last:border-b-0" + (validationResult?.invalidItemIds?.has(item.id) ? " bg-red-500/5" : "")}>
                                                                     <td className="p-1">
                                                                         { (subgroup === EstimateSubgroup.MATERIALS || subgroup === EstimateSubgroup.DELIVERY) ? (
                                                                             useTypeaheadMaterials ? (
@@ -569,12 +593,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                         }}
                                                                                         onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); tryApplyMaterialByName(item.id, (e.currentTarget as HTMLInputElement).value); } }}
                                                                                         placeholder="Поиск материала"
-                                                                                        className={inputStyles + " text-sm"}
+                                                                                        className={getFieldClass(item.id, 'name', inputStyles + " text-sm")}
                                                                                     />
                                                                                     {renderSuggestionsPortal(item.id, suggestions[item.id] as Material[] | undefined, (it) => selectMaterialSuggestion(item.id, it as Material))}
                                                                                 </div>
                                                                             ) : (
-                                                                                <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} className={inputStyles + " text-sm"}>
+                                                                                <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', inputStyles + " text-sm")}>
                                                                                     <option value="">— Выберите материал —</option>
                                                                                     {filteredMaterials.map(mat => <option key={mat.id} value={mat.name}>{mat.name}</option>)}
                                                                                 </select>
@@ -603,18 +627,24 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                         }}
                                                                                         onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); tryApplyWorkByName(item.id, (e.currentTarget as HTMLInputElement).value); } }}
                                                                                         placeholder="Поиск работы"
-                                                                                        className={inputStyles + " text-sm"}
+                                                                                        className={getFieldClass(item.id, 'name', inputStyles + " text-sm")}
                                                                                     />
                                                                                     {renderSuggestionsPortal(item.id, suggestions[item.id] as Work[] | undefined, (it) => selectWorkSuggestion(item.id, it as Work))}
                                                                                 </div>
                                                                             ) : (
-                                                                                <select value={item.name} onChange={e => handleWorkSelect(item.id, e.target.value)} className={inputStyles + " text-sm"}>
+                                                                                <select value={item.name} onChange={e => handleWorkSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', inputStyles + " text-sm")}>
                                                                                     <option value="">— Выберите работу —</option>
                                                                                     {filteredWorks.map(wrk => <option key={wrk.id} value={wrk.name}>{wrk.name}</option>)}
                                                                                 </select>
                                                                             )
                                                                         ) : (
-                                                                            <input type="text" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Новая позиция" className={inputStyles + " text-sm"} />
+                                                                            <input type="text" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Новая позиция" className={getFieldClass(item.id, 'name', inputStyles + " text-sm")} />
+                                                                        )}
+
+                                                                        {validationResult?.invalidItemIds?.has(item.id) && getItemIssueMessages(item.id).length > 0 && (
+                                                                            <div className="mt-1 text-xs text-red-400">
+                                                                                {getItemIssueMessages(item.id).join(' • ')}
+                                                                            </div>
                                                                         )}
                                                                     </td>
                                                                     <td className="p-1 w-24">
@@ -626,8 +656,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             <option value="м3">м3</option>
                                                                         </select>
                                                                     </td>
-                                                                    <td className="p-1 w-32"><input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={inputStyles + " text-right text-sm"} /></td>
-                                                                    <td className="p-1 w-32"><input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={inputStyles + " text-right text-sm"} /></td>
+                                                                    <td className="p-1 w-32"><input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', inputStyles + " text-right text-sm")} /></td>
+                                                                    <td className="p-1 w-32"><input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', inputStyles + " text-right text-sm")} /></td>
                                                                     <td className="p-1 w-32 text-right font-medium text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</td>
                                                                     <td className="p-1 text-center"><button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-400 transition-colors">✖</button></td>
                                                                 </tr>
