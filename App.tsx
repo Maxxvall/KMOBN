@@ -755,6 +755,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                         {view === View.ANALYTICS && (
                             <Analytics
                                 estimates={estimates}
+                                isLoading={isLoading}
                             />
                         )}
                     </>

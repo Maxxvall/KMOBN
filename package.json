@@ -15,7 +15,9 @@
     "lodash.debounce": "^4.0.8",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "recharts": "^2.12.0"
+    "react-window": "^2.2.3",
+    "recharts": "^2.12.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/lodash.debounce": "^4.0.9",
