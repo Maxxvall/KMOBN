@@ -6,6 +6,9 @@ export interface AIEstimateRequest {
   area: number;
   buildingType: string;
   region: string;
+  projectTemplateId?: string;
+  projectTemplateName?: string;
+  templateItems?: EstimateItem[];
   historicalEstimates: Estimate[];
   existingItems?: EstimateItem[];
   materials: Material[];
@@ -318,16 +321,34 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   const params: GenerationParams = {
     area: req.area,
     region: req.region,
-    projectTemplateId: '',
+    projectTemplateId: req.projectTemplateId || '',
   };
 
   const historical = buildHistoricalContext(req.historicalEstimates || [], params, req.buildingType);
   const materialsContext = buildMaterialsCatalog(req.materials || []);
   const worksContext = buildWorksCatalog(req.works || []);
 
-  const userPrompt = `Создай детальную смету для каркасного дома:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип строения: ${req.buildingType || 'не указан'}\n\n${historical}\n\nДоступные материалы из справочника:\n${materialsContext}\n\nДоступные работы из справочника:\n${worksContext}\n\nУсловия:\n- Не дублируй уже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Выдавай реалистичные количества и цены (ориентируйся на справочники).\n`;
+  const templateContext = req.projectTemplateName
+    ? `Выбранный шаблон проекта: ${req.projectTemplateName} (id: ${req.projectTemplateId || '—'})\n`
+    : req.projectTemplateId
+      ? `Выбранный шаблон проекта: id ${req.projectTemplateId}\n`
+      : '';
 
-  const cacheKey = aiCache.generateKey('estimate', req.area, req.region, req.buildingType, (req.existingItems || []).map(i => i.name).sort());
+  const templateItemsContext = (req.templateItems && req.templateItems.length > 0)
+    ? `БАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${JSON.stringify(req.templateItems.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, price: i.price, category: i.category, subgroup: i.subgroup })), null, 0)}\n`
+    : '';
+
+  const userPrompt = `Создай детальную смету для каркасного дома.\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип строения: ${req.buildingType || 'не указан'}\n${templateContext}\n\n${historical}\n\n${templateItemsContext}\nДоступные материалы из справочника:\n${materialsContext}\n\nДоступные работы из справочника:\n${worksContext}\n\nУсловия:\n- Не дублируй уже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Выдавай реалистичные количества и цены (ориентируйся на справочники).\n`;
+
+  const cacheKey = aiCache.generateKey(
+    'estimate',
+    req.area,
+    req.region,
+    req.buildingType,
+    req.projectTemplateId || null,
+    req.projectTemplateName || null,
+    (req.existingItems || []).map(i => i.name).sort(),
+  );
   const data = await callOpenRouterWithRetry(
     [
       { role: 'system', content: SYSTEM_PROMPT },

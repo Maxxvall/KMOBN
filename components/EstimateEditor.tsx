@@ -10,6 +10,7 @@ import AILoadingIndicator from './AILoadingIndicator';
 import AIMissingItemsModal from './AIMissingItemsModal';
 import { aiAutocomplete, analyzeMissingItems, prepareTrainingData } from '../services/openRouterService';
 import { loadEstimates } from '../services/database';
+import { hasOpenRouterKey } from '../services/aiConfig';
 
 interface EstimateEditorProps {
     initialEstimate: Estimate | null;
@@ -377,48 +378,93 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const handleGenerate = useCallback(async () => {
         setIsLoading(true);
-        setAiBusyMessage('Генерирую смету с помощью AI');
-        setAiWarnings([]);
-        setAiTextSuggestions([]);
         try {
             // Найти выбранный шаблон
             const selectedTemplate = templates.find(t => t.id === genParams.projectTemplateId);
-            
-            // Если в шаблоне есть элементы (это пользовательский шаблон), использовать их
-            if (selectedTemplate && selectedTemplate.items && selectedTemplate.items.length > 0) {
-                // Загружаем шаблон, присваивая новые ID элементам
-                const newItems = selectedTemplate.items.map(item => ({
-                    ...item,
-                    id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                }));
-                const total = calculateTotal(newItems);
-                setEstimate(prev => ({ ...prev, items: newItems, total }));
-            } else {
-                // Если шаблон без элементов, используем AI генерацию
-                const { items, total, suggestions, warnings } = await generateEstimateWithAI(
-                    genParams,
-                    allEstimates,
-                    materials,
-                    works,
-                    estimate.items,
-                );
-                setEstimate(prev => ({ ...prev, items, total }));
 
-                if (suggestions && suggestions.length > 0) {
-                    setAiTextSuggestions(suggestions);
-                }
-                if (warnings && warnings.length > 0) {
-                    setAiWarnings(warnings);
-                }
+            // Основная кнопка: ВСЕГДА берем за основу выбранный шаблон и копируем его
+            const templateItems = selectedTemplate?.items || [];
+            const newItems = templateItems.map(item => ({
+                ...item,
+                id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                total: (item.quantity || 0) * (item.price || 0),
+            }));
+            const total = calculateTotal(newItems);
+            setEstimate(prev => ({ ...prev, items: newItems, total }));
+
+            if (!selectedTemplate) {
+                alert('Шаблон не найден.');
+            } else if (!selectedTemplate.items || selectedTemplate.items.length === 0) {
+                alert('В выбранном шаблоне нет позиций. Используйте кнопку "Сгенерировать с помощью AI" для автозаполнения.');
             }
         } catch (error) {
             console.error("Failed to generate estimate", error);
             alert("Произошла ошибка при генерации сметы.");
         } finally {
+            setIsLoading(false);
+        }
+    }, [genParams, templates]);
+
+    const handleGenerateWithAI = useCallback(async () => {
+        if (!hasOpenRouterKey()) {
+            alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
+            return;
+        }
+        setIsLoading(true);
+        setAiBusyMessage('Генерирую смету с помощью AI');
+        setAiWarnings([]);
+        setAiTextSuggestions([]);
+        try {
+            const selectedTemplate = templates.find(t => t.id === genParams.projectTemplateId);
+            const templateItems = selectedTemplate?.items || [];
+            const baseItems: EstimateItem[] = templateItems.map(item => ({
+                ...item,
+                id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                total: (item.quantity || 0) * (item.price || 0),
+            }));
+
+            // AI дополняет базу (шаблон) и учитывает тип строения/шаблон
+            const { items: aiItems, suggestions, warnings } = await generateEstimateWithAI(
+                genParams,
+                allEstimates,
+                materials,
+                works,
+                baseItems,
+                {
+                    buildingType: estimate.buildingType,
+                    projectTemplateId: selectedTemplate?.id,
+                    projectTemplateName: selectedTemplate?.name,
+                    templateItems: baseItems,
+                },
+            );
+
+            const existingNames = new Set(baseItems.map(i => i.name.trim().toLowerCase()).filter(Boolean));
+            const merged = [...baseItems];
+            for (const it of aiItems) {
+                const key = (it.name || '').trim().toLowerCase();
+                if (!key) continue;
+                if (existingNames.has(key)) continue;
+                existingNames.add(key);
+                merged.push({
+                    ...it,
+                    id: `item-ai-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    total: (it.quantity || 0) * (it.price || 0),
+                });
+            }
+
+            const total = calculateTotal(merged);
+            setEstimate(prev => ({ ...prev, items: merged, total }));
+
+            if (suggestions && suggestions.length > 0) setAiTextSuggestions(suggestions);
+            if (warnings && warnings.length > 0) setAiWarnings(warnings);
+        } catch (error) {
+            console.error('Failed to generate estimate with AI', error);
+            alert('Произошла ошибка при AI-генерации сметы.');
+        } finally {
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templates, allEstimates, materials, works, estimate.items]);
+    }, [genParams, templates, allEstimates, materials, works, estimate.buildingType]);
 
     const downloadTextFile = (filename: string, content: string) => {
         const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
@@ -563,9 +609,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </select>
                         <button onClick={() => onDeleteTemplate(genParams.projectTemplateId)} className="text-red-500 hover:text-red-400 transition-colors px-2">✖</button>
                     </div>
-                    <button onClick={handleGenerate} disabled={isLoading} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-500 transition-colors">
-                        {isLoading ? 'Генерация...' : 'Сгенерировать смету'}
-                    </button>
+                    <div className="flex flex-col gap-2">
+                        <button onClick={handleGenerate} disabled={isLoading} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-500 transition-colors">
+                            {isLoading ? 'Генерация...' : 'Сгенерировать по шаблону'}
+                        </button>
+                        <button onClick={handleGenerateWithAI} disabled={isLoading} className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-4 rounded transition-colors disabled:bg-gray-500">
+                            Сгенерировать с помощью AI
+                        </button>
+                    </div>
                 </div>
 
                 <div className="flex gap-2 mb-4">
