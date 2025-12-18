@@ -15,6 +15,12 @@ import supabase, {
   fetchSalaryCalculations,
 } from './supabase';
 
+export type DbUser = {
+  id: string;
+  username: string;
+  created_at: string;
+};
+
 const ensureSupabase = () => {
   if (!supabase) {
     throw new Error('Supabase is not configured');
@@ -162,6 +168,35 @@ export const loadAllSalaryCalculations = async (): Promise<SalaryCalculation[]> 
 
 export const deleteSalaryCalculation = async (calculationId: string): Promise<void> => {
   await deleteRecord('salary_calculations', calculationId);
+};
+
+export const checkUserCredentials = async (username: string, password: string): Promise<boolean> => {
+  if (!isSupabaseConfigured()) {
+    return false;
+  }
+  const client = ensureSupabase();
+  const { data, error } = await client.rpc('check_user_credentials', {
+    p_username: username,
+    p_password: password,
+  });
+  if (error) {
+    console.error('checkUserCredentials error:', error);
+    return false;
+  }
+  return Boolean(data);
+};
+
+export const fetchUsers = async (): Promise<DbUser[]> => {
+  if (!isSupabaseConfigured()) {
+    return [];
+  }
+  const client = ensureSupabase();
+  const { data, error } = await client.rpc('fetch_users');
+  if (error) {
+    console.error('fetchUsers error:', error);
+    return [];
+  }
+  return (data ?? []) as DbUser[];
 };
 
 export const exportData = async (): Promise<string> => {

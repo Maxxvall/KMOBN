@@ -11,18 +11,26 @@ import SalaryCalculator from './components/SalaryCalculator';
 import PdfStyleModal from './components/PdfStyleModal';
 import Analytics from './components/Analytics';
 import ScrollToTop from './components/ScrollToTop';
+import Login from './components/Login';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
 import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, shouldUpdatePrice } from './services/priceCache';
-import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { checkUserCredentials, loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 
 
 type SaveMode = 'overwrite' | 'new';
 
-const App: React.FC = () => {
+type AppProps = {
+    initialAuthenticated?: boolean;
+};
+
+const AUTH_STORAGE_KEY = 'kmobn:isAuthenticated';
+
+const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
+    const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialAuthenticated));
     const [view, setView] = useState<View>(View.HISTORY);
     const [estimates, setEstimates] = useState<Estimate[]>([]);
     const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
@@ -55,8 +63,22 @@ const App: React.FC = () => {
     const saveQueuedRef = useRef(false);
     const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const handleLogin = useCallback(async (username: string, password: string) => {
+        const ok = await checkUserCredentials(username, password);
+        if (!ok) {
+            throw new Error('Неверный логин или пароль');
+        }
+        setIsAuthenticated(true);
+        try {
+            localStorage.setItem(AUTH_STORAGE_KEY, 'true');
+        } catch {
+            // ignore
+        }
+    }, []);
+
     // Load estimates and templates from database on mount
     useEffect(() => {
+        if (!isAuthenticated) return;
         const initializeData = async () => {
             try {
                 const loadedEstimates = await loadEstimates();
@@ -91,7 +113,7 @@ const App: React.FC = () => {
             }
         };
         initializeData();
-    }, []);
+    }, [isAuthenticated]);
 
     const saveAllToDatabase = useCallback(async () => {
         if (isLoading) return;
@@ -633,6 +655,10 @@ const App: React.FC = () => {
     const apiUsageCount = apiUsageToday.count;
     const apiQuotaLeft = getAvailableQuota(DEFAULT_API_DAILY_LIMIT);
 
+
+    if (!isAuthenticated) {
+        return <Login onLogin={handleLogin} />;
+    }
 
     return (
         <div className="min-h-screen bg-background text-text-primary">
