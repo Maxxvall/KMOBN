@@ -68,7 +68,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
     // Typeahead / debounce state
     const TYPEAHEAD_THRESHOLD = 10; // show typeahead only if more than 10 items
-    const DEBOUNCE_MS = 450;
+    const DEBOUNCE_MS = 700; // increased to reduce AI calls and UI jank
     const [suggestions, setSuggestions] = useState<Record<string, (Material | Work)[]>>({});
     const [showSuggestions, setShowSuggestions] = useState<Record<string, boolean>>({});
     const debounceTimers = useRef<Record<string, any>>({});
@@ -114,52 +114,72 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setShowSuggestions(prev => ({ ...prev, [itemId]: false }));
             return;
         }
+        // Use precomputed lowercase cache for pool names to avoid repeated toLowerCase overhead
+        const poolKey = `pool_cache_${itemId}`;
+        if (!(debounceTimers.current as any)[poolKey]) {
+            try {
+                (debounceTimers.current as any)[poolKey] = (pool || []).map(p => ({ item: p, key: String((p as any).name || '').toLowerCase() }));
+            } catch {
+                (debounceTimers.current as any)[poolKey] = (pool || []).map(p => ({ item: p, key: String((p as any).name || '') }));
+            }
+        }
+
         debounceTimers.current[itemId] = setTimeout(() => {
             const q = query.toLowerCase();
-            const results = pool.filter(p => p.name.toLowerCase().includes(q)).slice(0, 20);
+            const cached = (debounceTimers.current as any)[poolKey] as Array<{ item: Material | Work; key: string }>;
+            const results = (cached || []).filter(p => p.key.includes(q)).map(p => p.item).slice(0, 20);
             setSuggestions(prev => ({ ...prev, [itemId]: results }));
             setShowSuggestions(prev => ({ ...prev, [itemId]: results.length > 0 }));
 
             // AI autocomplete as a fallback when local results are weak.
             // IMPORTANT: never blocks typing; runs after local results are shown.
             if (query.length >= 3 && results.length < 5) {
-                (async () => {
-                    try {
-                        const isMaterialPool = pool.length > 0 && (pool[0] as any).lastUpdated !== undefined;
-                        const category = estimate.items.find(i => i.id === itemId)?.category;
-                        if (!category) return;
-                        const aiItems = await aiAutocomplete(query, category, estimate.items, materials, works, estimate.area);
-                        if (!aiItems || aiItems.length === 0) return;
+                // run AI autocomplete in idle time to avoid blocking typing/render
+                const runAi = () => {
+                    (async () => {
+                        try {
+                            const isMaterialPool = pool.length > 0 && (pool[0] as any).lastUpdated !== undefined;
+                            const category = estimate.items.find(i => i.id === itemId)?.category;
+                            if (!category) return;
+                            const aiItems = await aiAutocomplete(query, category, estimate.items, materials, works, estimate.area);
+                            if (!aiItems || aiItems.length === 0) return;
 
-                        const mapped = aiItems.map((it, idx) => {
-                            const id = `ai-suggest-${itemId}-${idx}`;
-                            if (isMaterialPool) {
-                                const m: Material = {
+                            const mapped = aiItems.map((it, idx) => {
+                                const id = `ai-suggest-${itemId}-${idx}`;
+                                if (isMaterialPool) {
+                                    const m: Material = {
+                                        id,
+                                        name: it.name,
+                                        price: it.price,
+                                        lastUpdated: new Date().toISOString(),
+                                        category: it.category,
+                                        isManualPrice: true,
+                                    };
+                                    return m;
+                                }
+                                const w: Work = {
                                     id,
                                     name: it.name,
                                     price: it.price,
-                                    lastUpdated: new Date().toISOString(),
                                     category: it.category,
-                                    isManualPrice: true,
                                 };
-                                return m;
-                            }
-                            const w: Work = {
-                                id,
-                                name: it.name,
-                                price: it.price,
-                                category: it.category,
-                            };
-                            return w;
-                        });
+                                return w;
+                            });
 
-                        setSuggestions(prev => ({ ...prev, [itemId]: mapped }));
-                        setShowSuggestions(prev => ({ ...prev, [itemId]: mapped.length > 0 }));
-                    } catch (e) {
-                        // Silent: do not disturb core UX
-                        console.debug('[EstimateEditor] aiAutocomplete failed', e);
-                    }
-                })();
+                            setSuggestions(prev => ({ ...prev, [itemId]: mapped }));
+                            setShowSuggestions(prev => ({ ...prev, [itemId]: mapped.length > 0 }));
+                        } catch (e) {
+                            console.debug('[EstimateEditor] aiAutocomplete failed', e);
+                        }
+                    })();
+                };
+
+                if (typeof (window as any).requestIdleCallback === 'function') {
+                    (window as any).requestIdleCallback(runAi, { timeout: 2000 });
+                } else {
+                    // fallback
+                    setTimeout(runAi, 250);
+                }
             }
             delete debounceTimers.current[itemId];
         }, DEBOUNCE_MS);
