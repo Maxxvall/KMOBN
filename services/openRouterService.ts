@@ -124,6 +124,12 @@ const looksLikePackOrRoll = (nameRaw: string): boolean => {
 
 const nearlyEqual = (a: number, b: number, eps = 0.01) => Math.abs(a - b) <= eps;
 
+const computePackQuantityWithReserve = (area: number, packArea: number): number => {
+  const base = Math.max(1, Math.ceil(area / packArea));
+  const reserve = base > 2 ? 2 : 0;
+  return base + reserve;
+};
+
 const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): EstimateItem[] => {
   const area = safeNumber(projectArea, 0);
   return (items || []).map((it) => {
@@ -134,21 +140,26 @@ const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): 
     const quantity = safeNumber(it.quantity, 0);
     const packLike = looksLikePackOrRoll(it.name);
 
-    // Case A: AI mistakenly treats a pack/roll area as unit m2 * quantity=packArea
-    if (packLike && unit === 'м2' && quantity > 0 && nearlyEqual(quantity, packArea)) {
-      return { ...it, unit: 'шт', quantity: 1, total: (it.price || 0) * 1 };
+    if (!packLike) {
+      return { ...it, unit };
     }
 
-    // Case B: AI sets packs count wildly too high; recompute from project area / pack area
-    if (packLike && (unit === 'шт' || unit === 'уп') && area > 0) {
-      const base = Math.max(1, Math.ceil(area / packArea));
-      const reserve = base <= 2 ? 0 : 2;
-      const suggested = base + reserve;
+    const suggestedFromArea = area > 0 ? computePackQuantityWithReserve(area, packArea) : null;
 
-      // Only override when AI is clearly off (e.g. doubled or more)
-      if (quantity >= suggested * 1.3) {
-        return { ...it, unit: 'шт', quantity: suggested, total: (it.price || 0) * suggested };
+    if (suggestedFromArea !== null) {
+      const diffRatio = suggestedFromArea > 0 ? Math.abs(quantity - suggestedFromArea) / suggestedFromArea : 0;
+      const isClearlyOff = quantity <= 0 || quantity >= suggestedFromArea * 1.3 || diffRatio > 0.35 || quantity > suggestedFromArea + 4;
+
+      if (isClearlyOff || unit !== 'шт') {
+        return { ...it, unit: 'шт', quantity: suggestedFromArea, total: (it.price || 0) * suggestedFromArea };
       }
+
+      return { ...it, unit: 'шт' };
+    }
+
+    if (unit === 'м2' && quantity > 0) {
+      const fallbackQty = Math.max(1, Math.round(quantity / packArea));
+      return { ...it, unit: 'шт', quantity: fallbackQty, total: (it.price || 0) * fallbackQty };
     }
 
     return { ...it, unit };
