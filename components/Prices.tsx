@@ -282,18 +282,13 @@ const Prices: React.FC<PricesProps> = ({
                                                     Изменить
                                                 </button>
                                             ) : (
-                                                <div className="flex flex-col items-center gap-1">
-                                                    <button
-                                                        onClick={() => onUpdatePrice(material.id)}
-                                                        disabled={isUpdatingAllPrices}
-                                                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
-                                                    >
-                                                        Обновить
-                                                    </button>
-                                                    <span className="text-xs text-text-secondary border border-border rounded px-2 py-0.5">
-                                                        {lastUpdatedLabel}
-                                                    </span>
-                                                </div>
+                                                <button
+                                                    onClick={() => onUpdatePrice(material.id)}
+                                                    disabled={isUpdatingAllPrices}
+                                                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
+                                                >
+                                                    Обновить
+                                                </button>
                                             )}
                                             <button
                                                 onClick={() => onDeleteMaterial(material.id)}
