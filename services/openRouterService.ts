@@ -48,6 +48,12 @@ const MATERIAL_KEYWORDS = [
   'керамзит',
   'щебень',
   'пена',
+  'ковер',
+  'подкладоч',
+  'андереп',
+  'техноник',
+  'мембран',
+  'гидроизоля',
 ];
 
 const DELIVERY_KEYWORDS = ['достав', 'доставка', 'транспорт', 'перевоз', 'курьер'];
@@ -57,6 +63,92 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const safeNumber = (v: any, fallback = 0): number => {
   const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
   return Number.isFinite(n) ? n : fallback;
+};
+
+const normalizeUnitText = (unitRaw: string): string => {
+  const u = String(unitRaw || '').trim().toLowerCase();
+  if (!u) return 'шт';
+
+  // Normalize common variants to the UI-supported set
+  if (
+    u === 'м²' ||
+    u === 'м2' ||
+    u === 'm2' ||
+    u === 'm²' ||
+    u.includes('м²') ||
+    u.includes('m²') ||
+    u.includes('м2') ||
+    u.includes('m2')
+  ) {
+    return 'м2';
+  }
+  if (u === 'м³' || u === 'м3' || u === 'm3' || u.includes('м3') || u.includes('m3')) return 'м3';
+  if (u.includes('м.п') || u.includes('пог') || u.includes('пог.м') || u.includes('пог. м') || u.includes('м/п') || u.includes('м.п')) return 'м/п';
+  if (u === 'шт.' || u.includes('шт')) return 'шт';
+  if (u.includes('упак') || u === 'уп.' || u === 'уп' || u.includes('уп ')) return 'уп';
+
+  // Leave as-is if unknown
+  return String(unitRaw).trim();
+};
+
+const parsePackAreaSqMFromName = (nameRaw: string): number | null => {
+  const name = String(nameRaw || '');
+  // Matches: 25м2, 25 м2, 25м², 25 m2, 3 м², 3m²
+  const m = name.match(/(\d+(?:[\.,]\d+)?)\s*(?:м2|м²|m2|m²)\b/i);
+  if (!m) return null;
+  const n = safeNumber(m[1], 0);
+  return n > 0 ? n : null;
+};
+
+const looksLikePackOrRoll = (nameRaw: string): boolean => {
+  const n = String(nameRaw || '').toLowerCase();
+  return (
+    n.includes('рулон') ||
+    n.includes('пач') ||
+    n.includes('упак') ||
+    n.includes('уп.') ||
+    n.includes('ковер') ||
+    n.includes('подкладоч') ||
+    n.includes('андереп') ||
+    n.includes('техноник') ||
+    n.includes('мембран') ||
+    n.includes('утепл') ||
+    /\b\d+\s*[x×]\s*\d+\b/i.test(n) ||
+    n.includes('мм')
+  );
+};
+
+const nearlyEqual = (a: number, b: number, eps = 0.01) => Math.abs(a - b) <= eps;
+
+const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): EstimateItem[] => {
+  const area = safeNumber(projectArea, 0);
+  return (items || []).map((it) => {
+    const packArea = parsePackAreaSqMFromName(it.name);
+    if (!packArea) return { ...it, unit: normalizeUnitText(it.unit) };
+
+    const unit = normalizeUnitText(it.unit);
+    const quantity = safeNumber(it.quantity, 0);
+    const packLike = looksLikePackOrRoll(it.name);
+
+    // Case A: AI mistakenly treats a pack/roll area as unit m2 * quantity=packArea
+    if (packLike && unit === 'м2' && quantity > 0 && nearlyEqual(quantity, packArea)) {
+      return { ...it, unit: 'шт', quantity: 1, total: (it.price || 0) * 1 };
+    }
+
+    // Case B: AI sets packs count wildly too high; recompute from project area / pack area
+    if (packLike && (unit === 'шт' || unit === 'уп') && area > 0) {
+      const base = Math.max(1, Math.ceil(area / packArea));
+      const reserve = base <= 2 ? 0 : 2;
+      const suggested = base + reserve;
+
+      // Only override when AI is clearly off (e.g. doubled or more)
+      if (quantity >= suggested * 1.3) {
+        return { ...it, unit: 'шт', quantity: suggested, total: (it.price || 0) * suggested };
+      }
+    }
+
+    return { ...it, unit };
+  });
 };
 
 const extractFirstJsonLikeSubstring = (text: string): string => {
@@ -299,6 +391,10 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
 - В тексте ответа никогда не придумывай новые названия. Только те, которые уже есть в списках.
 - НЕ задавай цены: поле price всегда 0.
 - Кол-во (quantity) строго масштабируй под указанную площадь.
+- Если в названии явно указан объём/площадь упаковки/рулона/пачки (например: "25 м²", "25м2", "3 м²", "рулон 25м2", "пачка 3 м²"), то:
+  - Ед.изм ставь "шт" (или "уп" только если это действительно упаковка),
+  - quantity указывай как количество упаковок/рулонов, а НЕ как площадь из названия,
+  - количество упаковок рассчитывай как ceil(площадь / площадь_в_упаковке) с небольшим запасом (0-2 упаковки, в зависимости от масштаба).
 - Если смета частичная — не добавляй лишние разделы.
 
 Категории смет: ФУНДАМЕНТ, РОСТВЕРК, ЛАГИ, ПОЛЫ, СТЕНЫ, КРОВЛЯ/ПОТОЛОК, ОКНА/ДВЕРИ, ЭЛЕКТРИКА, ЛОГИСТИКА, ОБЩАЯ, ДЕМОНТАЖ
@@ -488,7 +584,7 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
       const name = String(it?.name || '').trim();
       if (!name) return null;
 
-      const unit = String(it?.unit || 'шт').trim() || 'шт';
+      const unit = normalizeUnitText(String(it?.unit || 'шт'));
       const quantity = Math.max(0, safeNumber(it?.quantity, 0));
       // Price must come from catalogs in the app; never trust AI for pricing.
       const price = 0;
@@ -506,6 +602,42 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
 
       return {
         id: `ai-${now}-${index}`,
+        name,
+        unit,
+        quantity,
+        price,
+        total: quantity * price,
+        category,
+        subgroup,
+      };
+    })
+    .filter(Boolean) as EstimateItem[];
+};
+
+const toEstimateItemsWithPrefix = (aiItems: any[], idPrefix: string): EstimateItem[] => {
+  const now = Date.now();
+  return (aiItems || [])
+    .map((it, index): EstimateItem | null => {
+      const name = String(it?.name || '').trim();
+      if (!name) return null;
+
+      const unit = normalizeUnitText(String(it?.unit || 'шт'));
+      const quantity = Math.max(0, safeNumber(it?.quantity, 0));
+      const price = 0;
+      const category = normalizeCategory(it?.category) || EstimateCategory.GENERAL;
+
+      const subgroupFromAi = String(it?.subgroup || '').trim();
+      const subgroup: EstimateSubgroup =
+        subgroupFromAi === EstimateSubgroup.MATERIALS
+          ? EstimateSubgroup.MATERIALS
+          : subgroupFromAi === EstimateSubgroup.DELIVERY
+            ? EstimateSubgroup.DELIVERY
+            : subgroupFromAi === EstimateSubgroup.WORKS
+              ? EstimateSubgroup.WORKS
+              : classifySubgroup(name, unit);
+
+      return {
+        id: `${idPrefix}-${now}-${index}`,
         name,
         unit,
         quantity,
@@ -665,7 +797,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
   const content = data?.choices?.[0]?.message?.content;
   const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
-  const rawItems = toEstimateItems(parsed.items);
+  const rawItems = applySmartPackagingRules(toEstimateItems(parsed.items), req.area);
   const priced = applyCatalogPricing(rawItems, req.materials, req.works);
   const total = priced.items.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
 
@@ -714,7 +846,8 @@ export async function aiAutocomplete(
   }
 
   const raw = toEstimateItems(items).slice(0, 12);
-  return applyCatalogPricing(raw, materials, works).items;
+  const smart = applySmartPackagingRules(raw, area);
+  return applyCatalogPricing(smart, materials, works).items;
 }
 
 export async function analyzeMissingItems(
@@ -753,8 +886,14 @@ export async function analyzeMissingItems(
     return { missing: [], optional: [], reasoning: [`Не удалось распарсить ответ AI (JSON). Ответ: ${snippet}...`] };
   }
 
-  const missingRaw = toEstimateItems(Array.isArray(obj?.missing) ? obj.missing : []);
-  const optionalRaw = toEstimateItems(Array.isArray(obj?.optional) ? obj.optional : []);
+  const missingRaw = applySmartPackagingRules(
+    toEstimateItemsWithPrefix(Array.isArray(obj?.missing) ? obj.missing : [], 'ai-missing'),
+    currentEstimate.area,
+  );
+  const optionalRaw = applySmartPackagingRules(
+    toEstimateItemsWithPrefix(Array.isArray(obj?.optional) ? obj.optional : [], 'ai-optional'),
+    currentEstimate.area,
+  );
   const missing = applyCatalogPricing(missingRaw, materials, works).items;
   const optional = applyCatalogPricing(optionalRaw, materials, works).items;
   const reasoning = Array.isArray(obj?.reasoning) ? obj.reasoning.map(String) : [];

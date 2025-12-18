@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 const AIGenerationModal = ({
   isOpen,
@@ -12,6 +12,17 @@ const AIGenerationModal = ({
   onConfirm: (description: string) => void;
 }) => {
   const [value, setValue] = useState(initialValue || '');
+
+  const presets = useMemo(
+    () => [
+      'Дом под ключ 120 м². Нужны фундамент, стены, кровля, окна/двери. Без электрики и сантехники.',
+      'Дом 18 м² (небольшой). Нужны фундамент, каркас/стены, кровля. Только материалы без работ.',
+      'Сарай/хозблок 18–25 м². Нужны фундамент (сваи), каркас, обшивка, кровля. Только базовый комплект.',
+      'Ремонт/монтаж кровли. Нужны материалы (гидро-/пароизоляция, подкладочный ковер, крепеж) и работы по кровле.',
+      'Гараж 30–40 м². Нужны фундамент, стены, кровля, ворота. Без электрики.',
+    ],
+    [],
+  );
 
   useEffect(() => {
     if (isOpen) setValue(initialValue || '');
@@ -32,6 +43,20 @@ const AIGenerationModal = ({
           <div className="text-sm text-text-secondary">
             Опишите, для чего смета и какие разделы/работы нужны. Примеры: «дом под ключ без электрики и сантехники», «ремонт крыши», «только работы без материалов».
           </div>
+
+          <div className="flex flex-wrap gap-2">
+            {presets.map((p, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => setValue(p)}
+                className="text-xs bg-gray-600 hover:bg-gray-500 text-text-primary font-semibold py-1 px-2 rounded transition-colors"
+              >
+                Вариант {idx + 1}
+              </button>
+            ))}
+          </div>
+
           <textarea
             value={value}
             onChange={e => setValue(e.target.value)}
