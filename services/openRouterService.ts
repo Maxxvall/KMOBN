@@ -69,11 +69,54 @@ const normalizeJsonFromLLM = (text: string): string => {
 
   // Extract first {...} block if the model adds extra text
   const firstBrace = candidate.indexOf('{');
-  const lastBrace = candidate.lastIndexOf('}');
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return candidate.slice(firstBrace, lastBrace + 1);
+  const firstSquare = candidate.indexOf('[');
+  // If JSON object/array present, try to extract balanced substring
+  const startPos = firstBrace >= 0 ? firstBrace : (firstSquare >= 0 ? firstSquare : -1);
+  if (startPos >= 0) {
+    // balance braces/brackets
+    const openChar = candidate[startPos];
+    const closeChar = openChar === '{' ? '}' : ']';
+    let depth = 0;
+    for (let i = startPos; i < candidate.length; i++) {
+      const ch = candidate[i];
+      if (ch === openChar) depth++;
+      else if (ch === closeChar) depth--;
+      if (depth === 0) {
+        return candidate.slice(startPos, i + 1).trim();
+      }
+    }
   }
+
   return candidate;
+};
+
+const tryParseJsonWithHeuristics = (text: string): { obj: any | null; cleanedText?: string } => {
+  // Try raw
+  try {
+    return { obj: JSON.parse(text) };
+  } catch (e) {
+    // continue to heuristics
+  }
+
+  // Heuristic 1: remove trailing commas before } or ]
+  let t = text.replace(/,\s*([}\]])/g, '$1');
+
+  // Heuristic 2: replace smart quotes and non-standard quotes
+  t = t.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+
+  // Heuristic 3: attempt to convert single-quoted strings to double quotes when safe
+  try {
+    const singleQuoted = t.replace(/'([^']*)'/g, '"$1"');
+    t = singleQuoted;
+  } catch (e) {
+    // ignore
+  }
+
+  try {
+    return { obj: JSON.parse(t), cleanedText: t };
+  } catch (e) {
+    return { obj: null, cleanedText: t };
+  }
 };
 
 const classifySubgroup = (name: string, unit?: string): EstimateSubgroup => {
@@ -270,14 +313,30 @@ const parseEstimateResponse = (rawText: string, fallbackCategory?: EstimateCateg
     return { items: [], suggestions: [], warnings: ['AI вернул пустой ответ'] };
   }
 
-  let obj: any;
-  try {
-    obj = JSON.parse(normalized);
-  } catch {
-    return { items: [], suggestions: [], warnings: ['Не удалось распарсить JSON от AI'] };
+  // First, try a straightforward parse
+  let parsedObj: any = null;
+  const firstTry = tryParseJsonWithHeuristics(normalized);
+  if (firstTry.obj) parsedObj = firstTry.obj;
+
+  if (!parsedObj) {
+    // As a last resort, try to extract any JSON-like substring from normalized text
+    const match = normalized.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (match) {
+      const extracted = match[0];
+      const secondTry = tryParseJsonWithHeuristics(extracted);
+      if (secondTry.obj) parsedObj = secondTry.obj;
+      else {
+        const snippet = (extracted || '').slice(0, 1000);
+        return { items: [], suggestions: [], warnings: [`Не удалось распарсить JSON от AI. Содержимое ответа: ${snippet}...`] };
+      }
+    } else {
+      const snippet = (normalized || '').slice(0, 1000);
+      return { items: [], suggestions: [], warnings: [`Не удалось распарсить JSON от AI. Содержимое ответа: ${snippet}...`] };
+    }
   }
 
-  const items = Array.isArray(obj?.items) ? obj.items : [];
+  const obj = parsedObj;
+  const items = Array.isArray(obj?.items) ? obj.items : (Array.isArray(obj) ? obj : []);
   const suggestions = Array.isArray(obj?.suggestions) ? obj.suggestions.map(String) : [];
   const warnings = Array.isArray(obj?.warnings) ? obj.warnings.map(String) : [];
 
