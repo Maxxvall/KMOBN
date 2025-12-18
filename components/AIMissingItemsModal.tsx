@@ -8,6 +8,7 @@ const AIMissingItemsModal = ({
   optional,
   reasoning,
   onAddItem,
+  addedItemIds,
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -15,6 +16,7 @@ const AIMissingItemsModal = ({
   optional: EstimateItem[];
   reasoning: string[];
   onAddItem: (item: EstimateItem) => void;
+  addedItemIds?: Set<string>;
 }) => {
   if (!isOpen) return null;
 
@@ -51,7 +53,13 @@ const AIMissingItemsModal = ({
                       <div className="font-semibold text-text-primary">{it.name}</div>
                       <div className="text-sm text-text-secondary">{it.quantity} {it.unit} × {it.price.toLocaleString('ru-RU')} ₽</div>
                     </div>
-                    <button onClick={() => onAddItem(it)} className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-1 px-3 rounded transition-colors">+ Добавить</button>
+                    <button
+                      onClick={() => onAddItem(it)}
+                      disabled={addedItemIds?.has(it.id)}
+                      className={`text-sm font-bold py-1 px-3 rounded transition-colors ${addedItemIds?.has(it.id) ? 'bg-gray-500 text-text-secondary cursor-not-allowed' : 'bg-gray-600 hover:bg-gray-500 text-text-primary'}`}
+                    >
+                      {addedItemIds?.has(it.id) ? 'Добавлено' : '+ Добавить'}
+                    </button>
                   </div>
                 ))}
               </div>
@@ -70,7 +78,13 @@ const AIMissingItemsModal = ({
                       <div className="font-semibold text-text-primary">{it.name}</div>
                       <div className="text-sm text-text-secondary">{it.quantity} {it.unit} × {it.price.toLocaleString('ru-RU')} ₽</div>
                     </div>
-                    <button onClick={() => onAddItem(it)} className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-1 px-3 rounded transition-colors">+ Добавить</button>
+                    <button
+                      onClick={() => onAddItem(it)}
+                      disabled={addedItemIds?.has(it.id)}
+                      className={`text-sm font-bold py-1 px-3 rounded transition-colors ${addedItemIds?.has(it.id) ? 'bg-gray-500 text-text-secondary cursor-not-allowed' : 'bg-gray-600 hover:bg-gray-500 text-text-primary'}`}
+                    >
+                      {addedItemIds?.has(it.id) ? 'Добавлено' : '+ Добавить'}
+                    </button>
                   </div>
                 ))}
               </div>

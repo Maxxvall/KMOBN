@@ -61,6 +61,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiAnalysisReasoning, setAiAnalysisReasoning] = useState<string[]>([]);
     const [aiGenModalOpen, setAiGenModalOpen] = useState(false);
     const [aiGenDescription, setAiGenDescription] = useState('');
+    const [aiAddedItemIds, setAiAddedItemIds] = useState<Set<string>>(new Set());
     const [showComparison, setShowComparison] = useState(false);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
     // Typeahead / debounce state
@@ -958,7 +959,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         const newItems = [...prev.items, newItem];
                         return { ...prev, items: newItems, total: calculateTotal(newItems) };
                     });
+                    setAiAnalysisMissing(prev => prev.filter(({ id }) => id !== item.id));
+                    setAiAnalysisOptional(prev => prev.filter(({ id }) => id !== item.id));
+                    setAiAddedItemIds(prev => {
+                        const next = new Set(prev);
+                        next.add(item.id);
+                        return next;
+                    });
                 }}
+                addedItemIds={aiAddedItemIds}
             />
 
             <AIGenerationModal

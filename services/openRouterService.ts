@@ -114,7 +114,15 @@ const extractFirstJsonLikeSubstring = (text: string): string => {
     }
   }
 
-  // If we never closed the JSON, return best-effort tail
+  if (stack.length > 0) {
+    const closings = stack
+      .slice()
+      .reverse()
+      .map(ch => (ch === '{' ? '}' : ']'))
+      .join('');
+    return `${s.slice(start).trim()}${closings}`;
+  }
+
   return s.slice(start).trim();
 };
 
@@ -189,6 +197,15 @@ const normalizeJsonFromLLM = (text: string): string => {
   return extractFirstJsonLikeSubstring(candidate);
 };
 
+const tryEvalJson = (text: string): { obj: any | null; error?: Error } => {
+  try {
+    const fn = new Function(`"use strict"; return (${text});`);
+    return { obj: fn(), error: undefined };
+  } catch (error) {
+    return { obj: null, error: error as Error };
+  }
+};
+
 const tryParseJsonWithHeuristics = (text: string): { obj: any | null; cleanedText?: string } => {
   // Normalize some whitespace / non-breaking spaces
   const base = escapeRawNewlinesInStrings(String(text || '')).replace(/\u00A0/g, ' ').trim();
@@ -217,6 +234,8 @@ const tryParseJsonWithHeuristics = (text: string): { obj: any | null; cleanedTex
   try {
     return { obj: JSON.parse(t), cleanedText: t };
   } catch (e) {
+    const evalTry = tryEvalJson(t);
+    if (evalTry.obj) return { obj: evalTry.obj, cleanedText: t };
     return { obj: null, cleanedText: t };
   }
 };
