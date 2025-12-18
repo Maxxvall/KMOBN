@@ -1169,9 +1169,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         const allItems = detailedComparison.itemsComparison.filter(it => (it.category || 'ОБЩАЯ') === category);
                                         const q = itemQuery.trim().toLowerCase();
                                         let filteredItems = allItems.filter(it => {
-                                            // "Только похожие" — показать позиции, которые присутствуют в обеих сметах
-                                            // (не нужно требовать совпадения цены/количества, только наличие в обеих).
-                                            if (showOnlySame && !((it.total1 != null) && (it.total2 != null))) return false;
+                                            if (showOnlySame && !(typeof it.total1 === 'number' && typeof it.total2 === 'number')) return false;
                                             if (showOnlyDifferent && (it.diff === 0)) return false;
                                             if (showOnlySignificant && (Math.abs(it.diffPct || 0) < significantThreshold)) return false;
                                             if (q && !`${it.name} ${it.unit || ''}`.toLowerCase().includes(q)) return false;
