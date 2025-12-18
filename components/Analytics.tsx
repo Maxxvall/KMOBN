@@ -565,6 +565,20 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         return { stacked, extras: rest };
     }, [categoryCosts]);
 
+    // Согласованный маппинг цветов для категорий.
+    // Используем порядок stackedCategoryMeta (то, что показывает "Сравнение по категориям"),
+    // затем — общий список categoryCosts, и фолбэк к последнему цвету.
+    const getCategoryColor = (name: string) => {
+        const stacked = stackedCategoryMeta.stacked || [];
+        const idxStack = stacked.indexOf(name);
+        if (idxStack !== -1) return CHART_COLORS[idxStack % CHART_COLORS.length];
+
+        const idxAll = categoryCosts.findIndex(c => c.name === name);
+        if (idxAll !== -1) return CHART_COLORS[idxAll % CHART_COLORS.length];
+
+        return CHART_COLORS[CHART_COLORS.length - 1];
+    };
+
     const categoryTotalsByEstimate = useMemo(() => {
         const result: Record<string, Record<string, number>> = {};
         if (!detailedComparison) return result;
@@ -896,7 +910,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                 {categoryPieData.map((entry, index) => (
                                     <Cell
                                         key={`cell-${index}`}
-                                        fill={CHART_COLORS[index % CHART_COLORS.length]}
+                                        fill={getCategoryColor(entry.name)}
                                         opacity={!selectedCategory || selectedCategory === entry.name ? 1 : 0.25}
                                     />
                                 ))}
@@ -969,7 +983,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                             stackId="stack"
                                             name={category}
                                             radius={[10, 10, 0, 0]}
-                                            fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                                            fill={getCategoryColor(category)}
                                             isAnimationActive
                                             animationDuration={750}
                                         />
@@ -1083,12 +1097,12 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                 className="border-t border-border hover:bg-background/40 transition"
                                             >
                                                 <td className="px-3 py-2 text-text-primary">
-                                                    <button
+                                                        <button
                                                         onClick={() => setSelectedCategory(prev => (prev === c.category ? '' : c.category))}
                                                         className="inline-flex items-center gap-2 hover:underline"
                                                         title="Фильтровать по категории"
                                                     >
-                                                        <span className="w-2 h-2 rounded-full" style={{ background: CHART_COLORS[(idx + 1) % CHART_COLORS.length] }} />
+                                                        <span className="w-2 h-2 rounded-full" style={{ background: getCategoryColor(c.category) }} />
                                                         {c.category}
                                                     </button>
                                                 </td>
@@ -1155,7 +1169,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         const allItems = detailedComparison.itemsComparison.filter(it => (it.category || 'ОБЩАЯ') === category);
                                         const q = itemQuery.trim().toLowerCase();
                                         let filteredItems = allItems.filter(it => {
-                                            if (showOnlySame && (it.diff !== 0)) return false;
+                                            // "Только похожие" — показать позиции, которые присутствуют в обеих сметах
+                                            // (не нужно требовать совпадения цены/количества, только наличие в обеих).
+                                            if (showOnlySame && !((it.total1 != null) && (it.total2 != null))) return false;
                                             if (showOnlyDifferent && (it.diff === 0)) return false;
                                             if (showOnlySignificant && (Math.abs(it.diffPct || 0) < significantThreshold)) return false;
                                             if (q && !`${it.name} ${it.unit || ''}`.toLowerCase().includes(q)) return false;
@@ -1215,7 +1231,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                             onClick={() => setOpenCategories(prev => ({ ...prev, [category]: !prev[category] }))}
                                                             className="inline-flex items-center gap-3 text-text-primary font-semibold hover:opacity-90 transition"
                                                         >
-                                                            <span className="w-2 h-2 rounded-full" style={{ background: CHART_COLORS[(idx + 2) % CHART_COLORS.length] }} />
+                                                            <span className="w-2 h-2 rounded-full" style={{ background: getCategoryColor(category) }} />
                                                             <span className="text-left">{isOpen ? '▾' : '▸'} {category}</span>
                                                             <span className="text-xs text-text-secondary font-normal">Позиций: {allItems.length}</span>
                                                         </button>
