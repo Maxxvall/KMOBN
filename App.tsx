@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, MaterialSearchSource } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
@@ -16,6 +16,7 @@ import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
 import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { useDebouncedSave } from './hooks/useDebouncedSave';
 
 
 type SaveMode = 'overwrite' | 'new';
@@ -39,6 +40,15 @@ const App: React.FC = () => {
     const [viewAfterSave, setViewAfterSave] = useState<View>(View.HISTORY);
     const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [pendingView, setPendingView] = useState<View | null>(null);
+
+    const [isSaving, setIsSaving] = useState(false);
+    const [lastSaved, setLastSaved] = useState<Date | null>(null);
+    const [saveError, setSaveError] = useState<string | null>(null);
+    const autosaveSuppressedRef = useRef(false);
+    const didHydrateRef = useRef(false);
+    const saveInFlightRef = useRef(false);
+    const saveQueuedRef = useRef(false);
+    const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // Load estimates and templates from database on mount
     useEffect(() => {
@@ -78,57 +88,79 @@ const App: React.FC = () => {
         initializeData();
     }, []);
 
-    // Save estimates to database whenever they change
-    useEffect(() => {
-        if (!isLoading) {
-            saveEstimates(estimates).then(() => {
-                setSync({ visible: true, message: 'Сметы сохранены', type: 'success' });
-                setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
-            }).catch(error => {
-                console.error('Failed to save estimates to database:', error);
-                setSync({ visible: true, message: 'Ошибка сохранения смет', type: 'error' });
-            });
-        }
-    }, [estimates, isLoading]);
+    const saveAllToDatabase = useCallback(async () => {
+        if (isLoading) return;
+        if (autosaveSuppressedRef.current) return;
 
-    // Save materials to database whenever they change
-    useEffect(() => {
-        if (!isLoading) {
-            saveMaterials(materials).then(() => {
-                setSync({ visible: true, message: 'Материалы сохранены', type: 'success' });
-                setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
-            }).catch(error => {
-                console.error('Failed to save materials to database:', error);
-                setSync({ visible: true, message: 'Ошибка сохранения материалов', type: 'error' });
-            });
+        if (saveInFlightRef.current) {
+            saveQueuedRef.current = true;
+            return;
         }
-    }, [materials, isLoading]);
 
-    // Save works to database whenever they change
-    useEffect(() => {
-        if (!isLoading) {
-            saveWorks(works).then(() => {
-                setSync({ visible: true, message: 'Работы сохранены', type: 'success' });
-                setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
-            }).catch(error => {
-                console.error('Failed to save works to database:', error);
-                setSync({ visible: true, message: 'Ошибка сохранения работ', type: 'error' });
-            });
-        }
-    }, [works, isLoading]);
+        saveInFlightRef.current = true;
+        setIsSaving(true);
+        setSaveError(null);
 
-    // Save bundles to database whenever they change
-    useEffect(() => {
-        if (!isLoading) {
-            saveBundles(bundles).then(() => {
-                setSync({ visible: true, message: 'Комплекты сохранены', type: 'success' });
-                setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
-            }).catch(error => {
-                console.error('Failed to save bundles to database:', error);
-                setSync({ visible: true, message: 'Ошибка сохранения комплектов', type: 'error' });
-            });
+        try {
+            await Promise.all([
+                saveEstimates(estimates),
+                saveMaterials(materials),
+                saveWorks(works),
+                saveBundles(bundles),
+            ]);
+            const now = new Date();
+            setLastSaved(now);
+            if (savedIndicatorTimerRef.current) {
+                clearTimeout(savedIndicatorTimerRef.current);
+            }
+            savedIndicatorTimerRef.current = setTimeout(() => {
+                setLastSaved(null);
+            }, 2000);
+        } catch (error) {
+            console.error('Failed to save data to database:', error);
+            setSaveError('Ошибка сохранения');
+        } finally {
+            setIsSaving(false);
+            saveInFlightRef.current = false;
+
+            if (saveQueuedRef.current) {
+                saveQueuedRef.current = false;
+                void saveAllToDatabase();
+            }
         }
-    }, [bundles, isLoading]);
+    }, [bundles, estimates, isLoading, materials, works]);
+
+    const debouncedSaveAll = useDebouncedSave(saveAllToDatabase, 2000);
+
+    const withAutosaveSuppressed = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
+        autosaveSuppressedRef.current = true;
+        try {
+            return await fn();
+        } finally {
+            autosaveSuppressedRef.current = false;
+            debouncedSaveAll();
+        }
+    }, [debouncedSaveAll]);
+
+    useEffect(() => {
+        if (isLoading) return;
+        if (!didHydrateRef.current) {
+            didHydrateRef.current = true;
+            return;
+        }
+        if (autosaveSuppressedRef.current) return;
+
+        debouncedSaveAll();
+    }, [bundles, debouncedSaveAll, estimates, isLoading, materials, works]);
+
+    useEffect(() => {
+        return () => {
+            debouncedSaveAll.cancel();
+            if (savedIndicatorTimerRef.current) {
+                clearTimeout(savedIndicatorTimerRef.current);
+            }
+        };
+    }, [debouncedSaveAll]);
 
 
     const goToView = useCallback((target: View) => {
@@ -412,10 +444,12 @@ const App: React.FC = () => {
     }, [materials]);
 
     const handleUpdateAllPrices = useCallback(async () => {
-        for (const material of materials) {
-            await handleUpdatePrice(material.id);
-        }
-    }, [materials, handleUpdatePrice]);
+        await withAutosaveSuppressed(async () => {
+            for (const material of materials) {
+                await handleUpdatePrice(material.id);
+            }
+        });
+    }, [handleUpdatePrice, materials, withAutosaveSuppressed]);
 
     const handleEditMaterialPrice = useCallback(async (materialId: string, newPrice: number) => {
         const material = materials.find(m => m.id === materialId);
@@ -659,7 +693,15 @@ const App: React.FC = () => {
                     onSelectStyle={handlePdfStyleSelect}
                 />
             )}
-            <SyncToast visible={sync.visible} message={sync.message} type={sync.type} onClose={() => setSync(s => ({ ...s, visible: false }))} />
+            <SyncToast
+                visible={sync.visible}
+                message={sync.message}
+                type={sync.type}
+                onClose={() => setSync(s => ({ ...s, visible: false }))}
+                saveStatus={isSaving ? 'saving' : saveError ? 'error' : lastSaved ? 'saved' : 'idle'}
+                lastSaved={lastSaved}
+                saveError={saveError}
+            />
             <ScrollToTop />
         </div>
     );

@@ -46,7 +46,7 @@ const deleteRecord = async (table: string, id: string) => {
   }
 };
 
-const upsertRecords = async (upserter: (records: any[]) => Promise<{ data: any; error: any }>, records: any[]) => {
+const upsertRecords = async (upserter: (records: any[]) => Promise<{ data?: any; error: any }>, records: any[]) => {
   if (!records.length || !isSupabaseConfigured()) {
     return;
   }
