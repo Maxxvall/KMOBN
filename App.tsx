@@ -234,6 +234,23 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
 
     const handleSaveEstimate = useCallback((draft: Estimate, saveMode: SaveMode, afterSaveView: View = View.HISTORY) => {
         if (!draft) return;
+
+        const validation = validateEstimate(draft);
+        if (validation.issues.length > 0) {
+            setEditorValidationResult(validation);
+            setShowSaveOptions(false);
+            setShowUnsavedModal(false);
+            setPendingView(null);
+            goToView(View.EDITOR);
+
+            alert(
+                `Есть ошибки в смете:\n` +
+                `Проблемных строк: ${validation.invalidItemIds.size}. Ошибок: ${validation.issues.length}.\n` +
+                `Исправьте перед сохранением.`
+            );
+            return;
+        }
+
         setEstimates(prevEstimates => {
             const existingIndex = prevEstimates.findIndex(e => e.id === draft.id);
             if (existingIndex !== -1) {

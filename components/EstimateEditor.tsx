@@ -51,11 +51,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
     // Typeahead / debounce state
     const TYPEAHEAD_THRESHOLD = 10; // show typeahead only if more than 10 items
-    const DEBOUNCE_MS = 300;
+    const DEBOUNCE_MS = 450;
     const [suggestions, setSuggestions] = useState<Record<string, (Material | Work)[]>>({});
     const [showSuggestions, setShowSuggestions] = useState<Record<string, boolean>>({});
     const debounceTimers = useRef<Record<string, any>>({});
     const hideTimeouts = useRef<Record<string, any>>({});
+    const [loadingPrices, setLoadingPrices] = useState<Record<string, boolean>>({});
 
     // Update genParams if selected template is deleted
     useEffect(() => {
@@ -241,6 +242,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             if (hoursDiff > 24) {
                 try {
                     console.info('[EstimateEditor] querying searchPrice for material', material.name);
+                    setLoadingPrices(prev => ({ ...prev, [itemId]: true }));
                     price = await searchPrice(material.name, {
                         source: material.searchSource,
                         minPrice: material.searchMinPrice,
@@ -251,6 +253,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     // For now, just use updated price locally
                 } catch (error) {
                     console.warn('[EstimateEditor] Failed to update price via searchPrice', { material: material.name, error });
+                } finally {
+                    setLoadingPrices(prev => ({ ...prev, [itemId]: false }));
                 }
             } else {
                 console.debug('[EstimateEditor] using existing material price (no search)', { price });
@@ -575,6 +579,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                     <input
                                                                                         type="text"
                                                                                         id={`typeahead-input-${item.id}`}
+                                                                                        disabled={!!loadingPrices[item.id]}
+                                                                                        style={{ cursor: loadingPrices[item.id] ? 'wait' : undefined }}
                                                                                         value={item.name}
                                                                                         onChange={e => {
                                                                                             updateItem(item.id, 'name', e.target.value);
@@ -598,7 +604,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                     {renderSuggestionsPortal(item.id, suggestions[item.id] as Material[] | undefined, (it) => selectMaterialSuggestion(item.id, it as Material))}
                                                                                 </div>
                                                                             ) : (
-                                                                                <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', inputStyles + " text-sm")}>
+                                                                                <select
+                                                                                    value={item.name}
+                                                                                    onChange={e => handleMaterialSelect(item.id, e.target.value)}
+                                                                                    disabled={!!loadingPrices[item.id]}
+                                                                                    style={{ cursor: loadingPrices[item.id] ? 'wait' : undefined }}
+                                                                                    className={getFieldClass(item.id, 'name', inputStyles + " text-sm")}
+                                                                                >
                                                                                     <option value="">— Выберите материал —</option>
                                                                                     {filteredMaterials.map(mat => <option key={mat.id} value={mat.name}>{mat.name}</option>)}
                                                                                 </select>

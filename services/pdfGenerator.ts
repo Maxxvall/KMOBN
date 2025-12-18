@@ -20,26 +20,34 @@ export const generatePdf = async (estimate: Estimate) => {
 
     const FONT_NAME = 'LiberationSans';
 
-    // --- Font Setup ---
-    try {
-        const resp = await fetch(LiberationFontUrl);
-        const ab = await resp.arrayBuffer();
-        const b64 = arrayBufferToBase64(ab);
-        doc.addFileToVFS('LiberationSans-Regular.ttf', b64);
-        doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'normal');
-        doc.setFont(FONT_NAME, 'normal');
-    } catch (e) {
-        console.error('Failed to load LiberationSans font for PDF generation:', e);
+    // --- Parallel resource setup (font + logo) ---
+    let logoBase64 = '';
+    const [fontResult, logoResult] = await Promise.allSettled([
+        fetch(LiberationFontUrl).then(r => r.arrayBuffer()),
+        fetch(logoUrl).then(r => r.arrayBuffer()),
+    ]);
+
+    if (fontResult.status === 'fulfilled') {
+        try {
+            const b64 = arrayBufferToBase64(fontResult.value);
+            doc.addFileToVFS('LiberationSans-Regular.ttf', b64);
+            doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'normal');
+            doc.setFont(FONT_NAME, 'normal');
+        } catch (e) {
+            console.error('Failed to setup LiberationSans font for PDF generation:', e);
+        }
+    } else {
+        console.error('Failed to load LiberationSans font for PDF generation:', fontResult.reason);
     }
 
-    // --- Logo Setup ---
-    let logoBase64 = '';
-    try {
-        const logoResp = await fetch(logoUrl);
-        const logoAb = await logoResp.arrayBuffer();
-        logoBase64 = arrayBufferToBase64(logoAb);
-    } catch (e) {
-        console.error('Failed to load logo for PDF generation:', e);
+    if (logoResult.status === 'fulfilled') {
+        try {
+            logoBase64 = arrayBufferToBase64(logoResult.value);
+        } catch (e) {
+            console.error('Failed to decode logo for PDF generation:', e);
+        }
+    } else {
+        console.error('Failed to load logo for PDF generation:', logoResult.reason);
     }
 
     const pageHeight = doc.internal.pageSize.getHeight();
