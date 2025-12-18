@@ -452,8 +452,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             });
 
             // AI дополняет базу (шаблон) и учитывает тип строения/шаблон
+            const callParams = { ...genParams, area: estimate.area };
             const { items: aiItems, suggestions, warnings } = await generateEstimateWithAI(
-                genParams,
+                callParams,
                 allEstimates,
                 materials,
                 works,
