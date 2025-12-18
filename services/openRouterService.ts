@@ -1,6 +1,9 @@
 import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, GenerationParams, Material, Work } from '../types';
 import { aiCache } from './aiCache';
 import { AI_CONFIG, hasOpenRouterKey } from './aiConfig';
+import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, pickFewShotExamples, scoreEstimateQuality } from './estimateIntelligence';
+import { checkNormAnomalies, computeNormExpectations } from './constructionNorms';
+import { getLearningHints, isCacheKeyBad } from './aiLearning';
 
 export interface AIEstimateRequest {
   area: number;
@@ -391,6 +394,8 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
 - В тексте ответа никогда не придумывай новые названия. Только те, которые уже есть в списках.
 - НЕ задавай цены: поле price всегда 0.
 - Кол-во (quantity) строго масштабируй под указанную площадь.
+- Тебе могут дать: 1) исторические паттерны (корреляции/соотношения), 2) несколько примеров хороших смет (few-shot), 3) подсказки на основе пользовательских правок. Используй их как ориентиры, но не нарушай справочники.
+- Учитывай логические зависимости работ и материалов (если есть работа, обычно нужны соответствующие материалы и крепёж).
 - Если в названии явно указан объём/площадь упаковки/рулона/пачки (например: "25 м²", "25м2", "3 м²", "рулон 25м2", "пачка 3 м²"), то:
   - Ед.изм ставь "шт" (или "уп" только если это действительно упаковка),
   - quantity указывай как количество упаковок/рулонов, а НЕ как площадь из названия,
@@ -451,6 +456,69 @@ const buildHistoricalContext = (estimates: Estimate[], params: GenerationParams,
   const avgArea = similar.length ? similar.reduce((s, e) => s + (e.area || 0), 0) / similar.length : 0;
 
   return `История похожих проектов (${similar.length} смет):\n- Средняя площадь: ${avgArea.toFixed(1)} м²\n- Частые позиции: ${mostCommon.join(', ') || 'нет данных'}\n- Суммарная стоимость работ (история): ${Math.round(worksSum).toLocaleString('ru-RU')} ₽\n- Суммарная стоимость материалов (история): ${Math.round(materialsSum).toLocaleString('ru-RU')} ₽\n`;
+};
+
+const buildAdvancedContext = (opts: {
+  historicalEstimates: Estimate[];
+  params: GenerationParams;
+  buildingType?: string;
+  region?: string;
+  materials: Material[];
+  works: Work[];
+  scopeDescription?: string;
+  projectTemplateId?: string;
+  projectTemplateName?: string;
+}) => {
+  const graph = buildDependencyGraph(opts.materials || [], opts.works || []);
+  const patterns = analyzeHistoricalPatterns(opts.historicalEstimates || [], {
+    area: opts.params.area,
+    region: opts.region || opts.params.region,
+    buildingType: opts.buildingType,
+  });
+
+  const insightsText = buildPromptInsights(patterns);
+  const fewShot = pickFewShotExamples(
+    opts.historicalEstimates || [],
+    { area: opts.params.area, region: opts.region || opts.params.region, buildingType: opts.buildingType },
+    graph,
+  );
+
+  const learningHints = getLearningHints({
+    area: opts.params.area,
+    region: opts.region || opts.params.region,
+    buildingType: opts.buildingType,
+    projectTemplateId: opts.projectTemplateId,
+    projectTemplateName: opts.projectTemplateName,
+    scopeDescription: opts.scopeDescription,
+  });
+
+  const fewShotText = fewShot.length
+    ? `Примеры хорошо составленных смет (для ориентира, few-shot):\n${fewShot
+      .map(x => `- ${x.title}: ${JSON.stringify(x.example)}`)
+      .join('\n')}`
+    : '';
+
+  const learningText = learningHints.length
+    ? `Подсказки на основе пользовательских правок (обучение):\n- ${learningHints.join('\n- ')}`
+    : '';
+
+  // Dependency overview (bounded)
+  const depLines: string[] = [];
+  for (const w of (opts.works || []).slice(0, 1000)) {
+    const edges = graph.workToMaterials.get(normalizeKey(w.name));
+    if (!edges || edges.length === 0) continue;
+    depLines.push(`${w.name} ⇒ ${edges.map(e => `${e.requiresName} (${e.severity})`).join(', ')}`);
+    if (depLines.length >= 14) break;
+  }
+  const depsText = depLines.length
+    ? `Логические зависимости (выжимка, используй для самопроверки комплектности):\n- ${depLines.join('\n- ')}`
+    : '';
+
+  return {
+    graph,
+    patterns,
+    text: [insightsText, learningText, fewShotText, depsText].filter(Boolean).join('\n\n'),
+  };
 };
 
 const buildMaterialsCatalog = (materials: Material[]): string => {
@@ -740,9 +808,25 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
     }
 
     const price = (matched as any).price || 0;
+
+    // Improve subgroup classification once we know catalog type.
+    // Delivery stays delivery; otherwise infer by which index contains the key.
+    let subgroup: EstimateSubgroup = it.subgroup || EstimateSubgroup.WORKS;
+    if (subgroup !== EstimateSubgroup.DELIVERY) {
+      const isMaterial = materialIndex.has(key);
+      const isWork = workIndex.has(key);
+      if (isMaterial && !isWork) subgroup = EstimateSubgroup.MATERIALS;
+      else if (isWork && !isMaterial) subgroup = EstimateSubgroup.WORKS;
+      else {
+        // fallback heuristic
+        subgroup = classifySubgroup(resolvedName, it.unit);
+      }
+    }
+
     priced.push({
       ...it,
       name: resolvedName,
+      subgroup,
       price,
       total: (it.quantity || 0) * price,
     });
@@ -787,26 +871,162 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     req.projectTemplateName || null,
     (req.existingItems || []).map(i => i.name).sort(),
   );
-  const data = await callOpenRouterWithRetry(
-    [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: userPrompt },
-    ],
-    { cacheKey, ttlMs: 15 * 60 * 1000 },
-  );
 
-  const content = data?.choices?.[0]?.message?.content;
-  const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
-  const rawItems = applySmartPackagingRules(toEstimateItems(parsed.items), req.area);
+  // Cache: only return if not marked bad by learning
+  if (!isCacheKeyBad(cacheKey)) {
+    const cached = aiCache.get<AIEstimateResult>(cacheKey);
+    if (cached) return cached;
+  }
+
+  const adv = buildAdvancedContext({
+    historicalEstimates: req.historicalEstimates || [],
+    params,
+    buildingType: req.buildingType,
+    region: req.region,
+    materials: req.materials,
+    works: req.works,
+    scopeDescription: req.scopeDescription,
+    projectTemplateId: req.projectTemplateId,
+    projectTemplateName: req.projectTemplateName,
+  });
+
+  // Helper to bound catalogs per category (reduces token pressure)
+  const buildMaterialsCatalogForCategory = (cat: EstimateCategory): string => {
+    return buildMaterialsCatalog((req.materials || []).filter(m => m.category === cat));
+  };
+  const buildWorksCatalogForCategory = (cat: EstimateCategory): string => {
+    return buildWorksCatalog((req.works || []).filter(w => w.category === cat));
+  };
+
+  let parsedItems: any[] = [];
+  let parsedSuggestions: string[] = [];
+  let parsedWarnings: string[] = [];
+
+  // --- Stage 1: structure ---
+  try {
+    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n${templateContext}${scopeContext}\n\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
+
+    const s1 = await callOpenRouterWithRetry(
+      [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: stage1Prompt },
+      ],
+      { maxTokens: 1600, temperature: 0.2 },
+    );
+
+    const s1Content = String(s1?.choices?.[0]?.message?.content || '');
+    const s1Norm = normalizeJsonFromLLM(s1Content);
+    const s1Parsed = tryParseJsonWithHeuristics(s1Norm);
+    const s1Obj: any = s1Parsed.obj;
+
+    const blocksRaw: any[] = Array.isArray(s1Obj?.blocks) ? s1Obj.blocks : [];
+    const blocks = blocksRaw
+      .map(b => ({
+        category: normalizeCategory(b?.category),
+        intent: String(b?.intent || '').trim(),
+        keyWorks: Array.isArray(b?.keyWorks) ? b.keyWorks.map(String) : [],
+        areaFactor: Number(b?.volumeHints?.areaFactor || 1) || 1,
+      }))
+      .filter(b => Boolean(b.category));
+
+    const stage1Warnings = Array.isArray(s1Obj?.warnings) ? s1Obj.warnings.map(String) : [];
+    const stage1Assumptions = Array.isArray(s1Obj?.assumptions) ? s1Obj.assumptions.map(String) : [];
+
+    // Bound blocks to reduce API calls
+    const maxBlocks = 6;
+    const chosenBlocks = blocks.slice(0, maxBlocks);
+
+    parsedWarnings.push(...stage1Warnings);
+    if (stage1Assumptions.length) {
+      parsedSuggestions.push(`Предположения (этап 1): ${stage1Assumptions.join('; ')}`);
+    }
+
+    // --- Stage 2: detail per block ---
+    for (const block of chosenBlocks) {
+      const cat = block.category as EstimateCategory;
+
+      const catMaterials = buildMaterialsCatalogForCategory(cat);
+      const catWorks = buildWorksCatalogForCategory(cat);
+
+      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
+
+      const s2 = await callOpenRouterWithRetry(
+        [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'user', content: stage2Prompt },
+        ],
+        { maxTokens: 2200, temperature: 0.35 },
+      );
+
+      const s2Content = String(s2?.choices?.[0]?.message?.content || '');
+      const s2Parsed = parseEstimateResponse(s2Content, cat);
+      parsedItems.push(...(s2Parsed.items || []));
+      parsedSuggestions.push(...(s2Parsed.suggestions || []));
+      parsedWarnings.push(...(s2Parsed.warnings || []));
+    }
+
+    // --- Stage 3: self-check ---
+    const stage3Prompt = `Этап 3/3: Самопроверка и корректировка.\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n\nПромежуточная смета (черновик items):\n${JSON.stringify(parsedItems, null, 0)}\n\n${adv.text}\n\nЗадача:\n1) Удалить дубли/мусорные позиции\n2) Проверить комплектность: если есть работа — добавь необходимые материалы (в рамках справочников и только если уместно по описанию сметы)\n3) Исправить явные несоответствия масштаба количеств (ориентируйся на историю и площадь)\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
+
+    const s3 = await callOpenRouterWithRetry(
+      [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: stage3Prompt },
+      ],
+      { maxTokens: 2600, temperature: 0.2 },
+    );
+
+    const s3Content = String(s3?.choices?.[0]?.message?.content || '');
+    const s3Parsed = parseEstimateResponse(s3Content, EstimateCategory.GENERAL);
+    if (Array.isArray(s3Parsed.items) && s3Parsed.items.length > 0) {
+      parsedItems = s3Parsed.items;
+      parsedSuggestions.push(...(s3Parsed.suggestions || []));
+      parsedWarnings.push(...(s3Parsed.warnings || []));
+    }
+  } catch (e) {
+    // If multi-stage fails, fall back to the legacy one-shot prompt.
+    parsedWarnings.push(`AI: не удалось выполнить многоэтапную генерацию, использую упрощённый режим. Причина: ${String(e)}`);
+    const data = await callOpenRouterWithRetry(
+      [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
+      { maxTokens: 4000, temperature: 0.7 },
+    );
+    const content = data?.choices?.[0]?.message?.content;
+    const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
+    parsedItems = parsed.items;
+    parsedSuggestions = parsed.suggestions;
+    parsedWarnings.push(...parsed.warnings);
+  }
+
+  // Post-processing (packaging, catalog pricing) + deterministic validation
+  const rawItems = applySmartPackagingRules(toEstimateItems(parsedItems), req.area);
   const priced = applyCatalogPricing(rawItems, req.materials, req.works);
+
+  const norm = checkNormAnomalies({ area: req.area, items: priced.items, materials: req.materials, works: req.works });
   const total = priced.items.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
 
-  return {
+  const quality = scoreEstimateQuality(priced.items, { graph: adv.graph, historical: adv.patterns });
+  const finalWarnings = [...parsedWarnings, ...priced.warnings, ...norm.warnings, ...quality.notes];
+
+  const result: AIEstimateResult = {
     items: priced.items,
     total,
-    suggestions: parsed.suggestions,
-    warnings: [...parsed.warnings, ...priced.warnings],
+    suggestions: parsedSuggestions,
+    warnings: finalWarnings,
   };
+
+  // Cache only if quality is above threshold and not marked bad
+  if (!isCacheKeyBad(cacheKey)) {
+    aiCache.setIfGood(cacheKey, result, 15 * 60 * 1000, {
+      qualityScore: quality.score,
+      minQuality: 0.62,
+      meta: { quality, area: req.area, region: req.region, buildingType: req.buildingType },
+    });
+  }
+
+  return result;
 }
 
 export async function aiAutocomplete(
@@ -857,33 +1077,200 @@ export async function analyzeMissingItems(
   works: Work[],
   allowedCategories?: EstimateCategory[],
 ): Promise<{ missing: EstimateItem[]; optional: EstimateItem[]; reasoning: string[] }> {
-  if (!hasOpenRouterKey()) {
-    return { missing: [], optional: [], reasoning: ['AI не настроен: отсутствует VITE_OPENROUTER_API_KEY'] };
-  }
-
-  const curItems = (currentEstimate.items || []).map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }));
   const allowed = (allowedCategories && allowedCategories.length > 0)
     ? allowedCategories
     : Array.from(new Set((currentEstimate.items || []).map(i => i.category)));
 
-  const prompt = `Отвечай строго на русском языке.\n\nТекущая смета может быть ЧАСТИЧНОЙ (например только работы, ремонт крыши и т.п.).\n\nТекущая смета: площадь ${currentEstimate.area} м², тип/объект: ${currentEstimate.buildingType || 'не указан'}\nКатегории, которые нужно анализировать: ${allowed.join(', ') || 'не указаны'}\n\nПозиции в текущей смете:\n${JSON.stringify(curItems)}\n\nПохожие проекты (${similarEstimates.length}):\n${buildHistoricalContext(similarEstimates, { area: currentEstimate.area, region: (currentEstimate as any).region || '', projectTemplateId: '' }, currentEstimate.buildingType)}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nЗадача:\n1) Найди КРИТИЧЕСКИ недостающие позиции (missing) ТОЛЬКО в рамках перечисленных категорий\n2) Найди опциональные позиции (optional) ТОЛЬКО в рамках перечисленных категорий\n3) Дай краткое обоснование (reasoning)\n\nПравила:\n- НЕ добавляй позиции из других категорий.\n- Используй ТОЛЬКО названия из справочников.\n- price всегда 0 (цены подтянет приложение).\n\nФормат ответа: строгий JSON:\n{ "missing": [item...], "optional": [item...], "reasoning": ["..."] }`;
+  const graph = buildDependencyGraph(materials || [], works || []);
+  const patterns = analyzeHistoricalPatterns(similarEstimates || [], {
+    area: currentEstimate.area,
+    region: (currentEstimate as any).region || '',
+    buildingType: currentEstimate.buildingType,
+  });
+  const insightsText = buildPromptInsights(patterns);
+
+  const curItems = (currentEstimate.items || []).map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup, quantity: i.quantity, unit: i.unit }));
+  const present = new Set<string>((currentEstimate.items || []).map(i => normalizeKey(i.name)));
+  const materialByName = new Map<string, Material>((materials || []).map(m => [normalizeKey(m.name), m]));
+
+  // Norm expectations: use them both for anomaly detection and for suggesting missing materials.
+  const expectations = computeNormExpectations({
+    area: currentEstimate.area,
+    items: currentEstimate.items || [],
+    materials,
+    works,
+  });
+  const expectationByName = new Map<string, typeof expectations[number]>();
+  for (const e of expectations) expectationByName.set(normalizeKey(e.materialName), e);
+
+  const severityRank = (s: any) => (s === 'critical' ? 0 : s === 'important' ? 1 : 2);
+
+  const deterministicMissing: Array<{ name: string; severity: 'critical' | 'important' | 'optional'; reason: string; category?: EstimateCategory; unit?: string; qty?: number }> = [];
+
+  // 1) Dependency-driven missing (works -> required materials)
+  for (const it of currentEstimate.items || []) {
+    if (!allowed.includes(it.category)) continue;
+    const isWork = (it.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS;
+    if (!isWork) continue;
+
+    const edges = graph.workToMaterials.get(normalizeKey(it.name)) || [];
+    for (const e of edges) {
+      const mk = normalizeKey(e.requiresName);
+      if (present.has(mk)) continue;
+
+      const mat = materialByName.get(mk);
+      const catOk = mat ? allowed.includes(mat.category) : true;
+      if (!catOk) continue;
+
+      const exp = expectationByName.get(mk);
+      const qty = exp ? Math.max(1, Math.ceil(exp.expectedMin)) : 1;
+      const unit = exp?.unit || 'шт';
+
+      deterministicMissing.push({
+        name: e.requiresName,
+        severity: e.severity,
+        reason: `Связано с работой: ${it.name}`,
+        category: mat?.category,
+        unit,
+        qty,
+      });
+    }
+  }
+
+  // 2) Norm-driven missing (if expectation exists but material absent)
+  for (const exp of expectations) {
+    const k = normalizeKey(exp.materialName);
+    if (present.has(k)) continue;
+    const mat = materialByName.get(k);
+    const catOk = mat ? allowed.includes(mat.category) : true;
+    if (!catOk) continue;
+    deterministicMissing.push({
+      name: exp.materialName,
+      severity: exp.severity,
+      reason: `Нормативный ориентир: ${exp.note || 'ожидается при данном наборе работ'}`,
+      category: mat?.category,
+      unit: exp.unit,
+      qty: Math.max(1, Math.ceil(exp.expectedMin)),
+    });
+  }
+
+  // 3) Correlation-driven suggestions (history co-occurrence)
+  for (const pair of patterns.cooccurrence || []) {
+    const a = pair.a;
+    const b = pair.b;
+    const hasA = present.has(a);
+    const hasB = present.has(b);
+    if (hasA === hasB) continue;
+    const missingNameKey = hasA ? b : a;
+    const missingName = hasA ? b : a;
+    if (present.has(missingNameKey)) continue;
+
+    // only suggest if the item exists in catalogs
+    const existsInCatalog = materialByName.has(missingNameKey) || works.some(w => normalizeKey(w.name) === missingNameKey);
+    if (!existsInCatalog) continue;
+
+    deterministicMissing.push({
+      name: missingName,
+      severity: 'optional',
+      reason: `Часто встречается вместе с "${hasA ? a : b}" (история: сила ${pair.score.toFixed(2)})`,
+    });
+  }
+
+  // De-duplicate and prioritize
+  const uniq = new Map<string, { name: string; severity: 'critical' | 'important' | 'optional'; reason: string; category?: EstimateCategory; unit?: string; qty?: number }>();
+  for (const x of deterministicMissing) {
+    const k = normalizeKey(x.name);
+    const prev = uniq.get(k);
+    if (!prev) {
+      uniq.set(k, x);
+      continue;
+    }
+    // keep the more severe / richer record
+    if (severityRank(x.severity) < severityRank(prev.severity)) {
+      uniq.set(k, x);
+      continue;
+    }
+    if (!prev.category && x.category) prev.category = x.category;
+    if (!prev.unit && x.unit) prev.unit = x.unit;
+    if (!prev.qty && x.qty) prev.qty = x.qty;
+  }
+
+  const ordered = Array.from(uniq.values())
+    .sort((a, b) => severityRank(a.severity) - severityRank(b.severity));
+
+  const toSuggestionItem = (x: typeof ordered[number], prefix: string): EstimateItem => {
+    const now = Date.now();
+    return {
+      id: `${prefix}-${now}-${Math.random().toString(36).slice(2)}`,
+      name: x.name,
+      unit: x.unit || 'шт',
+      quantity: x.qty ?? 1,
+      price: 0,
+      total: 0,
+      category: x.category || EstimateCategory.GENERAL,
+      subgroup: EstimateSubgroup.MATERIALS,
+    };
+  };
+
+  const deterministicMissingItems = ordered
+    .filter(x => x.severity === 'critical' || x.severity === 'important')
+    .map(x => toSuggestionItem(x, 'ai-missing'));
+  const deterministicOptionalItems = ordered
+    .filter(x => x.severity === 'optional')
+    .map(x => toSuggestionItem(x, 'ai-optional'));
+
+  const anomalyWarnings = checkNormAnomalies({ area: currentEstimate.area, items: currentEstimate.items || [], materials, works }).warnings;
+  const deterministicReasoning: string[] = [];
+  if (ordered.length) {
+    const crit = ordered.filter(x => x.severity === 'critical').map(x => x.name);
+    const imp = ordered.filter(x => x.severity === 'important').map(x => x.name);
+    const opt = ordered.filter(x => x.severity === 'optional').map(x => x.name);
+    if (crit.length) deterministicReasoning.push(`КРИТИЧНО (по зависимостям/комплектности): ${crit.join(', ')}`);
+    if (imp.length) deterministicReasoning.push(`ВАЖНО: ${imp.join(', ')}`);
+    if (opt.length) deterministicReasoning.push(`ОПЦИОНАЛЬНО (по корреляциям/истории): ${opt.slice(0, 12).join(', ')}`);
+  }
+  if (anomalyWarnings.length) {
+    deterministicReasoning.push(...anomalyWarnings.slice(0, 8));
+  }
+
+  // If AI is not configured, return deterministic analysis.
+  if (!hasOpenRouterKey()) {
+    const missing = applyCatalogPricing(applySmartPackagingRules(deterministicMissingItems, currentEstimate.area), materials, works).items;
+    const optional = applyCatalogPricing(applySmartPackagingRules(deterministicOptionalItems, currentEstimate.area), materials, works).items;
+    return { missing, optional, reasoning: deterministicReasoning.length ? deterministicReasoning : ['AI не настроен: использован локальный анализ зависимостей/норм.'] };
+  }
+
+  // AI augmentation (formatting + extra reasoning + quantity check).
+  const prompt = `Отвечай строго на русском языке.\n\nТекущая смета может быть ЧАСТИЧНОЙ (например только работы, ремонт крыши и т.п.).\n\nТекущая смета: площадь ${currentEstimate.area} м², тип/объект: ${currentEstimate.buildingType || 'не указан'}\nКатегории, которые нужно анализировать: ${allowed.join(', ') || 'не указаны'}\n\nПозиции в текущей смете:\n${JSON.stringify(curItems)}\n\n${insightsText}\n\nПредварительный анализ (детерминированный):\n- missingCandidates: ${JSON.stringify(deterministicMissingItems.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, category: i.category })))}\n- optionalCandidates: ${JSON.stringify(deterministicOptionalItems.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, category: i.category })))}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nЗадача:\n1) Сформируй итоговый список КРИТИЧЕСКИ недостающих позиций (missing) ТОЛЬКО в рамках перечисленных категорий\n2) Сформируй итоговый список опциональных позиций (optional) ТОЛЬКО в рамках перечисленных категорий\n3) Проверь явные аномалии количеств (если материалов явно мало/много относительно работ/площади) и отметь в reasoning\n\nПравила:\n- НЕ добавляй позиции из других категорий.\n- Используй ТОЛЬКО названия из справочников.\n- price всегда 0 (цены подтянет приложение).\n\nФормат ответа: строгий JSON:\n{ \"missing\": [item...], \"optional\": [item...], \"reasoning\": [\"...\"] }`;
 
   const cacheKey = aiCache.generateKey('missing', currentEstimate.area, currentEstimate.buildingType, (currentEstimate.items || []).map(i => i.name).sort());
-  const data = await callOpenRouterWithRetry(
-    [
-      { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'user', content: prompt },
-    ],
-    { cacheKey, ttlMs: 10 * 60 * 1000, maxTokens: 2500, temperature: 0.2 },
-  );
+
+  // cache only if not marked bad
+  const cached = !isCacheKeyBad(cacheKey) ? aiCache.get<any>(cacheKey) : null;
+  const data = cached
+    ? cached
+    : await callOpenRouterWithRetry(
+      [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: prompt },
+      ],
+      { maxTokens: 2500, temperature: 0.2 },
+    );
+
+  if (!cached && !isCacheKeyBad(cacheKey)) {
+    // We don't have a strong quality metric for missing-analysis; cache conservatively.
+    aiCache.set(cacheKey, data, 10 * 60 * 1000, { qualityScore: 0.75 });
+  }
 
   const content = String(data?.choices?.[0]?.message?.content || '');
   const normalized = normalizeJsonFromLLM(content);
   const parsed = tryParseJsonWithHeuristics(normalized);
   const obj: any = parsed.obj;
   if (!obj) {
+    const missing = applyCatalogPricing(applySmartPackagingRules(deterministicMissingItems, currentEstimate.area), materials, works).items;
+    const optional = applyCatalogPricing(applySmartPackagingRules(deterministicOptionalItems, currentEstimate.area), materials, works).items;
     const snippet = (normalized || '').slice(0, 1200);
-    return { missing: [], optional: [], reasoning: [`Не удалось распарсить ответ AI (JSON). Ответ: ${snippet}...`] };
+    return { missing, optional, reasoning: [...deterministicReasoning, `AI не смог вернуть корректный JSON. Ответ: ${snippet}...`] };
   }
 
   const missingRaw = applySmartPackagingRules(
@@ -894,10 +1281,28 @@ export async function analyzeMissingItems(
     toEstimateItemsWithPrefix(Array.isArray(obj?.optional) ? obj.optional : [], 'ai-optional'),
     currentEstimate.area,
   );
-  const missing = applyCatalogPricing(missingRaw, materials, works).items;
-  const optional = applyCatalogPricing(optionalRaw, materials, works).items;
-  const reasoning = Array.isArray(obj?.reasoning) ? obj.reasoning.map(String) : [];
+  const missingAi = applyCatalogPricing(missingRaw, materials, works).items;
+  const optionalAi = applyCatalogPricing(optionalRaw, materials, works).items;
+  const reasoningAi = Array.isArray(obj?.reasoning) ? obj.reasoning.map(String) : [];
 
-  return { missing, optional, reasoning };
+  // Merge AI with deterministic (ensure critical stays present)
+  const mergeByName = (base: EstimateItem[], extra: EstimateItem[]) => {
+    const map = new Map<string, EstimateItem>();
+    for (const it of base) map.set(normalizeKey(it.name), it);
+    for (const it of extra) {
+      const k = normalizeKey(it.name);
+      if (!map.has(k)) map.set(k, it);
+    }
+    return Array.from(map.values());
+  };
+
+  const missingMerged = mergeByName(missingAi, deterministicMissingItems);
+  const optionalMerged = mergeByName(optionalAi, deterministicOptionalItems);
+
+  return {
+    missing: missingMerged,
+    optional: optionalMerged,
+    reasoning: [...deterministicReasoning, ...reasoningAi],
+  };
 }
 

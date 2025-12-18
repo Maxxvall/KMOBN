@@ -11,6 +11,8 @@ import AIMissingItemsModal from './AIMissingItemsModal';
 import AIGenerationModal from './AIGenerationModal';
 import { aiAutocomplete, analyzeMissingItems } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
+import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
+import { aiCache } from '../services/aiCache';
 
 interface EstimateEditorProps {
     initialEstimate: Estimate | null;
@@ -72,6 +74,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const debounceTimers = useRef<Record<string, any>>({});
     const hideTimeouts = useRef<Record<string, any>>({});
     const [loadingPrices, setLoadingPrices] = useState<Record<string, boolean>>({});
+
+    const aiSessionRef = useRef<null | {
+        baselineItems: EstimateItem[];
+        cacheKey: string;
+        context: { area: number; region?: string; buildingType?: string; projectTemplateId?: string; projectTemplateName?: string; scopeDescription?: string };
+    }>(null);
 
     // Update genParams if selected template is deleted
     useEffect(() => {
@@ -476,6 +484,30 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             const total = calculateTotal(merged);
             setEstimate(prev => ({ ...prev, items: merged, total }));
 
+            // Save baseline for learning on future user edits.
+            // Cache key must match openRouterService.ts logic.
+            const cacheKey = aiCache.generateKey(
+                'estimate',
+                genParams.area,
+                genParams.region,
+                estimate.buildingType,
+                selectedTemplate?.id || genParams.projectTemplateId || null,
+                selectedTemplate?.name || null,
+                (baseItems || []).map(i => i.name).sort(),
+            );
+            aiSessionRef.current = {
+                baselineItems: merged,
+                cacheKey,
+                context: {
+                    area: genParams.area,
+                    region: genParams.region,
+                    buildingType: estimate.buildingType,
+                    projectTemplateId: selectedTemplate?.id,
+                    projectTemplateName: selectedTemplate?.name,
+                    scopeDescription: aiGenDescription,
+                },
+            };
+
             if (suggestions && suggestions.length > 0) setAiTextSuggestions(suggestions);
             if (warnings && warnings.length > 0) setAiWarnings(warnings);
         } catch (error) {
@@ -538,6 +570,21 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             id: initialEstimate ? estimate.id : `sm-id-${Date.now()}`,
             estimateNumber: initialEstimate ? estimate.estimateNumber : `SM-${new Date().getFullYear()}-${String(allEstimates.length + 1).padStart(3, '0')}`
         };
+
+        // Learning: record user corrections vs last AI baseline (if any)
+        if (aiSessionRef.current) {
+            try {
+                maybeRecordCorrectionFromSession({
+                    baselineItems: aiSessionRef.current.baselineItems,
+                    finalItems: finalEstimate.items,
+                    context: aiSessionRef.current.context,
+                    cacheKey: aiSessionRef.current.cacheKey,
+                });
+            } catch (e) {
+                console.debug('[EstimateEditor] learning capture failed', e);
+            }
+        }
+
         setEstimate(finalEstimate);
         onRequestSave(finalEstimate);
     };

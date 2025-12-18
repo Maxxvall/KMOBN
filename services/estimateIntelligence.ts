@@ -1,0 +1,410 @@
+import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, Material, Work } from '../types';
+
+export type DependencySeverity = 'critical' | 'important' | 'optional';
+
+export type DependencyEdge = {
+  requiresName: string;
+  severity: DependencySeverity;
+  note?: string;
+};
+
+export type WorkDependencies = {
+  workName: string;
+  requires: DependencyEdge[];
+  prerequisites?: string[]; // other works that should come earlier in a full-build scenario
+};
+
+export type DependencyGraph = {
+  workToMaterials: Map<string, DependencyEdge[]>;
+  workPrerequisites: Map<string, string[]>;
+};
+
+export type HistoricalPatterns = {
+  similarCount: number;
+  avgArea: number;
+  // Item frequencies in similar projects
+  itemFrequency: Array<{ name: string; count: number; weight: number }>;
+  // Co-occurrence strength between items, measured as lift-like score
+  cooccurrence: Array<{ a: string; b: string; score: number; support: number }>;
+  // Typical ratios (works vs materials totals)
+  costShares: { worksShare: number; materialsShare: number; deliveryShare: number };
+  // Category cost shares, normalized to 0..1 (sum across categories)
+  categoryCostShares: Array<{ category: EstimateCategory; share: number }>;
+};
+
+export type QualityScore = {
+  score: number; // 0..1
+  completeness: number;
+  anomaly: number;
+  balance: number;
+  notes: string[];
+};
+
+const normalizeKey = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+const safeNumber = (v: any, fallback = 0): number => {
+  const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
+
+const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
+
+export function buildDependencyGraph(materials: Material[], works: Work[]): DependencyGraph {
+  const workNames = new Set((works || []).map(w => normalizeKey(w.name)));
+  const materialNames = new Set((materials || []).map(m => normalizeKey(m.name)));
+
+  // Minimal базовый граф (расширяется через обучение и историю косвенно, но без изменения UX)
+  const rules: WorkDependencies[] = [
+    {
+      workName: 'Монтаж силового каркаса стен',
+      requires: [
+        { requiresName: 'Брус', severity: 'critical', note: 'Каркас' },
+        { requiresName: 'Доска', severity: 'important', note: 'Обвязка/раскосы/обрешётка' },
+        { requiresName: 'Крепеж', severity: 'critical', note: 'Гвозди/саморезы' },
+      ],
+      prerequisites: ['Разметка свайного поля, монтаж свай'],
+    },
+    {
+      workName: 'Монтаж ветровлагозащитной мембраны',
+      requires: [
+        { requiresName: 'Ветровлагозащитная мембрана', severity: 'critical' },
+        { requiresName: 'Крепеж', severity: 'important' },
+      ],
+      prerequisites: ['Монтаж силового каркаса стен'],
+    },
+    {
+      workName: 'Утепление стен (150мм)',
+      requires: [
+        { requiresName: 'Утеплитель', severity: 'critical' },
+        { requiresName: 'Пароизоляция', severity: 'important' },
+        { requiresName: 'Крепеж', severity: 'important' },
+      ],
+      prerequisites: ['Монтаж силового каркаса стен', 'Монтаж ветровлагозащитной мембраны'],
+    },
+    {
+      workName: 'Монтаж кровли (металлочерепица)',
+      requires: [
+        { requiresName: 'Металлочерепица', severity: 'critical' },
+        { requiresName: 'Подкладочный ковер', severity: 'important' },
+        { requiresName: 'Крепеж', severity: 'critical' },
+      ],
+      prerequisites: ['Монтаж контробрешетки'],
+    },
+  ];
+
+  const graph: DependencyGraph = {
+    workToMaterials: new Map(),
+    workPrerequisites: new Map(),
+  };
+
+  // Match rules to actual catalog names by fuzzy contains (no extra deps)
+  const materialList = (materials || []).map(m => m.name);
+  const workList = (works || []).map(w => w.name);
+
+  const findContains = (needle: string, haystack: string[]): string | null => {
+    const n = normalizeKey(needle);
+    // Prefer exact word/substring matches
+    let best: string | null = null;
+    for (const h of haystack) {
+      const hk = normalizeKey(h);
+      if (hk === n) return h;
+      if (hk.includes(n)) best = best ?? h;
+    }
+    return best;
+  };
+
+  for (const r of rules) {
+    const workResolved = findContains(r.workName, workList);
+    if (!workResolved) continue;
+    if (!workNames.has(normalizeKey(workResolved))) continue;
+
+    const edges: DependencyEdge[] = [];
+    for (const req of r.requires) {
+      const materialResolved = findContains(req.requiresName, materialList);
+      if (!materialResolved) continue;
+      if (!materialNames.has(normalizeKey(materialResolved))) continue;
+      edges.push({ ...req, requiresName: materialResolved });
+    }
+
+    if (edges.length) graph.workToMaterials.set(normalizeKey(workResolved), edges);
+
+    const prereqResolved = (r.prerequisites || [])
+      .map(p => findContains(p, workList))
+      .filter(Boolean) as string[];
+
+    if (prereqResolved.length) {
+      graph.workPrerequisites.set(normalizeKey(workResolved), prereqResolved);
+    }
+  }
+
+  return graph;
+}
+
+export function analyzeHistoricalPatterns(
+  estimates: Estimate[],
+  params: { area: number; region?: string; buildingType?: string },
+): HistoricalPatterns {
+  const area = safeNumber(params.area, 0);
+  const region = normalizeKey(params.region || '');
+  const buildingType = normalizeKey(params.buildingType || '');
+
+  const similar = (estimates || []).filter(e => {
+    if (!e?.area || area <= 0) return false;
+    const areaClose = Math.abs(e.area - area) / area < 0.2;
+    const typeOk = buildingType ? normalizeKey(e.buildingType) === buildingType : true;
+    const regionOk = region ? normalizeKey((e as any).region || '') === region : true;
+    return areaClose && typeOk && regionOk;
+  });
+
+  const freq = new Map<string, number>();
+  const presenceByEstimate: Array<Set<string>> = [];
+
+  const subgroupTotals = { works: 0, materials: 0, delivery: 0 };
+  const categoryTotals = new Map<EstimateCategory, number>();
+
+  for (const est of similar) {
+    const present = new Set<string>();
+    for (const it of est.items || []) {
+      const k = normalizeKey(it.name);
+      if (!k) continue;
+      freq.set(k, (freq.get(k) || 0) + 1);
+      present.add(k);
+
+      const subtotal = safeNumber(it.total, safeNumber(it.quantity, 0) * safeNumber(it.price, 0));
+      const sg = it.subgroup || EstimateSubgroup.WORKS;
+      if (sg === EstimateSubgroup.MATERIALS) subgroupTotals.materials += subtotal;
+      else if (sg === EstimateSubgroup.DELIVERY) subgroupTotals.delivery += subtotal;
+      else subgroupTotals.works += subtotal;
+
+      categoryTotals.set(it.category, (categoryTotals.get(it.category) || 0) + subtotal);
+    }
+    presenceByEstimate.push(present);
+  }
+
+  const n = similar.length;
+  const avgArea = n ? sum(similar.map(s => safeNumber(s.area, 0))) / n : 0;
+
+  const freqEntries = Array.from(freq.entries()).map(([k, count]) => {
+    // Вес: частота * лог(1+n)
+    const weight = count * Math.log(1 + n);
+    return { name: k, count, weight };
+  });
+
+  freqEntries.sort((a, b) => b.weight - a.weight);
+
+  // Co-occurrence: compute lift-like score for top items only
+  const topKeys = freqEntries.slice(0, 60).map(x => x.name);
+  const keyIndex = new Map<string, number>();
+  topKeys.forEach((k, idx) => keyIndex.set(k, idx));
+
+  const itemSupport = new Map<string, number>();
+  for (const k of topKeys) itemSupport.set(k, 0);
+
+  for (const pres of presenceByEstimate) {
+    for (const k of topKeys) {
+      if (pres.has(k)) itemSupport.set(k, (itemSupport.get(k) || 0) + 1);
+    }
+  }
+
+  const pairSupport = new Map<string, number>();
+  for (const pres of presenceByEstimate) {
+    const presentTop = topKeys.filter(k => pres.has(k));
+    for (let i = 0; i < presentTop.length; i++) {
+      for (let j = i + 1; j < presentTop.length; j++) {
+        const a = presentTop[i];
+        const b = presentTop[j];
+        const key = a < b ? `${a}|||${b}` : `${b}|||${a}`;
+        pairSupport.set(key, (pairSupport.get(key) || 0) + 1);
+      }
+    }
+  }
+
+  const cooccurrence = Array.from(pairSupport.entries())
+    .map(([k, supp]) => {
+      const [a, b] = k.split('|||');
+      const pa = (itemSupport.get(a) || 0) / Math.max(1, n);
+      const pb = (itemSupport.get(b) || 0) / Math.max(1, n);
+      const pab = supp / Math.max(1, n);
+      // lift = P(A,B)/(P(A)P(B))
+      const score = (pa > 0 && pb > 0) ? (pab / (pa * pb)) : 0;
+      return { a, b, score, support: supp };
+    })
+    .filter(x => x.support >= 2 && x.score >= 1.2)
+    .sort((x, y) => (y.score - x.score) || (y.support - x.support))
+    .slice(0, 25);
+
+  const totalCost = subgroupTotals.works + subgroupTotals.materials + subgroupTotals.delivery;
+  const costShares = totalCost > 0
+    ? {
+      worksShare: subgroupTotals.works / totalCost,
+      materialsShare: subgroupTotals.materials / totalCost,
+      deliveryShare: subgroupTotals.delivery / totalCost,
+    }
+    : { worksShare: 0, materialsShare: 0, deliveryShare: 0 };
+
+  const totalByCat = sum(Array.from(categoryTotals.values()));
+  const categoryCostShares = Array.from(categoryTotals.entries())
+    .map(([category, v]) => ({ category, share: totalByCat > 0 ? v / totalByCat : 0 }))
+    .sort((a, b) => b.share - a.share)
+    .slice(0, 12);
+
+  return {
+    similarCount: n,
+    avgArea,
+    itemFrequency: freqEntries.slice(0, 20),
+    cooccurrence,
+    costShares,
+    categoryCostShares,
+  };
+}
+
+export function scoreEstimateQuality(
+  items: EstimateItem[],
+  opts: {
+    graph: DependencyGraph;
+    historical?: HistoricalPatterns;
+  },
+): QualityScore {
+  const notes: string[] = [];
+  const list = items || [];
+
+  const byName = new Map<string, EstimateItem>();
+  for (const it of list) {
+    const k = normalizeKey(it.name);
+    if (k) byName.set(k, it);
+  }
+
+  // Completeness: how many required materials exist for present works
+  let reqTotal = 0;
+  let reqMet = 0;
+
+  for (const it of list) {
+    const isWork = (it.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS;
+    if (!isWork) continue;
+
+    const edges = opts.graph.workToMaterials.get(normalizeKey(it.name)) || [];
+    for (const e of edges) {
+      reqTotal++;
+      if (byName.has(normalizeKey(e.requiresName))) reqMet++;
+    }
+  }
+
+  const completeness = reqTotal > 0 ? reqMet / reqTotal : 0.75;
+  if (reqTotal > 0 && completeness < 0.8) notes.push('Есть вероятные пропуски материалов к работам.');
+
+  // Anomaly: zero/negative quantities, too many duplicates, empty categories
+  let anomalyPenalty = 0;
+  const nameCounts = new Map<string, number>();
+  for (const it of list) {
+    if (!it.name) anomalyPenalty += 0.03;
+    if (safeNumber(it.quantity, 0) <= 0) anomalyPenalty += 0.05;
+    const k = normalizeKey(it.name);
+    nameCounts.set(k, (nameCounts.get(k) || 0) + 1);
+  }
+  for (const [, c] of nameCounts) {
+    if (c >= 2) anomalyPenalty += 0.02 * (c - 1);
+  }
+  const anomaly = clamp01(1 - anomalyPenalty);
+  if (anomaly < 0.8) notes.push('Есть аномалии (нулевые количества или дубли).');
+
+  // Balance: compare works/materials share against history if present
+  let balance = 0.8;
+  if (opts.historical && opts.historical.similarCount >= 2) {
+    const hist = opts.historical.costShares;
+    const totals = { works: 0, materials: 0, delivery: 0 };
+    for (const it of list) {
+      const v = safeNumber(it.total, safeNumber(it.quantity, 0) * safeNumber(it.price, 0));
+      const sg = it.subgroup || EstimateSubgroup.WORKS;
+      if (sg === EstimateSubgroup.MATERIALS) totals.materials += v;
+      else if (sg === EstimateSubgroup.DELIVERY) totals.delivery += v;
+      else totals.works += v;
+    }
+    const t = totals.works + totals.materials + totals.delivery;
+    if (t > 0) {
+      const worksShare = totals.works / t;
+      const materialsShare = totals.materials / t;
+      const diff = Math.abs(worksShare - hist.worksShare) + Math.abs(materialsShare - hist.materialsShare);
+      balance = clamp01(1 - diff);
+      if (balance < 0.7) notes.push('Соотношение работ/материалов заметно отличается от истории.');
+    }
+  }
+
+  const score = clamp01(0.45 * completeness + 0.35 * anomaly + 0.20 * balance);
+
+  return { score, completeness, anomaly, balance, notes };
+}
+
+export function buildPromptInsights(patterns: HistoricalPatterns): string {
+  const freq = patterns.itemFrequency
+    .map(x => x.name)
+    .slice(0, 12);
+
+  const co = patterns.cooccurrence
+    .slice(0, 10)
+    .map(x => `- ${x.a} + ${x.b} (сила: ${x.score.toFixed(2)}, поддержка: ${x.support})`)
+    .join('\n');
+
+  const shares = patterns.costShares;
+  const catShares = patterns.categoryCostShares
+    .slice(0, 8)
+    .map(x => `${x.category}: ${(x.share * 100).toFixed(0)}%`)
+    .join(', ');
+
+  return [
+    `Исторические паттерны (похожие проекты: ${patterns.similarCount}, средняя площадь: ${patterns.avgArea.toFixed(1)} м²):`,
+    `- Частые позиции: ${freq.join(', ') || 'нет данных'}`,
+    `- Типичное соотношение стоимости: работы ${(shares.worksShare * 100).toFixed(0)}% / материалы ${(shares.materialsShare * 100).toFixed(0)}% / доставка ${(shares.deliveryShare * 100).toFixed(0)}%`,
+    catShares ? `- Доли разделов (стоимость): ${catShares}` : '',
+    co ? `- Частые сочетания (корреляции):\n${co}` : '',
+  ].filter(Boolean).join('\n');
+}
+
+export function summarizeEstimateExample(items: EstimateItem[], maxPerCategory = 5): any {
+  const byCat = new Map<EstimateCategory, EstimateItem[]>();
+  for (const it of items || []) {
+    const list = byCat.get(it.category) || [];
+    list.push(it);
+    byCat.set(it.category, list);
+  }
+
+  const out: any = {};
+  for (const [cat, list] of byCat.entries()) {
+    const top = list
+      .slice()
+      .sort((a, b) => (safeNumber(b.total, 0) - safeNumber(a.total, 0)) || (safeNumber(b.quantity, 0) - safeNumber(a.quantity, 0)))
+      .slice(0, maxPerCategory)
+      .map(it => ({ name: it.name, unit: it.unit, quantity: safeNumber(it.quantity, 0), subgroup: it.subgroup || EstimateSubgroup.WORKS }));
+    out[cat] = top;
+  }
+  return out;
+}
+
+export function pickFewShotExamples(
+  estimates: Estimate[],
+  params: { area: number; region?: string; buildingType?: string },
+  graph: DependencyGraph,
+): Array<{ title: string; example: any }>{
+  const patterns = analyzeHistoricalPatterns(estimates, params);
+  const similar = (estimates || []).filter(e => {
+    if (!e?.area || !params.area) return false;
+    const areaClose = Math.abs(e.area - params.area) / params.area < 0.25;
+    const typeOk = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
+    const regionOk = params.region ? normalizeKey((e as any).region || '') === normalizeKey(params.region) : true;
+    return areaClose && typeOk && regionOk;
+  });
+
+  const scored = similar
+    .map(e => {
+      const q = scoreEstimateQuality(e.items || [], { graph, historical: patterns });
+      return { e, q };
+    })
+    .sort((a, b) => b.q.score - a.q.score);
+
+  const picked = scored.slice(0, 3);
+  return picked.map((x, idx) => ({
+    title: `Пример ${idx + 1} (площадь ${safeNumber(x.e.area, 0)} м², качество ${x.q.score.toFixed(2)})`,
+    example: summarizeEstimateExample(x.e.items || [], 5),
+  }));
+}
