@@ -130,6 +130,28 @@ const computePackQuantityWithReserve = (area: number, packArea: number): number 
   return base + reserve;
 };
 
+const parseProfileDimensionsFromName = (nameRaw: string): { thicknessMm?: number; widthMm?: number; lengthMm?: number } | null => {
+  const s = String(nameRaw || '').toLowerCase();
+  // patterns like 12.5x96x6000 or 50x50x6000 (mm) or with spaces and 'мм'
+  const re = /([\d\.\,]+)\s*[x×]\s*([\d\.\,]+)\s*[x×]\s*([\d\.\,]+)\s*(?:mm|мм)?/i;
+  const m = s.match(re);
+  if (!m) return null;
+  const a = safeNumber(m[1].replace(',', '.'), NaN);
+  const b = safeNumber(m[2].replace(',', '.'), NaN);
+  const c = safeNumber(m[3].replace(',', '.'), NaN);
+  if (!isFinite(a) || !isFinite(b) || !isFinite(c)) return null;
+  // Heuristic: if one value >= 1000 assume it's length in mm
+  const parts = [a, b, c];
+  const lengthIdx = parts.findIndex(v => v >= 1000) ;
+  if (lengthIdx === -1) {
+    // fallback: assume third is length
+    return { thicknessMm: a, widthMm: b, lengthMm: c };
+  }
+  const length = parts[lengthIdx];
+  const others = parts.filter((_, idx) => idx !== lengthIdx);
+  return { thicknessMm: others[0], widthMm: others[1], lengthMm: length };
+};
+
 const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): EstimateItem[] => {
   const area = safeNumber(projectArea, 0);
   return (items || []).map((it) => {
@@ -160,6 +182,27 @@ const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): 
     if (unit === 'м2' && quantity > 0) {
       const fallbackQty = Math.max(1, Math.round(quantity / packArea));
       return { ...it, unit: 'шт', quantity: fallbackQty, total: (it.price || 0) * fallbackQty };
+    }
+
+    // If name contains profile dimensions like 50x50x6000 (mm) — convert linear/area units to pieces
+    const profile = parseProfileDimensionsFromName(it.name);
+    if (profile && profile.lengthMm) {
+      const lengthM = profile.lengthMm / 1000;
+
+      // Convert linear meters (м/п) to pieces using length per piece
+      if (unit === 'м/п' || unit === 'м/п.' || unit === 'м/п' ) {
+        const pieces = Math.max(1, Math.ceil(quantity / lengthM));
+        return { ...it, unit: 'шт', quantity: pieces, total: (it.price || 0) * pieces };
+      }
+
+      // If project area is known and this is a board/profile (width x length) and unit is м2 — compute pieces from area
+      if ((unit === 'м2' || unit === 'м²') && profile.widthMm) {
+        const widthM = profile.widthMm / 1000;
+        const areaPerPiece = Math.max(0.0001, widthM * lengthM);
+        const areaForCalc = area > 0 ? area : quantity; // prefer project area when provided
+        const pieces = Math.max(1, Math.ceil(areaForCalc / areaPerPiece));
+        return { ...it, unit: 'шт', quantity: pieces, total: (it.price || 0) * pieces };
+      }
     }
 
     return { ...it, unit };
