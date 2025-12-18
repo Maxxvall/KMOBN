@@ -284,6 +284,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
     const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('quarter');
     const [showOnlyDifferent, setShowOnlyDifferent] = useState<boolean>(false);
     const [showOnlySignificant, setShowOnlySignificant] = useState<boolean>(false);
+    const [showOnlySame, setShowOnlySame] = useState<boolean>(false);
     const [significantThreshold, setSignificantThreshold] = useState<number>(10);
     const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
     const [activePieIndex, setActivePieIndex] = useState<number | null>(null);
@@ -305,6 +306,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
             if (saved.periodPreset === 'month' || saved.periodPreset === 'quarter' || saved.periodPreset === 'year' || saved.periodPreset === 'all') setPeriodPreset(saved.periodPreset);
             if (typeof saved.showOnlyDifferent === 'boolean') setShowOnlyDifferent(saved.showOnlyDifferent);
             if (typeof saved.showOnlySignificant === 'boolean') setShowOnlySignificant(saved.showOnlySignificant);
+            if (typeof saved.showOnlySame === 'boolean') setShowOnlySame(saved.showOnlySame);
             if (typeof saved.significantThreshold === 'number') setSignificantThreshold(saved.significantThreshold);
         } catch {
             // ignore
@@ -322,6 +324,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                 periodPreset,
                 showOnlyDifferent,
                 showOnlySignificant,
+                showOnlySame,
                 significantThreshold,
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
@@ -552,6 +555,53 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
 
     const categoryPieData = categoryCosts;
 
+    const stackedCategoryMeta = useMemo(() => {
+        const limit = 6;
+        const top = categoryCosts.slice(0, limit).map(c => c.name);
+        const rest = categoryCosts.slice(limit).map(c => c.name);
+        const stacked = [...top];
+        if (rest.length) stacked.push('Прочее');
+        if (!stacked.length) stacked.push('Итого');
+        return { stacked, extras: rest };
+    }, [categoryCosts]);
+
+    const categoryTotalsByEstimate = useMemo(() => {
+        const result: Record<string, Record<string, number>> = {};
+        if (!detailedComparison) return result;
+        [detailedComparison.est1, detailedComparison.est2].forEach(est => {
+            if (!est) return;
+            const totals: Record<string, number> = {};
+            est.items.forEach(it => {
+                totals[it.category] = (totals[it.category] || 0) + (it.total || 0);
+            });
+            result[est.id] = totals;
+        });
+        return result;
+    }, [detailedComparison]);
+
+    const stackedComparisonData = useMemo(() => {
+        if (!detailedComparison) return [] as Array<Record<string, number | string>>;
+        const entries = [detailedComparison.est1, detailedComparison.est2].filter(Boolean) as Estimate[];
+        if (!entries.length) return [];
+        return entries.map(est => {
+            const totals = categoryTotalsByEstimate[est.id] || {};
+            const row: Record<string, number | string> = { name: est.estimateNumber };
+            stackedCategoryMeta.stacked.forEach(category => {
+                if (category === 'Прочее') {
+                    const sum = stackedCategoryMeta.extras.reduce((s, cat) => s + Math.round(totals[cat] || 0), 0);
+                    row[category] = sum;
+                } else if (category === 'Итого') {
+                    row[category] = Math.round(est.total || 0);
+                } else {
+                    row[category] = Math.round(totals[category] || 0);
+                }
+            });
+            return row;
+        });
+    }, [categoryTotalsByEstimate, detailedComparison, stackedCategoryMeta]);
+
+    const hasStackedComparison = stackedComparisonData.length > 0 && stackedCategoryMeta.stacked.length > 0;
+
     // Подготовка: таблица категорий с сортировкой/поиском/спарклайнами
     const categoriesTable = useMemo(() => {
         if (!detailedComparison) return [] as Array<any>;
@@ -743,6 +793,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                             setPeriodPreset('quarter');
                             setShowOnlyDifferent(false);
                             setShowOnlySignificant(false);
+                            setShowOnlySame(false);
                             setSignificantThreshold(10);
                             setCategoryTableQuery('');
                             setItemQuery('');
@@ -898,27 +949,51 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                             <div className="text-sm text-text-secondary">Выберите две сметы для детального сравнения по категориям и позициям.</div>
                         </div>
                         <div className="text-xs text-text-secondary">
-                            {selectedCategory ? `Сравнение по категории: ${selectedCategory}` : 'Сравнение по итогу'}
+                            {selectedCategory ? `Сравнение по категории: ${selectedCategory}` : 'Сравнение по итоговой сумме с разбивкой по блокам'}
                         </div>
                     </div>
 
                     {estimateComparison.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={280}>
-                            <BarChart data={estimateComparison}>
-                                <defs>
-                                    <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
-                                        <stop offset="0%" stopColor="#7C3AED" stopOpacity={0.95} />
-                                        <stop offset="100%" stopColor="#06B6D4" stopOpacity={0.65} />
-                                    </linearGradient>
-                                </defs>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                                <XAxis dataKey="name" />
-                                <YAxis />
-                                <Tooltip formatter={(value: any) => [formatRub(Number(value || 0)), 'Стоимость']} />
-                                <Legend />
-                                <Bar dataKey="total" fill="url(#barFill)" name="Стоимость" isAnimationActive animationDuration={650} radius={[10, 10, 0, 0]} />
-                            </BarChart>
-                        </ResponsiveContainer>
+                        hasStackedComparison ? (
+                            <ResponsiveContainer width="100%" height={320}>
+                                <BarChart data={stackedComparisonData} margin={{ bottom: 10 }}>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
+                                    <XAxis dataKey="name" />
+                                    <YAxis />
+                                    <Tooltip formatter={(value: any, name: string) => [formatRub(Number(value || 0)), name]} />
+                                    <Legend />
+                                    {stackedCategoryMeta.stacked.map((category, idx) => (
+                                        <Bar
+                                            key={category}
+                                            dataKey={category}
+                                            stackId="stack"
+                                            name={category}
+                                            radius={[10, 10, 0, 0]}
+                                            fill={CHART_COLORS[idx % CHART_COLORS.length]}
+                                            isAnimationActive
+                                            animationDuration={750}
+                                        />
+                                    ))}
+                                </BarChart>
+                            </ResponsiveContainer>
+                        ) : (
+                            <ResponsiveContainer width="100%" height={280}>
+                                <BarChart data={estimateComparison}>
+                                    <defs>
+                                        <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="0%" stopColor="#7C3AED" stopOpacity={0.95} />
+                                            <stop offset="100%" stopColor="#06B6D4" stopOpacity={0.65} />
+                                        </linearGradient>
+                                    </defs>
+                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
+                                    <XAxis dataKey="name" />
+                                    <YAxis />
+                                    <Tooltip formatter={(value: any) => [formatRub(Number(value || 0)), 'Стоимость']} />
+                                    <Legend />
+                                    <Bar dataKey="total" fill="url(#barFill)" name="Стоимость" isAnimationActive animationDuration={650} radius={[10, 10, 0, 0]} />
+                                </BarChart>
+                            </ResponsiveContainer>
+                        )
                     ) : (
                         <div className="text-sm text-text-secondary">Выберите хотя бы одну смету для сравнения.</div>
                     )}
@@ -1043,6 +1118,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                             Только значимые
                                         </label>
                                         <label className="flex items-center gap-2 text-text-primary text-sm">
+                                            <input type="checkbox" checked={showOnlySame} onChange={(e) => setShowOnlySame(e.target.checked)} />
+                                            Только похожие
+                                        </label>
+                                        <label className="flex items-center gap-2 text-text-primary text-sm">
                                             <span className="text-text-secondary">Порог</span>
                                             <input
                                                 type="number"
@@ -1076,6 +1155,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         const allItems = detailedComparison.itemsComparison.filter(it => (it.category || 'ОБЩАЯ') === category);
                                         const q = itemQuery.trim().toLowerCase();
                                         let filteredItems = allItems.filter(it => {
+                                            if (showOnlySame && (it.diff !== 0)) return false;
                                             if (showOnlyDifferent && (it.diff === 0)) return false;
                                             if (showOnlySignificant && (Math.abs(it.diffPct || 0) < significantThreshold)) return false;
                                             if (q && !`${it.name} ${it.unit || ''}`.toLowerCase().includes(q)) return false;
@@ -1142,7 +1222,11 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
 
                                                         <div className="flex items-center gap-3 flex-wrap">
                                                             <div className="flex items-center gap-2">
-                                                                <div className="h-2 w-44 bg-background border border-border rounded-full overflow-hidden">
+                                                                <div
+                                                                    className="h-2 w-44 bg-background border border-border rounded-full overflow-hidden"
+                                                                    title={`Доля изменений по категории: ${share}% от общей суммы отклонений (${formatRub(categorySum)})`}
+                                                                    aria-label={`Доля изменений по категории: ${share}% от общей суммы отклонений (${formatRub(categorySum)})`}
+                                                                >
                                                                     <div className="h-full bg-primary" style={{ width: `${clamp(share, 0, 100)}%` }} />
                                                                 </div>
                                                                 <div className="text-xs text-text-secondary">{clamp(share, 0, 100)}%</div>
