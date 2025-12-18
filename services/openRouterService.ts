@@ -236,17 +236,26 @@ const buildHistoricalContext = (estimates: Estimate[], params: GenerationParams,
 };
 
 const buildMaterialsCatalog = (materials: Material[]): string => {
-  const slice = (materials || []).slice(0, 300);
-  return slice
-    .map(m => `- ${m.name} | ${m.price} ₽ | ${m.category}`)
-    .join('\n');
+  // Keep context reasonably bounded: too long prompts increase failure rate.
+  const maxChars = 22_000;
+  let out = '';
+  for (const m of (materials || [])) {
+    const line = `- ${m.name} | ${m.price} ₽ | ${m.category}`;
+    if ((out.length + line.length + 1) > maxChars) break;
+    out += (out ? '\n' : '') + line;
+  }
+  return out;
 };
 
 const buildWorksCatalog = (works: Work[]): string => {
-  const slice = (works || []).slice(0, 300);
-  return slice
-    .map(w => `- ${w.name} | ${w.price} ₽ | ${w.category}`)
-    .join('\n');
+  const maxChars = 22_000;
+  let out = '';
+  for (const w of (works || [])) {
+    const line = `- ${w.name} | ${w.price} ₽ | ${w.category}`;
+    if ((out.length + line.length + 1) > maxChars) break;
+    out += (out ? '\n' : '') + line;
+  }
+  return out;
 };
 
 async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number }) {
@@ -389,6 +398,48 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
 
 const normalizeKey = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
+const normalizeTokens = (s: string): string[] => {
+  const cleaned = normalizeKey(s)
+    .replace(/[^a-zа-я0-9\s./-]+/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return [];
+
+  const raw = cleaned.split(' ');
+  // Drop common noise/version tokens
+  return raw
+    .map(t => t.trim())
+    .filter(Boolean)
+    .filter(t => !/^v\d+$/i.test(t))
+    .filter(t => t !== 'мм' && t !== 'м' && t !== 'см');
+};
+
+const tokenOverlapScore = (aTokens: string[], bTokens: string[]): number => {
+  if (aTokens.length === 0 || bTokens.length === 0) return 0;
+  const aSet = new Set(aTokens);
+  const bSet = new Set(bTokens);
+  let common = 0;
+  for (const t of aSet) if (bSet.has(t)) common++;
+  // How much of A is covered by B
+  return common / aSet.size;
+};
+
+const findBestCatalogMatch = (name: string, candidates: string[]): { best?: string; score: number } => {
+  const aTokens = normalizeTokens(name);
+  if (aTokens.length === 0) return { score: 0 };
+  let best: string | undefined;
+  let bestScore = 0;
+
+  for (const c of candidates) {
+    const score = tokenOverlapScore(aTokens, normalizeTokens(c));
+    if (score > bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+  return { best, score: bestScore };
+};
+
 const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works: Work[]): { items: EstimateItem[]; warnings: string[] } => {
   const materialIndex = new Map<string, Material>();
   const workIndex = new Map<string, Work>();
@@ -396,15 +447,28 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
   for (const w of works || []) workIndex.set(normalizeKey(w.name), w);
 
   const knownNames = new Set<string>([...materialIndex.keys(), ...workIndex.keys()]);
+  const knownOriginalNames = Array.from(new Set<string>([
+    ...(materials || []).map(m => m.name),
+    ...(works || []).map(w => w.name),
+  ]));
 
   const warnings: string[] = [];
   const priced: EstimateItem[] = [];
 
   for (const it of items || []) {
-    const key = normalizeKey(it.name);
+    let resolvedName = it.name;
+    let key = normalizeKey(resolvedName);
     if (!knownNames.has(key)) {
-      warnings.push(`Пропущена позиция (нет в справочниках): ${it.name}`);
-      continue;
+      // Try to map AI name to the closest catalog item.
+      const match = findBestCatalogMatch(resolvedName, knownOriginalNames);
+      if (match.best && match.score >= 0.72) {
+        resolvedName = match.best;
+        key = normalizeKey(resolvedName);
+        warnings.push(`AI-именование сопоставлено со справочником: "${it.name}" → "${resolvedName}"`);
+      } else {
+        warnings.push(`Пропущена позиция (нет в справочниках): ${it.name}`);
+        continue;
+      }
     }
 
     const preferMaterials = it.subgroup === EstimateSubgroup.MATERIALS || it.subgroup === EstimateSubgroup.DELIVERY;
@@ -417,13 +481,14 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
     }
 
     if (!matched) {
-      warnings.push(`Не удалось определить цену для позиции: ${it.name}`);
+      warnings.push(`Не удалось определить цену для позиции: ${resolvedName}`);
       continue;
     }
 
     const price = (matched as any).price || 0;
     priced.push({
       ...it,
+      name: resolvedName,
       price,
       total: (it.quantity || 0) * price,
     });
