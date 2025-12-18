@@ -16,6 +16,12 @@ interface PricesProps {
     onUpdateAllPrices: () => void;
     onDeleteMaterial: (materialId: string) => void;
     onEditMaterialPrice: (materialId: string, newPrice: number) => void;
+
+    apiDailyLimit: number;
+    apiUsageCount: number;
+    apiQuotaLeft: number;
+    isUpdatingAllPrices: boolean;
+    updateAllPricesProgress: { done: number; total: number } | null;
 }
 
 const MATERIAL_SOURCES: Array<{ value: MaterialSearchSource; label: string }> = [
@@ -26,7 +32,19 @@ const MATERIAL_SOURCES: Array<{ value: MaterialSearchSource; label: string }> = 
     { value: 'GRANDLINE', label: 'Грандлайн' },
 ];
 
-const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice, onUpdateAllPrices, onDeleteMaterial, onEditMaterialPrice }) => {
+const Prices: React.FC<PricesProps> = ({
+    materials,
+    onAddMaterial,
+    onUpdatePrice,
+    onUpdateAllPrices,
+    onDeleteMaterial,
+    onEditMaterialPrice,
+    apiDailyLimit,
+    apiUsageCount,
+    apiQuotaLeft,
+    isUpdatingAllPrices,
+    updateAllPricesProgress,
+}) => {
     const [newMaterialName, setNewMaterialName] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [newMaterialPrice, setNewMaterialPrice] = useState('');
@@ -89,7 +107,7 @@ const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice
             <h2 className="text-2xl font-bold text-text-primary mb-6">Цены материалов</h2>
 
             {/* Добавление нового материала */}
-            <div className="flex gap-4 mb-6">
+            <div className="flex gap-4 mb-3">
                 <input
                     type="text"
                     placeholder="Наименование материала"
@@ -166,10 +184,25 @@ const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice
                 </button>
                 <button
                     onClick={onUpdateAllPrices}
-                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
+                    disabled={isUpdatingAllPrices}
+                    className="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
                 >
-                    Обновить все цены
+                    {isUpdatingAllPrices
+                        ? `Обновление... (${updateAllPricesProgress?.done ?? 0}/${updateAllPricesProgress?.total ?? 0})`
+                        : 'Обновить все цены'}
                 </button>
+            </div>
+
+            <div className="flex items-center justify-between mb-6">
+                <div className="text-sm text-text-secondary">
+                    Квота Google API: <span className="text-text-primary font-semibold">{apiUsageCount}/{apiDailyLimit}</span>
+                    {' '}• Осталось сегодня: <span className="text-text-primary font-semibold">{apiQuotaLeft}</span>
+                </div>
+                {isUpdatingAllPrices && (
+                    <div className="text-sm text-text-secondary">
+                        Идёт обновление цен, подождите...
+                    </div>
+                )}
             </div>
 
             {/* Фильтр по категориям */}
@@ -200,11 +233,22 @@ const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice
                     </thead>
                     <tbody className="text-text-primary">
                         {filteredMaterials.map(material => (
+                            (() => {
+                                const lastMs = Date.parse(material.lastUpdated);
+                                const daysOld = Number.isFinite(lastMs) ? (Date.now() - lastMs) / (1000 * 60 * 60 * 24) : Infinity;
+                                const isStale3d = daysOld > 3;
+                                const lastUpdatedLabel = new Date(material.lastUpdated).toLocaleDateString('ru-RU');
+                                return (
                             <tr key={material.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
                                 <td className="text-left py-3 px-4">{material.category}</td>
                                 <td className="text-left py-3 px-4">{material.name}</td>
                                 <td className="text-right py-3 px-4">{material.price.toLocaleString('ru-RU')} ₽</td>
-                                <td className="text-center py-3 px-4">{new Date(material.lastUpdated).toLocaleDateString('ru-RU')}</td>
+                                <td className="text-center py-3 px-4">
+                                    <div>{lastUpdatedLabel}</div>
+                                    {isStale3d && (
+                                        <div className="text-xs text-primary font-semibold mt-1">Цена старше 3 дней</div>
+                                    )}
+                                </td>
                                 <td className="text-center py-3 px-4">
                                     {editingPrice && editingPrice.id === material.id ? (
                                         <div className="flex items-center gap-2">
@@ -238,15 +282,22 @@ const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice
                                                     Изменить
                                                 </button>
                                             ) : (
-                                                <button
-                                                    onClick={() => onUpdatePrice(material.id)}
-                                                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
-                                                >
-                                                    Обновить
-                                                </button>
+                                                <div className="flex flex-col items-center gap-1">
+                                                    <button
+                                                        onClick={() => onUpdatePrice(material.id)}
+                                                        disabled={isUpdatingAllPrices}
+                                                        className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
+                                                    >
+                                                        Обновить
+                                                    </button>
+                                                    <span className="text-xs text-text-secondary border border-border rounded px-2 py-0.5">
+                                                        {lastUpdatedLabel}
+                                                    </span>
+                                                </div>
                                             )}
                                             <button
                                                 onClick={() => onDeleteMaterial(material.id)}
+                                                disabled={isUpdatingAllPrices}
                                                 className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
                                             >
                                                 Удалить
@@ -255,6 +306,8 @@ const Prices: React.FC<PricesProps> = ({ materials, onAddMaterial, onUpdatePrice
                                     )}
                                 </td>
                             </tr>
+                                );
+                            })()
                         ))}
                         {filteredMaterials.length === 0 && (
                             <tr>

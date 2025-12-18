@@ -15,6 +15,7 @@ import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
+import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, shouldUpdatePrice } from './services/priceCache';
 import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 
@@ -40,6 +41,10 @@ const App: React.FC = () => {
     const [viewAfterSave, setViewAfterSave] = useState<View>(View.HISTORY);
     const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [pendingView, setPendingView] = useState<View | null>(null);
+
+    const [isUpdatingAllPrices, setIsUpdatingAllPrices] = useState(false);
+    const [updateAllPricesProgress, setUpdateAllPricesProgress] = useState<{ done: number; total: number } | null>(null);
+    const [apiUsageRefreshTick, setApiUsageRefreshTick] = useState(0);
 
     const [isSaving, setIsSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -427,29 +432,101 @@ const App: React.FC = () => {
         const material = materials.find(m => m.id === materialId);
         if (!material || material.isManualPrice) return;
 
+        const cacheKey = getPriceCacheKey({
+            materialId: material.id,
+            materialName: material.name,
+            source: material.searchSource,
+            minPrice: material.searchMinPrice,
+            maxPrice: material.searchMaxPrice,
+        });
+
+        // Не обновляем, если цена свежая (<24ч) или квота исчерпана
+        if (!shouldUpdatePrice({ lastUpdated: material.lastUpdated, cacheKey, limit: DEFAULT_API_DAILY_LIMIT })) {
+            return;
+        }
+
         try {
             const newPrice = await searchPrice(material.name, {
                 source: material.searchSource,
                 minPrice: material.searchMinPrice,
                 maxPrice: material.searchMaxPrice,
+                materialId: material.id,
+                lastUpdated: material.lastUpdated,
+                apiDailyLimit: DEFAULT_API_DAILY_LIMIT,
+                fallbackPrice: material.price,
             });
             const updatedMaterial = { ...material, price: newPrice, lastUpdated: new Date().toISOString() };
             await updateMaterial(updatedMaterial);
             setMaterials(prev => prev.map(m => m.id === materialId ? updatedMaterial : m));
             // Update prices in draft estimates
             updateDraftEstimatesWithNewMaterialPrice(material.name, newPrice);
+            setApiUsageRefreshTick(t => t + 1);
         } catch (error) {
             console.error('Failed to update price:', error);
+            setApiUsageRefreshTick(t => t + 1);
         }
     }, [materials]);
 
     const handleUpdateAllPrices = useCallback(async () => {
+        if (isUpdatingAllPrices) return;
+
         await withAutosaveSuppressed(async () => {
-            for (const material of materials) {
-                await handleUpdatePrice(material.id);
+            setIsUpdatingAllPrices(true);
+            try {
+                // 1) Фильтруем материалы, которые нужно обновить
+                let materialsToUpdate = materials
+                    .filter(m => !m.isManualPrice)
+                    .filter(m => {
+                        const last = Date.parse(m.lastUpdated);
+                        if (!Number.isFinite(last)) return true;
+                        const daysSinceUpdate = (Date.now() - last) / (1000 * 60 * 60 * 24);
+                        return daysSinceUpdate > 1;
+                    })
+                    // Сначала самые старые
+                    .sort((a, b) => {
+                        const aT = Date.parse(a.lastUpdated);
+                        const bT = Date.parse(b.lastUpdated);
+                        return (Number.isFinite(aT) ? aT : 0) - (Number.isFinite(bT) ? bT : 0);
+                    });
+
+                // 2) Проверяем лимит API
+                const availableQuota = getAvailableQuota(DEFAULT_API_DAILY_LIMIT);
+                if (availableQuota < materialsToUpdate.length) {
+                    alert(
+                        `Недостаточно квоты API. Доступно: ${availableQuota} из ${DEFAULT_API_DAILY_LIMIT}. ` +
+                        `Нужно обновить: ${materialsToUpdate.length}. Обновлю только самые старые цены.`
+                    );
+                    materialsToUpdate = materialsToUpdate.slice(0, availableQuota);
+                }
+
+                setUpdateAllPricesProgress({ done: 0, total: materialsToUpdate.length });
+                if (materialsToUpdate.length === 0) {
+                    setApiUsageRefreshTick(t => t + 1);
+                    return;
+                }
+
+                // 3) Батчинг
+                const BATCH_SIZE = 5;
+                const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+                let done = 0;
+                for (let i = 0; i < materialsToUpdate.length; i += BATCH_SIZE) {
+                    const batch = materialsToUpdate.slice(i, i + BATCH_SIZE);
+                    await Promise.allSettled(batch.map(m => handleUpdatePrice(m.id)));
+                    done += batch.length;
+                    setUpdateAllPricesProgress({ done, total: materialsToUpdate.length });
+                    setApiUsageRefreshTick(t => t + 1);
+
+                    if (i + BATCH_SIZE < materialsToUpdate.length) {
+                        await sleep(2000);
+                    }
+                }
+            } finally {
+                setIsUpdatingAllPrices(false);
+                setUpdateAllPricesProgress(null);
             }
         });
-    }, [handleUpdatePrice, materials, withAutosaveSuppressed]);
+    }, [handleUpdatePrice, isUpdatingAllPrices, materials, withAutosaveSuppressed]);
 
     const handleEditMaterialPrice = useCallback(async (materialId: string, newPrice: number) => {
         const material = materials.find(m => m.id === materialId);
@@ -549,6 +626,13 @@ const App: React.FC = () => {
         }
     }, []);
 
+    // Snapshot для UI (квота API). apiUsageRefreshTick нужен, чтобы гарантированно триггерить перерендер
+    // даже если обновление цены завершилось ошибкой и не поменяло materials.
+    void apiUsageRefreshTick;
+    const apiUsageToday = getApiUsageToday();
+    const apiUsageCount = apiUsageToday.count;
+    const apiQuotaLeft = getAvailableQuota(DEFAULT_API_DAILY_LIMIT);
+
 
     return (
         <div className="min-h-screen bg-background text-text-primary">
@@ -595,6 +679,11 @@ const App: React.FC = () => {
                                 onUpdateAllPrices={handleUpdateAllPrices}
                                 onDeleteMaterial={handleDeleteMaterial}
                                 onEditMaterialPrice={handleEditMaterialPrice}
+                                apiDailyLimit={DEFAULT_API_DAILY_LIMIT}
+                                apiUsageCount={apiUsageCount}
+                                apiQuotaLeft={apiQuotaLeft}
+                                isUpdatingAllPrices={isUpdatingAllPrices}
+                                updateAllPricesProgress={updateAllPricesProgress}
                             />
                         )}
                         {view === View.WORKS && (

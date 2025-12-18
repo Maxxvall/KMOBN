@@ -1,4 +1,15 @@
 import type { MaterialSearchSource } from '../types';
+import {
+    DEFAULT_API_DAILY_LIMIT,
+    getAvailableQuota,
+    getCachedPriceEntry,
+    getCachedPriceEntryAllowExpired,
+    getPriceCacheKey,
+    incrementApiUsageToday,
+    isApiQuotaExceeded,
+    isEntryFresh,
+    setCachedPriceEntry,
+} from './priceCache';
 
 // Google Custom Search API constants
 const GOOGLE_API_KEY = 'AIzaSyBkTLQk7oZLfTuLo6AyjqunfrBGb4Au3yQ'; // Your API key
@@ -8,6 +19,13 @@ export interface SearchPriceOptions {
     source?: MaterialSearchSource;
     minPrice?: number;
     maxPrice?: number;
+
+    // Для долговременного кэша и контроля квоты
+    materialId?: string;
+    lastUpdated?: string;
+    apiDailyLimit?: number;
+    fallbackPrice?: number;
+    allowStaleCacheOnQuotaExceeded?: boolean;
 }
 
 const SOURCE_QUERY: Record<MaterialSearchSource, string> = {
@@ -26,6 +44,49 @@ export interface SearchResult {
 
 export async function searchPrice(materialName: string, options: SearchPriceOptions = {}): Promise<number> {
     try {
+        const apiDailyLimit = options.apiDailyLimit ?? DEFAULT_API_DAILY_LIMIT;
+        const allowStaleCacheOnQuotaExceeded = options.allowStaleCacheOnQuotaExceeded ?? true;
+
+        const cacheKey = getPriceCacheKey({
+            materialId: options.materialId,
+            materialName,
+            source: options.source,
+            minPrice: options.minPrice,
+            maxPrice: options.maxPrice,
+        });
+
+        // 1) Если в localStorage есть свежая цена — возвращаем и не тратим API
+        const cachedFresh = getCachedPriceEntry(cacheKey);
+        if (cachedFresh && isEntryFresh(cachedFresh)) {
+            console.info('[priceService] returning fresh cached price', {
+                materialName,
+                cacheKey,
+                price: cachedFresh.price,
+                timestamp: cachedFresh.timestamp,
+            });
+            return cachedFresh.price;
+        }
+
+        // 2) Если квота исчерпана — возвращаем старое значение (если есть), либо ошибку
+        if (isApiQuotaExceeded(apiDailyLimit)) {
+            const cachedAny = allowStaleCacheOnQuotaExceeded ? getCachedPriceEntryAllowExpired(cacheKey) : null;
+            const fallback = typeof options.fallbackPrice === 'number' && isFinite(options.fallbackPrice) ? options.fallbackPrice : null;
+            if (cachedAny) {
+                console.warn('[priceService] API quota exceeded, returning cached (stale) price', {
+                    materialName,
+                    cacheKey,
+                    price: cachedAny.price,
+                    timestamp: cachedAny.timestamp,
+                });
+                return cachedAny.price;
+            }
+            if (fallback != null) {
+                console.warn('[priceService] API quota exceeded, returning fallback price', { materialName, fallback });
+                return fallback;
+            }
+            throw new Error('API quota exceeded');
+        }
+
         // Query for price search, focusing on Russian sites
         let query = `цена ${materialName}`;
         if (options.source) {
@@ -46,12 +107,9 @@ export async function searchPrice(materialName: string, options: SearchPriceOpti
             return true;
         };
         const NUM_PER_PAGE = 10;
-        const MAX_PAGES = 2; // fetch up to 20 results by default (adjust if needed)
-        const PER_PAGE_DELAY_MS = 350; // small delay between page requests to avoid rate limits
-
-        // Simple in-memory cache for page responses (keyed by query+start)
-        const SEARCH_CACHE_TTL = 1000 * 60 * 10; // 10 minutes
-        const searchCache: Map<string, { ts: number; data: any }> = new Map();
+        // Важно для лимита API: 1 вызов Google API на 1 материал.
+        const MAX_PAGES = 1;
+        const PER_PAGE_DELAY_MS = 350; // небольшой интервал между страницами (если MAX_PAGES увеличат)
 
         const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -160,31 +218,30 @@ export async function searchPrice(materialName: string, options: SearchPriceOpti
             return null;
         };
 
-        // Fetch multiple pages (start=1,11,21,...) with caching and backoff
+        // Fetch pages (start=1,11,...) with backoff
         for (let page = 0; page < MAX_PAGES; page++) {
             const startIndex = page * NUM_PER_PAGE + 1;
             const url = `https://www.googleapis.com/customsearch/v1?key=${GOOGLE_API_KEY}&cx=${SEARCH_ENGINE_ID}&q=${encodeURIComponent(query)}&num=${NUM_PER_PAGE}&start=${startIndex}`;
             const maskedUrl = url.replace(/(key=)[^&]+/, '$1***');
             console.debug('[priceService] fetching page', { page: page + 1, startIndex, apiUrl: url, apiUrlMasked: maskedUrl });
 
-            const cacheKey = `cs:${encodeURIComponent(query)}:start=${startIndex}`;
+            // На всякий случай проверяем квоту перед реальным запросом
+            if (getAvailableQuota(apiDailyLimit) <= 0) {
+                console.warn('[priceService] Quota is exhausted mid-search; stopping fetch', { materialName, page: page + 1 });
+                break;
+            }
+
             let data: any = null;
-            const cached = searchCache.get(cacheKey);
-            if (cached && Date.now() - cached.ts < SEARCH_CACHE_TTL) {
-                data = cached.data;
-                console.debug('[priceService] using cached page', { page: page + 1, cacheKey });
-            } else {
-                try {
-                    const response = await fetchWithRetry(url);
-                    data = await response.json();
-                    searchCache.set(cacheKey, { ts: Date.now(), data });
-                    // small delay to avoid rate limits when iterating pages
-                    await sleep(PER_PAGE_DELAY_MS);
-                } catch (err: any) {
-                    // On repeated 429s or fetch failures stop fetching more pages but continue with parsed results
-                    console.warn('[priceService] Stopping further pages due to fetch error', { page: page + 1, error: err && err.message ? err.message : err });
-                    break;
-                }
+            try {
+                const response = await fetchWithRetry(url);
+                // Считаем 1 реальный успешный вызов Google API
+                incrementApiUsageToday(1);
+                data = await response.json();
+                await sleep(PER_PAGE_DELAY_MS);
+            } catch (err: any) {
+                // On repeated 429s or fetch failures stop fetching more pages but continue with parsed results
+                console.warn('[priceService] Stopping further pages due to fetch error', { page: page + 1, error: err && err.message ? err.message : err });
+                break;
             }
 
             const items: SearchResult[] = (data && data.items) || [];
@@ -269,6 +326,12 @@ export async function searchPrice(materialName: string, options: SearchPriceOpti
         const chosenLinks = linkSets[String(chosenRounded)] ? Array.from(linkSets[String(chosenRounded)]) : [];
         const chosenCacheLinks = chosenLinks.map(l => `https://webcache.googleusercontent.com/search?q=cache:${encodeURIComponent(l)}`);
         console.info('[priceService] selected price by frequency', { materialName, totalFound: prices.length, counts: countsObj, chosen: chosenRounded, chosenLinks, chosenCacheLinks });
+
+        // Сохраняем результат в долговременный кэш
+        setCachedPriceEntry(cacheKey, {
+            price: chosenRounded,
+            source: options.source,
+        });
         return chosenRounded;
     } catch (error) {
         console.error('[priceService] Error searching price:', { materialName, error });
