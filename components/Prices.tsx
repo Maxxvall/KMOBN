@@ -236,7 +236,7 @@ const Prices: React.FC<PricesProps> = ({
                             (() => {
                                 const lastMs = Date.parse(material.lastUpdated);
                                 const daysOld = Number.isFinite(lastMs) ? (Date.now() - lastMs) / (1000 * 60 * 60 * 24) : Infinity;
-                                const isStale3d = daysOld > 3;
+                                const isStale3d = !material.isManualPrice && daysOld > 3;
                                 const lastUpdatedLabel = new Date(material.lastUpdated).toLocaleDateString('ru-RU');
                                 return (
                             <tr key={material.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
