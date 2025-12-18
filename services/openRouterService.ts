@@ -59,6 +59,124 @@ const safeNumber = (v: any, fallback = 0): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const extractFirstJsonLikeSubstring = (text: string): string => {
+  const s = (text || '').trim();
+  if (!s) return '';
+  const startObj = s.indexOf('{');
+  const startArr = s.indexOf('[');
+  const start = startObj >= 0 ? startObj : (startArr >= 0 ? startArr : -1);
+  if (start < 0) return s;
+
+  const stack: Array<'{' | '['> = [];
+  let inString = false;
+  let quote: '"' | "'" | null = null;
+  let escape = false;
+
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escape = true;
+        continue;
+      }
+      if (quote && ch === quote) {
+        inString = false;
+        quote = null;
+        continue;
+      }
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      quote = ch as any;
+      continue;
+    }
+
+    if (ch === '{' || ch === '[') {
+      stack.push(ch);
+      continue;
+    }
+    if (ch === '}' || ch === ']') {
+      const top = stack[stack.length - 1];
+      const ok = (ch === '}' && top === '{') || (ch === ']' && top === '[');
+      if (ok) {
+        stack.pop();
+        if (stack.length === 0) {
+          return s.slice(start, i + 1).trim();
+        }
+      }
+    }
+  }
+
+  // If we never closed the JSON, return best-effort tail
+  return s.slice(start).trim();
+};
+
+const escapeRawNewlinesInStrings = (text: string): string => {
+  // Some models emit literal newlines inside JSON strings which breaks JSON.parse.
+  const s = String(text || '');
+  let out = '';
+  let inString = false;
+  let quote: '"' | "'" | null = null;
+  let escape = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+
+    if (inString) {
+      if (escape) {
+        out += ch;
+        escape = false;
+        continue;
+      }
+      if (ch === '\\') {
+        out += ch;
+        escape = true;
+        continue;
+      }
+      if (quote && ch === quote) {
+        out += ch;
+        inString = false;
+        quote = null;
+        continue;
+      }
+      if (ch === '\n') {
+        out += '\\n';
+        continue;
+      }
+      if (ch === '\r') {
+        // drop CR
+        continue;
+      }
+      const code = ch.charCodeAt(0);
+      if (code < 0x20) {
+        // Replace other control chars inside strings
+        out += ' ';
+        continue;
+      }
+      out += ch;
+      continue;
+    }
+
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      quote = ch as any;
+      out += ch;
+      continue;
+    }
+
+    out += ch;
+  }
+
+  return out;
+};
+
 const normalizeJsonFromLLM = (text: string): string => {
   const trimmed = (text || '').trim();
   if (!trimmed) return '';
@@ -67,39 +185,23 @@ const normalizeJsonFromLLM = (text: string): string => {
   const fenceMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
   const candidate = fenceMatch ? fenceMatch[1].trim() : trimmed;
 
-  // Extract first {...} block if the model adds extra text
-  const firstBrace = candidate.indexOf('{');
-  const firstSquare = candidate.indexOf('[');
-  // If JSON object/array present, try to extract balanced substring
-  const startPos = firstBrace >= 0 ? firstBrace : (firstSquare >= 0 ? firstSquare : -1);
-  if (startPos >= 0) {
-    // balance braces/brackets
-    const openChar = candidate[startPos];
-    const closeChar = openChar === '{' ? '}' : ']';
-    let depth = 0;
-    for (let i = startPos; i < candidate.length; i++) {
-      const ch = candidate[i];
-      if (ch === openChar) depth++;
-      else if (ch === closeChar) depth--;
-      if (depth === 0) {
-        return candidate.slice(startPos, i + 1).trim();
-      }
-    }
-  }
-
-  return candidate;
+  // Extract first JSON object/array even if extra prose is present
+  return extractFirstJsonLikeSubstring(candidate);
 };
 
 const tryParseJsonWithHeuristics = (text: string): { obj: any | null; cleanedText?: string } => {
+  // Normalize some whitespace / non-breaking spaces
+  const base = escapeRawNewlinesInStrings(String(text || '')).replace(/\u00A0/g, ' ').trim();
+
   // Try raw
   try {
-    return { obj: JSON.parse(text) };
+    return { obj: JSON.parse(base) };
   } catch (e) {
     // continue to heuristics
   }
 
   // Heuristic 1: remove trailing commas before } or ]
-  let t = text.replace(/,\s*([}\]])/g, '$1');
+  let t = base.replace(/,\s*([}\]])/g, '$1');
 
   // Heuristic 2: replace smart quotes and non-standard quotes
   t = t.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
@@ -165,6 +267,7 @@ const normalizeCategory = (raw: any): EstimateCategory | null => {
 };
 
 const SYSTEM_PROMPT = `Ты - эксперт по составлению строительных смет.
+ВСЕГДА отвечай строго на русском языке. Никогда не используй английский.
 Ты работаешь как для "дома под ключ", так и для частичных смет (например: только работы, ремонт крыши, отделка, без электрики/сантехники и т.п.).
 
 Твоя задача: предлагать позиции сметы на основе:
@@ -581,12 +684,9 @@ export async function aiAutocomplete(
   const content = String(data?.choices?.[0]?.message?.content || '');
   // allow response to be either {items:[...]} or just [...]
   const normalized = normalizeJsonFromLLM(content);
-  let obj: any;
-  try {
-    obj = JSON.parse(normalized);
-  } catch {
-    return [];
-  }
+  const parsed = tryParseJsonWithHeuristics(normalized);
+  const obj: any = parsed.obj;
+  if (!obj) return [];
   const items = Array.isArray(obj) ? obj : Array.isArray(obj?.items) ? obj.items : [];
 
   // force category to the one the UI asked for to avoid cross-category noise
@@ -614,7 +714,7 @@ export async function analyzeMissingItems(
     ? allowedCategories
     : Array.from(new Set((currentEstimate.items || []).map(i => i.category)));
 
-  const prompt = `Текущая смета может быть ЧАСТИЧНОЙ (например только работы, ремонт крыши и т.п.).\n\nТекущая смета: площадь ${currentEstimate.area} м², тип/объект: ${currentEstimate.buildingType || 'не указан'}\nКатегории, которые нужно анализировать: ${allowed.join(', ') || 'не указаны'}\n\nПозиции в текущей смете:\n${JSON.stringify(curItems)}\n\nПохожие проекты (${similarEstimates.length}):\n${buildHistoricalContext(similarEstimates, { area: currentEstimate.area, region: (currentEstimate as any).region || '', projectTemplateId: '' }, currentEstimate.buildingType)}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nЗадача:\n1) Найди КРИТИЧЕСКИ недостающие позиции (missing) ТОЛЬКО в рамках перечисленных категорий\n2) Найди опциональные позиции (optional) ТОЛЬКО в рамках перечисленных категорий\n3) Дай краткое обоснование (reasoning)\n\nПравила:\n- НЕ добавляй позиции из других категорий.\n- Используй ТОЛЬКО названия из справочников.\n- price всегда 0 (цены подтянет приложение).\n\nФормат ответа: строгий JSON:\n{ "missing": [item...], "optional": [item...], "reasoning": ["..."] }`;
+  const prompt = `Отвечай строго на русском языке.\n\nТекущая смета может быть ЧАСТИЧНОЙ (например только работы, ремонт крыши и т.п.).\n\nТекущая смета: площадь ${currentEstimate.area} м², тип/объект: ${currentEstimate.buildingType || 'не указан'}\nКатегории, которые нужно анализировать: ${allowed.join(', ') || 'не указаны'}\n\nПозиции в текущей смете:\n${JSON.stringify(curItems)}\n\nПохожие проекты (${similarEstimates.length}):\n${buildHistoricalContext(similarEstimates, { area: currentEstimate.area, region: (currentEstimate as any).region || '', projectTemplateId: '' }, currentEstimate.buildingType)}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nЗадача:\n1) Найди КРИТИЧЕСКИ недостающие позиции (missing) ТОЛЬКО в рамках перечисленных категорий\n2) Найди опциональные позиции (optional) ТОЛЬКО в рамках перечисленных категорий\n3) Дай краткое обоснование (reasoning)\n\nПравила:\n- НЕ добавляй позиции из других категорий.\n- Используй ТОЛЬКО названия из справочников.\n- price всегда 0 (цены подтянет приложение).\n\nФормат ответа: строгий JSON:\n{ "missing": [item...], "optional": [item...], "reasoning": ["..."] }`;
 
   const cacheKey = aiCache.generateKey('missing', currentEstimate.area, currentEstimate.buildingType, (currentEstimate.items || []).map(i => i.name).sort());
   const data = await callOpenRouterWithRetry(
@@ -622,16 +722,16 @@ export async function analyzeMissingItems(
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: prompt },
     ],
-    { cacheKey, ttlMs: 10 * 60 * 1000, maxTokens: 2500, temperature: 0.4 },
+    { cacheKey, ttlMs: 10 * 60 * 1000, maxTokens: 2500, temperature: 0.2 },
   );
 
   const content = String(data?.choices?.[0]?.message?.content || '');
   const normalized = normalizeJsonFromLLM(content);
-  let obj: any;
-  try {
-    obj = JSON.parse(normalized);
-  } catch {
-    return { missing: [], optional: [], reasoning: ['Не удалось распарсить ответ AI (JSON).'] };
+  const parsed = tryParseJsonWithHeuristics(normalized);
+  const obj: any = parsed.obj;
+  if (!obj) {
+    const snippet = (normalized || '').slice(0, 1200);
+    return { missing: [], optional: [], reasoning: [`Не удалось распарсить ответ AI (JSON). Ответ: ${snippet}...`] };
   }
 
   const missingRaw = toEstimateItems(Array.isArray(obj?.missing) ? obj.missing : []);
