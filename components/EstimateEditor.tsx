@@ -484,7 +484,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templates, allEstimates, materials, works, estimate.buildingType]);
+    }, [genParams, templates, allEstimates, materials, works, estimate.buildingType, estimate.area]);
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
@@ -640,7 +640,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             disabled={isLoading}
                             className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-3 rounded transition-colors disabled:bg-gray-500"
                         >
-                            Сгенерировать с помощью AI
+                            AI
                         </button>
                     </div>
                 </div>
