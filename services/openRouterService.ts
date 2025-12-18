@@ -9,6 +9,7 @@ export interface AIEstimateRequest {
   projectTemplateId?: string;
   projectTemplateName?: string;
   templateItems?: EstimateItem[];
+  scopeDescription?: string;
   historicalEstimates: Estimate[];
   existingItems?: EstimateItem[];
   materials: Material[];
@@ -120,11 +121,20 @@ const normalizeCategory = (raw: any): EstimateCategory | null => {
   return null;
 };
 
-const SYSTEM_PROMPT = `Ты - эксперт по составлению строительных смет для каркасных домов.
-Твоя задача - генерировать детальные сметы на основе:
-1) Параметров проекта (площадь, тип здания, регион)
+const SYSTEM_PROMPT = `Ты - эксперт по составлению строительных смет.
+Ты работаешь как для "дома под ключ", так и для частичных смет (например: только работы, ремонт крыши, отделка, без электрики/сантехники и т.п.).
+
+Твоя задача: предлагать позиции сметы на основе:
+1) Параметров проекта (площадь, тип объекта/строения, регион)
 2) Истории похожих смет
-3) Актуальных справочников материалов и работ
+3) Справочников материалов и работ
+
+ЖЁСТКИЕ правила:
+- Используй названия ТОЛЬКО из переданных списков материалов и работ. Если модель не знает точное название, просто оставь его пустым или заменяй на ближайшее совпадение.
+- В тексте ответа никогда не придумывай новые названия. Только те, которые уже есть в списках.
+- НЕ задавай цены: поле price всегда 0.
+- Кол-во (quantity) строго масштабируй под указанную площадь.
+- Если смета частичная — не добавляй лишние разделы.
 
 Категории смет: ФУНДАМЕНТ, РОСТВЕРК, ЛАГИ, ПОЛЫ, СТЕНЫ, КРОВЛЯ/ПОТОЛОК, ОКНА/ДВЕРИ, ЭЛЕКТРИКА, ЛОГИСТИКА, ОБЩАЯ, ДЕМОНТАЖ
 
@@ -133,10 +143,10 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
 {
   "items": [
     {
-      "name": "Название",
-      "unit": "Ед.изм (м², шт, м.п., м3, компл.)",
+      "name": "Название из справочника",
+      "unit": "Ед.изм",
       "quantity": число,
-      "price": число,
+      "price": 0,
       "category": "КАТЕГОРИЯ",
       "subgroup": "Работы|Материалы|Доставка",
       "reasoning": "Короткое обоснование"
@@ -290,7 +300,8 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
 
       const unit = String(it?.unit || 'шт').trim() || 'шт';
       const quantity = Math.max(0, safeNumber(it?.quantity, 0));
-      const price = Math.max(0, safeNumber(it?.price, 0));
+      // Price must come from catalogs in the app; never trust AI for pricing.
+      const price = 0;
       const category = normalizeCategory(it?.category) || EstimateCategory.GENERAL;
 
       const subgroupFromAi = String(it?.subgroup || '').trim();
@@ -317,6 +328,51 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
     .filter(Boolean) as EstimateItem[];
 };
 
+const normalizeKey = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works: Work[]): { items: EstimateItem[]; warnings: string[] } => {
+  const materialIndex = new Map<string, Material>();
+  const workIndex = new Map<string, Work>();
+  for (const m of materials || []) materialIndex.set(normalizeKey(m.name), m);
+  for (const w of works || []) workIndex.set(normalizeKey(w.name), w);
+
+  const knownNames = new Set<string>([...materialIndex.keys(), ...workIndex.keys()]);
+
+  const warnings: string[] = [];
+  const priced: EstimateItem[] = [];
+
+  for (const it of items || []) {
+    const key = normalizeKey(it.name);
+    if (!knownNames.has(key)) {
+      warnings.push(`Пропущена позиция (нет в справочниках): ${it.name}`);
+      continue;
+    }
+
+    const preferMaterials = it.subgroup === EstimateSubgroup.MATERIALS || it.subgroup === EstimateSubgroup.DELIVERY;
+    let matched: Material | Work | undefined;
+
+    if (preferMaterials) {
+      matched = materialIndex.get(key) || workIndex.get(key);
+    } else {
+      matched = workIndex.get(key) || materialIndex.get(key);
+    }
+
+    if (!matched) {
+      warnings.push(`Не удалось определить цену для позиции: ${it.name}`);
+      continue;
+    }
+
+    const price = (matched as any).price || 0;
+    priced.push({
+      ...it,
+      price,
+      total: (it.quantity || 0) * price,
+    });
+  }
+
+  return { items: priced, warnings };
+};
+
 export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AIEstimateResult> {
   const params: GenerationParams = {
     area: req.area,
@@ -338,7 +394,11 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     ? `БАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${JSON.stringify(req.templateItems.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, price: i.price, category: i.category, subgroup: i.subgroup })), null, 0)}\n`
     : '';
 
-  const userPrompt = `Создай детальную смету для каркасного дома.\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип строения: ${req.buildingType || 'не указан'}\n${templateContext}\n\n${historical}\n\n${templateItemsContext}\nДоступные материалы из справочника:\n${materialsContext}\n\nДоступные работы из справочника:\n${worksContext}\n\nУсловия:\n- Не дублируй уже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Выдавай реалистичные количества и цены (ориентируйся на справочники).\n`;
+  const scopeContext = req.scopeDescription
+    ? `Назначение сметы / какие работы нужны (важно): ${req.scopeDescription}\nЕсли указано исключение (например без электрики) — не добавляй этот раздел.\n`
+    : '';
+
+  const userPrompt = `Создай смету на основе справочников (без выдуманных позиций).\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип строения/объекта: ${req.buildingType || 'не указан'}\n${templateContext}\n${scopeContext}\n\n${historical}\n\n${templateItemsContext}\nДоступные материалы из справочника:\n${materialsContext}\n\nДоступные работы из справочника:\n${worksContext}\n\nУсловия:\n- Не дублируй уже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Кол-во (quantity) строго масштабируй под указанную площадь, где это применимо.\n- Поле price всегда 0 (цены подтянет приложение).\n`;
 
   const cacheKey = aiCache.generateKey(
     'estimate',
@@ -359,14 +419,15 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
   const content = data?.choices?.[0]?.message?.content;
   const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
-  const items = toEstimateItems(parsed.items);
-  const total = items.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+  const rawItems = toEstimateItems(parsed.items);
+  const priced = applyCatalogPricing(rawItems, req.materials, req.works);
+  const total = priced.items.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
 
   return {
-    items,
+    items: priced.items,
     total,
     suggestions: parsed.suggestions,
-    warnings: parsed.warnings,
+    warnings: [...parsed.warnings, ...priced.warnings],
   };
 }
 
@@ -382,7 +443,7 @@ export async function aiAutocomplete(
   const q = (partialName || '').trim();
   if (q.length < 3) return [];
 
-  const prompt = `Пользователь начал вводить: "${q}"\nКатегория: ${category}\nУже добавленные позиции: ${existingItems.map(i => i.name).join(', ') || 'нет'}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nПредложи 5-10 вариантов завершения. Формат ответа: ТОЛЬКО JSON массива items по схеме из системного промпта.\nДля quantity используй типичное значение для дома ${area || 'N/A'} м² (если площадь не указана — 1).`;
+  const prompt = `Пользователь начал вводить: "${q}"\nКатегория: ${category}\nУже добавленные позиции: ${existingItems.map(i => i.name).join(', ') || 'нет'}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nПредложи 5-10 вариантов завершения. Используй ТОЛЬКО названия из справочников.\nФормат ответа: ТОЛЬКО JSON массива items по схеме из системного промпта.\nprice всегда 0.\nДля quantity используй типичное значение для площади ${area || 'N/A'} м² (если площадь не указана — 1).`;
 
   const cacheKey = aiCache.generateKey('autocomplete', q, category, area || null);
   const data = await callOpenRouterWithRetry(
@@ -409,7 +470,8 @@ export async function aiAutocomplete(
     it.category = category;
   }
 
-  return toEstimateItems(items).slice(0, 12);
+  const raw = toEstimateItems(items).slice(0, 12);
+  return applyCatalogPricing(raw, materials, works).items;
 }
 
 export async function analyzeMissingItems(
@@ -417,13 +479,18 @@ export async function analyzeMissingItems(
   similarEstimates: Estimate[],
   materials: Material[],
   works: Work[],
+  allowedCategories?: EstimateCategory[],
 ): Promise<{ missing: EstimateItem[]; optional: EstimateItem[]; reasoning: string[] }> {
   if (!hasOpenRouterKey()) {
     return { missing: [], optional: [], reasoning: ['AI не настроен: отсутствует VITE_OPENROUTER_API_KEY'] };
   }
 
   const curItems = (currentEstimate.items || []).map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }));
-  const prompt = `Текущая смета (${currentEstimate.area} м², ${currentEstimate.buildingType}):\n${JSON.stringify(curItems)}\n\nПохожие проекты (${similarEstimates.length}):\n${buildHistoricalContext(similarEstimates, { area: currentEstimate.area, region: (currentEstimate as any).region || '', projectTemplateId: '' }, currentEstimate.buildingType)}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nОпредели:\n1) Критически важные недостающие позиции (missing)\n2) Рекомендуемые дополнительные позиции (optional)\n3) Обоснование (reasoning)\n\nФормат ответа: строгий JSON:\n{ "missing": [item...], "optional": [item...], "reasoning": ["..."] }\nГде item использует ту же схему полей что и в системном промпте.`;
+  const allowed = (allowedCategories && allowedCategories.length > 0)
+    ? allowedCategories
+    : Array.from(new Set((currentEstimate.items || []).map(i => i.category)));
+
+  const prompt = `Текущая смета может быть ЧАСТИЧНОЙ (например только работы, ремонт крыши и т.п.).\n\nТекущая смета: площадь ${currentEstimate.area} м², тип/объект: ${currentEstimate.buildingType || 'не указан'}\nКатегории, которые нужно анализировать: ${allowed.join(', ') || 'не указаны'}\n\nПозиции в текущей смете:\n${JSON.stringify(curItems)}\n\nПохожие проекты (${similarEstimates.length}):\n${buildHistoricalContext(similarEstimates, { area: currentEstimate.area, region: (currentEstimate as any).region || '', projectTemplateId: '' }, currentEstimate.buildingType)}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nЗадача:\n1) Найди КРИТИЧЕСКИ недостающие позиции (missing) ТОЛЬКО в рамках перечисленных категорий\n2) Найди опциональные позиции (optional) ТОЛЬКО в рамках перечисленных категорий\n3) Дай краткое обоснование (reasoning)\n\nПравила:\n- НЕ добавляй позиции из других категорий.\n- Используй ТОЛЬКО названия из справочников.\n- price всегда 0 (цены подтянет приложение).\n\nФормат ответа: строгий JSON:\n{ "missing": [item...], "optional": [item...], "reasoning": ["..."] }`;
 
   const cacheKey = aiCache.generateKey('missing', currentEstimate.area, currentEstimate.buildingType, (currentEstimate.items || []).map(i => i.name).sort());
   const data = await callOpenRouterWithRetry(
@@ -443,28 +510,12 @@ export async function analyzeMissingItems(
     return { missing: [], optional: [], reasoning: ['Не удалось распарсить ответ AI (JSON).'] };
   }
 
-  const missing = toEstimateItems(Array.isArray(obj?.missing) ? obj.missing : []);
-  const optional = toEstimateItems(Array.isArray(obj?.optional) ? obj.optional : []);
+  const missingRaw = toEstimateItems(Array.isArray(obj?.missing) ? obj.missing : []);
+  const optionalRaw = toEstimateItems(Array.isArray(obj?.optional) ? obj.optional : []);
+  const missing = applyCatalogPricing(missingRaw, materials, works).items;
+  const optional = applyCatalogPricing(optionalRaw, materials, works).items;
   const reasoning = Array.isArray(obj?.reasoning) ? obj.reasoning.map(String) : [];
 
   return { missing, optional, reasoning };
 }
 
-export async function prepareTrainingData(loadAllEstimates: () => Promise<Estimate[]>): Promise<string> {
-  const estimates = await loadAllEstimates();
-  const trainingData = (estimates || []).map(estimate => ({
-    prompt: `Создай смету для ${estimate.buildingType}, площадь ${estimate.area} м²`,
-    completion: JSON.stringify({
-      items: (estimate.items || []).map(item => ({
-        name: item.name,
-        unit: item.unit,
-        quantity: item.quantity,
-        price: item.price,
-        category: item.category,
-        subgroup: item.subgroup,
-      })),
-    }),
-  }));
-
-  return JSON.stringify(trainingData, null, 2);
-}

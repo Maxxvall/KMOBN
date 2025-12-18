@@ -53,7 +53,7 @@ export const generateEstimateWithAI = async (
     materials?: Material[],
     works?: Work[],
     existingItems?: EstimateItem[],
-    options?: { buildingType?: string; projectTemplateId?: string; projectTemplateName?: string; templateItems?: EstimateItem[] },
+    options?: { buildingType?: string; projectTemplateId?: string; projectTemplateName?: string; templateItems?: EstimateItem[]; scopeDescription?: string },
 ): Promise<{ items: EstimateItem[]; total: number; suggestions?: string[]; warnings?: string[] }> => {
     console.log("AI Generation triggered with params:", params);
 
@@ -67,6 +67,7 @@ export const generateEstimateWithAI = async (
                 projectTemplateId: options?.projectTemplateId || params.projectTemplateId,
                 projectTemplateName: options?.projectTemplateName,
                 templateItems: options?.templateItems,
+                scopeDescription: options?.scopeDescription,
                 historicalEstimates: historicalEstimates || [],
                 existingItems,
                 materials,

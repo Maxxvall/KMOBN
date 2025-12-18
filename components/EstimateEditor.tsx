@@ -8,8 +8,8 @@ import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
 import AILoadingIndicator from './AILoadingIndicator';
 import AIMissingItemsModal from './AIMissingItemsModal';
-import { aiAutocomplete, analyzeMissingItems, prepareTrainingData } from '../services/openRouterService';
-import { loadEstimates } from '../services/database';
+import AIGenerationModal from './AIGenerationModal';
+import { aiAutocomplete, analyzeMissingItems } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 
 interface EstimateEditorProps {
@@ -59,6 +59,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiAnalysisMissing, setAiAnalysisMissing] = useState<EstimateItem[]>([]);
     const [aiAnalysisOptional, setAiAnalysisOptional] = useState<EstimateItem[]>([]);
     const [aiAnalysisReasoning, setAiAnalysisReasoning] = useState<string[]>([]);
+    const [aiGenModalOpen, setAiGenModalOpen] = useState(false);
+    const [aiGenDescription, setAiGenDescription] = useState('');
     const [showComparison, setShowComparison] = useState(false);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
     // Typeahead / debounce state
@@ -410,6 +412,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
             return;
         }
+        if (!estimate.buildingType || !estimate.buildingType.trim()) {
+            alert('Укажите тип строения перед AI-генерацией.');
+            return;
+        }
+        if (!estimate.area || estimate.area <= 0) {
+            alert('Укажите площадь перед AI-генерацией.');
+            return;
+        }
         setIsLoading(true);
         setAiBusyMessage('Генерирую смету с помощью AI');
         setAiWarnings([]);
@@ -417,11 +427,20 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         try {
             const selectedTemplate = templates.find(t => t.id === genParams.projectTemplateId);
             const templateItems = selectedTemplate?.items || [];
-            const baseItems: EstimateItem[] = templateItems.map(item => ({
+            // Для AI-режима: масштабируем базу шаблона под введённую площадь (если у шаблона задана baseArea).
+            const baseArea = selectedTemplate?.baseArea || 0;
+            const factor = baseArea > 0 && estimate.area > 0 ? (estimate.area / baseArea) : 1;
+
+            const baseItems: EstimateItem[] = templateItems.map(item => {
+                const quantity = Number(((item.quantity || 0) * factor).toFixed(2));
+                const price = item.price || 0;
+                return {
                 ...item,
                 id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                total: (item.quantity || 0) * (item.price || 0),
-            }));
+                quantity,
+                total: quantity * price,
+                };
+            });
 
             // AI дополняет базу (шаблон) и учитывает тип строения/шаблон
             const { items: aiItems, suggestions, warnings } = await generateEstimateWithAI(
@@ -435,6 +454,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     projectTemplateId: selectedTemplate?.id,
                     projectTemplateName: selectedTemplate?.name,
                     templateItems: baseItems,
+                    scopeDescription: aiGenDescription,
                 },
             );
 
@@ -465,18 +485,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setIsLoading(false);
         }
     }, [genParams, templates, allEstimates, materials, works, estimate.buildingType]);
-
-    const downloadTextFile = (filename: string, content: string) => {
-        const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-    };
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
@@ -609,11 +617,29 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </select>
                         <button onClick={() => onDeleteTemplate(genParams.projectTemplateId)} className="text-red-500 hover:text-red-400 transition-colors px-2">✖</button>
                     </div>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex gap-2 items-center">
                         <button onClick={handleGenerate} disabled={isLoading} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-500 transition-colors">
                             {isLoading ? 'Генерация...' : 'Сгенерировать по шаблону'}
                         </button>
-                        <button onClick={handleGenerateWithAI} disabled={isLoading} className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-4 rounded transition-colors disabled:bg-gray-500">
+                        <button
+                            onClick={() => {
+                                if (!hasOpenRouterKey()) {
+                                    alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
+                                    return;
+                                }
+                                if (!estimate.buildingType || !estimate.buildingType.trim()) {
+                                    alert('Укажите тип строения перед AI-генерацией.');
+                                    return;
+                                }
+                                if (!estimate.area || estimate.area <= 0) {
+                                    alert('Укажите площадь перед AI-генерацией.');
+                                    return;
+                                }
+                                setAiGenModalOpen(true);
+                            }}
+                            disabled={isLoading}
+                            className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-3 rounded transition-colors disabled:bg-gray-500"
+                        >
                             Сгенерировать с помощью AI
                         </button>
                     </div>
@@ -631,7 +657,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     Math.abs(e.area - estimate.area) / estimate.area < 0.3,
                                 );
 
-                                const analysis = await analyzeMissingItems(estimate, similar, materials, works);
+                                const presentCategories = Array.from(new Set((estimate.items || []).map(i => i.category)));
+                                const analysis = await analyzeMissingItems(estimate, similar, materials, works, presentCategories);
                                 setAiAnalysisMissing(analysis.missing);
                                 setAiAnalysisOptional(analysis.optional);
                                 setAiAnalysisReasoning(analysis.reasoning);
@@ -650,26 +677,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         🤖 AI-анализ сметы
                     </button>
 
-                    <button
-                        onClick={async () => {
-                            setIsLoading(true);
-                            setAiBusyMessage('Готовлю данные для обучения');
-                            try {
-                                const training = await prepareTrainingData(loadEstimates);
-                                downloadTextFile('ai-training-data.json', training);
-                            } catch (e) {
-                                console.error('[EstimateEditor] prepareTrainingData failed', e);
-                                alert('Не удалось экспортировать данные для обучения.');
-                            } finally {
-                                setAiBusyMessage(null);
-                                setIsLoading(false);
-                            }
-                        }}
-                        disabled={isLoading}
-                        className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-4 rounded transition-colors disabled:bg-gray-500"
-                    >
-                        📥 Экспортировать данные для обучения AI
-                    </button>
                 </div>
 
                 <div className="flex gap-4 mt-4">
@@ -951,6 +958,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         const newItems = [...prev.items, newItem];
                         return { ...prev, items: newItems, total: calculateTotal(newItems) };
                     });
+                }}
+            />
+
+            <AIGenerationModal
+                isOpen={aiGenModalOpen}
+                initialValue={aiGenDescription}
+                onCancel={() => setAiGenModalOpen(false)}
+                onConfirm={(desc) => {
+                    setAiGenDescription(desc);
+                    setAiGenModalOpen(false);
+                    handleGenerateWithAI();
                 }}
             />
             {showComparison && getPreviousVersion() && (
