@@ -16,7 +16,7 @@ const getEnv = (key: string): string | undefined => {
 };
 
 export const AI_CONFIG: OpenRouterConfig = {
-  apiKey: getEnv('VITE_OPENROUTER_API_KEY') || '',
+  apiKey: getEnv('VITE_OPENROUTER_API_KEY') || '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',
   baseUrl: getEnv('VITE_OPENROUTER_BASE_URL') || 'https://openrouter.ai/api/v1/chat/completions',
   model: getEnv('VITE_OPENROUTER_MODEL') || 'tngtech/deepseek-r1t2-chimera:free',
   siteUrl: getEnv('VITE_OPENROUTER_SITE_URL'),
