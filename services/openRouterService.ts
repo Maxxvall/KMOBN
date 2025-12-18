@@ -906,6 +906,8 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   try {
     const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n${templateContext}${scopeContext}\n\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
 
+    console.info('[AI] Stage 1: sending structure request to model');
+    console.debug('[AI] Stage 1 prompt preview', stage1Prompt.slice(0, 1200));
     const s1 = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
@@ -913,8 +915,9 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       ],
       { maxTokens: 1600, temperature: 0.2 },
     );
-
     const s1Content = String(s1?.choices?.[0]?.message?.content || '');
+    console.info('[AI] Stage 1: received response (length:', String((s1Content || '').length) + ')');
+    console.debug('[AI] Stage 1 full response:', s1Content);
     const s1Norm = normalizeJsonFromLLM(s1Content);
     const s1Parsed = tryParseJsonWithHeuristics(s1Norm);
     const s1Obj: any = s1Parsed.obj;
@@ -950,6 +953,8 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
       const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
 
+      console.info('[AI] Stage 2: sending detail request for block', cat);
+      console.debug('[AI] Stage 2 prompt preview for ' + String(cat), stage2Prompt.slice(0, 1200));
       const s2 = await callOpenRouterWithRetry(
         [
           { role: 'system', content: SYSTEM_PROMPT },
@@ -959,6 +964,8 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       );
 
       const s2Content = String(s2?.choices?.[0]?.message?.content || '');
+      console.info('[AI] Stage 2: received response for block', cat, '(length:', String((s2Content || '').length) + ')');
+      console.debug('[AI] Stage 2 full response for ' + String(cat) + ':', s2Content);
       const s2Parsed = parseEstimateResponse(s2Content, cat);
       parsedItems.push(...(s2Parsed.items || []));
       parsedSuggestions.push(...(s2Parsed.suggestions || []));
@@ -968,6 +975,8 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     // --- Stage 3: self-check ---
     const stage3Prompt = `Этап 3/3: Самопроверка и корректировка.\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n\nПромежуточная смета (черновик items):\n${JSON.stringify(parsedItems, null, 0)}\n\n${adv.text}\n\nЗадача:\n1) Удалить дубли/мусорные позиции\n2) Проверить комплектность: если есть работа — добавь необходимые материалы (в рамках справочников и только если уместно по описанию сметы)\n3) Исправить явные несоответствия масштаба количеств (ориентируйся на историю и площадь)\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
 
+    console.info('[AI] Stage 3: sending self-check request to model');
+    console.debug('[AI] Stage 3 prompt preview', stage3Prompt.slice(0, 1200));
     const s3 = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
@@ -977,6 +986,8 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     );
 
     const s3Content = String(s3?.choices?.[0]?.message?.content || '');
+    console.info('[AI] Stage 3: received response (length:', String((s3Content || '').length) + ')');
+    console.debug('[AI] Stage 3 full response:', s3Content);
     const s3Parsed = parseEstimateResponse(s3Content, EstimateCategory.GENERAL);
     if (Array.isArray(s3Parsed.items) && s3Parsed.items.length > 0) {
       parsedItems = s3Parsed.items;
