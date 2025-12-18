@@ -1,4 +1,6 @@
-import { Estimate, EstimateItem, GenerationParams, EstimateStatus, EstimateCategory, EstimateSubgroup } from '../types';
+import { Estimate, EstimateItem, GenerationParams, EstimateStatus, EstimateCategory, EstimateSubgroup, Material, Work } from '../types';
+import { generateEstimateWithAI as generateWithOpenRouter } from './openRouterService';
+import { hasOpenRouterKey } from './aiConfig';
 
 const MATERIAL_KEYWORDS = [
     'пиломат', 'утепл', 'фанер', 'линоли', 'террас', 'паро', 'пароизоля', 'гвозд', 'саморез', 'крепеж', 'доска', 'плит', 'брус', 'грунт', 'песк', 'цемент', 'керамзит', 'щебень', 'пена'];
@@ -45,10 +47,41 @@ const MOCK_LARGE_AREA_ADDITION = {
     category: EstimateCategory.FOUNDATION,
 };
 
-export const generateEstimateWithAI = async (params: GenerationParams): Promise<{ items: EstimateItem[]; total: number }> => {
+export const generateEstimateWithAI = async (
+    params: GenerationParams,
+    historicalEstimates?: Estimate[],
+    materials?: Material[],
+    works?: Work[],
+    existingItems?: EstimateItem[],
+): Promise<{ items: EstimateItem[]; total: number; suggestions?: string[]; warnings?: string[] }> => {
     console.log("AI Generation triggered with params:", params);
 
-    // Simulate network delay
+    // If OpenRouter is configured, prefer real AI. Otherwise keep legacy mock behavior.
+    if (hasOpenRouterKey() && materials && works) {
+        try {
+            const result = await generateWithOpenRouter({
+                area: params.area,
+                region: params.region,
+                buildingType: '',
+                historicalEstimates: historicalEstimates || [],
+                existingItems,
+                materials,
+                works,
+            });
+
+            // Keep backward-compatible return shape
+            return {
+                items: result.items,
+                total: result.total,
+                suggestions: result.suggestions,
+                warnings: result.warnings,
+            };
+        } catch (e) {
+            console.warn('[geminiService] OpenRouter generation failed; falling back to mock', e);
+        }
+    }
+
+    // Legacy mock generation (safe fallback)
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     let items: EstimateItem[] = MOCK_WORK_ITEMS_DB.map((item, index) => {
@@ -79,9 +112,7 @@ export const generateEstimateWithAI = async (params: GenerationParams): Promise<
         });
     }
     
-    // Simulate error warning
     if (params.area < 10) {
-        // In a real app, this might come from the response
         alert("Внимание: Площадь дома слишком мала. Проверьте корректность работ по фундаменту.");
     }
     

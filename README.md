@@ -21,6 +21,7 @@
 
 1. Установите зависимости:
    `npm install`
-2. Установите `GEMINI_API_KEY` в [.env.local](.env.local) ваш API ключ Gemini
+2. Скопируйте `.env.example` в `.env` и заполните `VITE_OPENROUTER_API_KEY` (OpenRouter)
+   - Если ключ не задан, генерация сметы работает в режиме мок-данных (как раньше)
 3. Запустите приложение:
    `npm run dev`

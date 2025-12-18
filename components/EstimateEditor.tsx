@@ -6,6 +6,10 @@ import { generateEstimateWithAI } from '../services/geminiService';
 import { searchPrice } from '../services/priceService';
 import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
+import AILoadingIndicator from './AILoadingIndicator';
+import AIMissingItemsModal from './AIMissingItemsModal';
+import { aiAutocomplete, analyzeMissingItems, prepareTrainingData } from '../services/openRouterService';
+import { loadEstimates } from '../services/database';
 
 interface EstimateEditorProps {
     initialEstimate: Estimate | null;
@@ -47,6 +51,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         region: 'Московская область',
     });
     const [isLoading, setIsLoading] = useState(false);
+    const [aiBusyMessage, setAiBusyMessage] = useState<string | null>(null);
+    const [aiWarnings, setAiWarnings] = useState<string[]>([]);
+    const [aiTextSuggestions, setAiTextSuggestions] = useState<string[]>([]);
+    const [aiAnalysisOpen, setAiAnalysisOpen] = useState(false);
+    const [aiAnalysisMissing, setAiAnalysisMissing] = useState<EstimateItem[]>([]);
+    const [aiAnalysisOptional, setAiAnalysisOptional] = useState<EstimateItem[]>([]);
+    const [aiAnalysisReasoning, setAiAnalysisReasoning] = useState<string[]>([]);
     const [showComparison, setShowComparison] = useState(false);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
     // Typeahead / debounce state
@@ -96,6 +107,48 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             const results = pool.filter(p => p.name.toLowerCase().includes(q)).slice(0, 20);
             setSuggestions(prev => ({ ...prev, [itemId]: results }));
             setShowSuggestions(prev => ({ ...prev, [itemId]: results.length > 0 }));
+
+            // AI autocomplete as a fallback when local results are weak.
+            // IMPORTANT: never blocks typing; runs after local results are shown.
+            if (query.length >= 3 && results.length < 5) {
+                (async () => {
+                    try {
+                        const isMaterialPool = pool.length > 0 && (pool[0] as any).lastUpdated !== undefined;
+                        const category = estimate.items.find(i => i.id === itemId)?.category;
+                        if (!category) return;
+                        const aiItems = await aiAutocomplete(query, category, estimate.items, materials, works, estimate.area);
+                        if (!aiItems || aiItems.length === 0) return;
+
+                        const mapped = aiItems.map((it, idx) => {
+                            const id = `ai-suggest-${itemId}-${idx}`;
+                            if (isMaterialPool) {
+                                const m: Material = {
+                                    id,
+                                    name: it.name,
+                                    price: it.price,
+                                    lastUpdated: new Date().toISOString(),
+                                    category: it.category,
+                                    isManualPrice: true,
+                                };
+                                return m;
+                            }
+                            const w: Work = {
+                                id,
+                                name: it.name,
+                                price: it.price,
+                                category: it.category,
+                            };
+                            return w;
+                        });
+
+                        setSuggestions(prev => ({ ...prev, [itemId]: mapped }));
+                        setShowSuggestions(prev => ({ ...prev, [itemId]: mapped.length > 0 }));
+                    } catch (e) {
+                        // Silent: do not disturb core UX
+                        console.debug('[EstimateEditor] aiAutocomplete failed', e);
+                    }
+                })();
+            }
             delete debounceTimers.current[itemId];
         }, DEBOUNCE_MS);
     };
@@ -224,6 +277,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         console.info('[EstimateEditor] handleMaterialSelect start', { itemId, materialName });
         const material = materials.find(m => m.name === materialName);
         if (!material) {
+            // Allow AI suggestions that are not in the catalog
+            const aiSuggested = (suggestions[itemId] as any[] | undefined)?.find(s => s?.name === materialName);
+            if (aiSuggested && typeof aiSuggested.price === 'number') {
+                console.info('[EstimateEditor] applying AI-suggested material', { itemId, name: materialName, price: aiSuggested.price });
+                updateItemFields(itemId, { name: materialName, price: aiSuggested.price, unit: 'шт' });
+                setShowSuggestions(prev => ({ ...prev, [itemId]: false }));
+                setSuggestions(prev => ({ ...prev, [itemId]: [] }));
+                return;
+            }
             console.warn('[EstimateEditor] material not found in pool', { materialName });
             return;
         }
@@ -282,7 +344,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const handleWorkSelect = (itemId: string, workName: string) => {
         const work = works.find(w => w.name === workName);
-        if (!work) return;
+        if (!work) {
+            // Allow AI suggestions that are not in the catalog
+            const aiSuggested = (suggestions[itemId] as any[] | undefined)?.find(s => s?.name === workName);
+            if (aiSuggested && typeof aiSuggested.price === 'number') {
+                updateItemFields(itemId, { name: workName, price: aiSuggested.price, unit: 'шт' });
+            }
+            return;
+        }
 
         updateItemFields(itemId, { name: work.name, price: work.price, unit: 'шт' }); // Assume unit шт
     };
@@ -308,6 +377,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const handleGenerate = useCallback(async () => {
         setIsLoading(true);
+        setAiBusyMessage('Генерирую смету с помощью AI');
+        setAiWarnings([]);
+        setAiTextSuggestions([]);
         try {
             // Найти выбранный шаблон
             const selectedTemplate = templates.find(t => t.id === genParams.projectTemplateId);
@@ -323,16 +395,42 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 setEstimate(prev => ({ ...prev, items: newItems, total }));
             } else {
                 // Если шаблон без элементов, используем AI генерацию
-                const { items, total } = await generateEstimateWithAI(genParams);
+                const { items, total, suggestions, warnings } = await generateEstimateWithAI(
+                    genParams,
+                    allEstimates,
+                    materials,
+                    works,
+                    estimate.items,
+                );
                 setEstimate(prev => ({ ...prev, items, total }));
+
+                if (suggestions && suggestions.length > 0) {
+                    setAiTextSuggestions(suggestions);
+                }
+                if (warnings && warnings.length > 0) {
+                    setAiWarnings(warnings);
+                }
             }
         } catch (error) {
             console.error("Failed to generate estimate", error);
             alert("Произошла ошибка при генерации сметы.");
         } finally {
+            setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templates]);
+    }, [genParams, templates, allEstimates, materials, works, estimate.items]);
+
+    const downloadTextFile = (filename: string, content: string) => {
+        const blob = new Blob([content], { type: 'application/json;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    };
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
@@ -423,6 +521,34 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                 )}
 
+                {aiBusyMessage && (
+                    <div className="mb-4">
+                        <AILoadingIndicator message={aiBusyMessage} />
+                    </div>
+                )}
+
+                {aiWarnings.length > 0 && (
+                    <div className="mb-4 p-3 border border-red-500/40 bg-background/40 rounded-md">
+                        <div className="font-semibold text-red-400">Предупреждения AI</div>
+                        <ul className="list-disc pl-5 text-sm text-text-secondary">
+                            {aiWarnings.map((w, idx) => (
+                                <li key={idx}>{w}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
+                {aiTextSuggestions.length > 0 && (
+                    <div className="mb-4 p-3 border border-border bg-background/30 rounded-md">
+                        <div className="font-semibold text-text-primary">Рекомендации AI</div>
+                        <ul className="list-disc pl-5 text-sm text-text-secondary">
+                            {aiTextSuggestions.map((s, idx) => (
+                                <li key={idx}>{s}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-7 gap-4 mb-6">
                     <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Клиент" className={inputStyles} />
                     <input type="date" value={estimate.date} onChange={e => setEstimate({ ...estimate, date: e.target.value })} className={inputStyles} />
@@ -439,6 +565,59 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                     <button onClick={handleGenerate} disabled={isLoading} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-500 transition-colors">
                         {isLoading ? 'Генерация...' : 'Сгенерировать смету'}
+                    </button>
+                </div>
+
+                <div className="flex gap-2 mb-4">
+                    <button
+                        onClick={async () => {
+                            setIsLoading(true);
+                            setAiBusyMessage('Анализирую смету');
+                            try {
+                                const similar = allEstimates.filter(e =>
+                                    e.buildingType === estimate.buildingType &&
+                                    estimate.area > 0 &&
+                                    Math.abs(e.area - estimate.area) / estimate.area < 0.3,
+                                );
+
+                                const analysis = await analyzeMissingItems(estimate, similar, materials, works);
+                                setAiAnalysisMissing(analysis.missing);
+                                setAiAnalysisOptional(analysis.optional);
+                                setAiAnalysisReasoning(analysis.reasoning);
+                                setAiAnalysisOpen(true);
+                            } catch (e) {
+                                console.error('[EstimateEditor] AI analysis failed', e);
+                                alert('Не удалось выполнить AI-анализ сметы.');
+                            } finally {
+                                setAiBusyMessage(null);
+                                setIsLoading(false);
+                            }
+                        }}
+                        disabled={isLoading}
+                        className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-4 rounded transition-colors disabled:bg-gray-500"
+                    >
+                        🤖 AI-анализ сметы
+                    </button>
+
+                    <button
+                        onClick={async () => {
+                            setIsLoading(true);
+                            setAiBusyMessage('Готовлю данные для обучения');
+                            try {
+                                const training = await prepareTrainingData(loadEstimates);
+                                downloadTextFile('ai-training-data.json', training);
+                            } catch (e) {
+                                console.error('[EstimateEditor] prepareTrainingData failed', e);
+                                alert('Не удалось экспортировать данные для обучения.');
+                            } finally {
+                                setAiBusyMessage(null);
+                                setIsLoading(false);
+                            }
+                        }}
+                        disabled={isLoading}
+                        className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-4 rounded transition-colors disabled:bg-gray-500"
+                    >
+                        📥 Экспортировать данные для обучения AI
                     </button>
                 </div>
 
@@ -704,6 +883,25 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </button>
                 </div>
             </div>
+
+            <AIMissingItemsModal
+                isOpen={aiAnalysisOpen}
+                onClose={() => setAiAnalysisOpen(false)}
+                missing={aiAnalysisMissing}
+                optional={aiAnalysisOptional}
+                reasoning={aiAnalysisReasoning}
+                onAddItem={(item) => {
+                    setEstimate(prev => {
+                        const newItem: EstimateItem = {
+                            ...item,
+                            id: `item-ai-add-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                            total: (item.quantity || 0) * (item.price || 0),
+                        };
+                        const newItems = [...prev.items, newItem];
+                        return { ...prev, items: newItems, total: calculateTotal(newItems) };
+                    });
+                }}
+            />
             {showComparison && getPreviousVersion() && (
                 <VersionComparisonModal
                     oldVersion={getPreviousVersion()!}
