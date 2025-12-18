@@ -16,9 +16,9 @@ const getEnv = (key: string): string | undefined => {
 };
 
 export const AI_CONFIG: OpenRouterConfig = {
-  apiKey: getEnv('VITE_OPENROUTER_API_KEY') || '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',
+  apiKey: getEnv('VITE_OPENROUTER_API_KEY') || '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',
   baseUrl: getEnv('VITE_OPENROUTER_BASE_URL') || 'https://openrouter.ai/api/v1/chat/completions',
-  model: getEnv('VITE_OPENROUTER_MODEL') || 'tngtech/deepseek-r1t2-chimera:free',
+  model: getEnv('VITE_OPENROUTER_MODEL') || 'arcee-ai/trinity-mini:free',
   siteUrl: getEnv('VITE_OPENROUTER_SITE_URL'),
   siteName: getEnv('VITE_OPENROUTER_SITE_NAME'),
 };
