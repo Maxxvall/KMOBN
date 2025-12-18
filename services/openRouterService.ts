@@ -4,6 +4,7 @@ import { AI_CONFIG, hasOpenRouterKey } from './aiConfig';
 import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, pickFewShotExamples, scoreEstimateQuality } from './estimateIntelligence';
 import { checkNormAnomalies, computeNormExpectations } from './constructionNorms';
 import { getLearningHints, isCacheKeyBad } from './aiLearning';
+import { buildSp31_105_2002SystemMessage, containsSp31Reference } from './sp31_105_2002';
 
 export interface AIEstimateRequest {
   area: number;
@@ -422,6 +423,13 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
   "warnings": ["..."]
 }
 `;
+
+const NORMATIVE_SYSTEM_PROMPT = buildSp31_105_2002SystemMessage();
+
+const ensureSp31Mention = (texts: string[], fallbackLine: string): string[] => {
+  if (containsSp31Reference(texts)) return texts;
+  return [...texts, fallbackLine];
+};
 
 const buildHistoricalContext = (estimates: Estimate[], params: GenerationParams, buildingType?: string): string => {
   const area = params.area || 0;
@@ -911,6 +919,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     const s1 = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
         { role: 'user', content: stage1Prompt },
       ],
       { maxTokens: 1600, temperature: 0.2 },
@@ -958,6 +967,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       const s2 = await callOpenRouterWithRetry(
         [
           { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
           { role: 'user', content: stage2Prompt },
         ],
         { maxTokens: 2200, temperature: 0.35 },
@@ -980,6 +990,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     const s3 = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
         { role: 'user', content: stage3Prompt },
       ],
       { maxTokens: 2600, temperature: 0.2 },
@@ -1000,6 +1011,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     const data = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
       ],
       { maxTokens: 4000, temperature: 0.7 },
@@ -1021,10 +1033,15 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   const quality = scoreEstimateQuality(priced.items, { graph: adv.graph, historical: adv.patterns });
   const finalWarnings = [...parsedWarnings, ...priced.warnings, ...norm.warnings, ...quality.notes];
 
+  const suggestionsWithNorm = ensureSp31Mention(
+    parsedSuggestions,
+    'Нормативный эталон: СП 31-105-2002 (каркасные одноквартирные дома). При выводах/ограничениях см. п. 1, п. 4.2.1, п. 5.1.3, табл. 5-1 и др. [СП 31-105-2002]',
+  );
+
   const result: AIEstimateResult = {
     items: priced.items,
     total,
-    suggestions: parsedSuggestions,
+    suggestions: suggestionsWithNorm,
     warnings: finalWarnings,
   };
 
@@ -1058,6 +1075,7 @@ export async function aiAutocomplete(
   const data = await callOpenRouterWithRetry(
     [
       { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
       { role: 'user', content: prompt },
     ],
     { cacheKey, ttlMs: 10 * 60 * 1000, maxTokens: 1600, temperature: 0.3 },
@@ -1232,6 +1250,9 @@ export async function analyzeMissingItems(
 
   const anomalyWarnings = checkNormAnomalies({ area: currentEstimate.area, items: currentEstimate.items || [], materials, works }).warnings;
   const deterministicReasoning: string[] = [];
+  deterministicReasoning.push(
+    'Нормативный эталон для каркасных домов: СП 31-105-2002 (используй при проверке конструктивных ограничений и пояснениях). [СП 31-105-2002]',
+  );
   if (ordered.length) {
     const crit = ordered.filter(x => x.severity === 'critical').map(x => x.name);
     const imp = ordered.filter(x => x.severity === 'important').map(x => x.name);
@@ -1263,6 +1284,7 @@ export async function analyzeMissingItems(
     : await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
         { role: 'user', content: prompt },
       ],
       { maxTokens: 2500, temperature: 0.2 },
