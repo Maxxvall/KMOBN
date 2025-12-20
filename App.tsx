@@ -198,37 +198,6 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         }
     }, [setView, setCurrentEstimate]);
 
-    // Allow services to upsert materials and notify UI without prop plumbing
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const normalize = (s: string) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
-
-        const handler = (ev: any) => {
-            const upserts: Material[] = Array.isArray(ev?.detail) ? ev.detail : [];
-            if (!upserts.length) return;
-
-            setMaterials(prev => {
-                const next = [...prev];
-                for (const up of upserts) {
-                    if (!up) continue;
-                    const idx = next.findIndex(m => m.id === up.id || normalize(m.name) === normalize(up.name));
-                    if (idx >= 0) next[idx] = { ...next[idx], ...up };
-                    else next.push(up);
-                }
-                return next;
-            });
-
-            for (const up of upserts) {
-                if (up?.name && typeof up.price === 'number' && Number.isFinite(up.price)) {
-                    updateDraftEstimatesWithNewMaterialPrice(up.name, up.price);
-                }
-            }
-        };
-
-        window.addEventListener('kmobn:materials-upsert', handler as any);
-        return () => window.removeEventListener('kmobn:materials-upsert', handler as any);
-    }, [updateDraftEstimatesWithNewMaterialPrice]);
-
     const handleNavigationAttempt = useCallback((target: View) => {
         if (view === View.EDITOR && editorDirty && target !== View.EDITOR) {
             setPendingView(target);
@@ -469,6 +438,37 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             });
         });
     }, []);
+
+    // Allow services to upsert materials and notify UI without prop plumbing
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const normalize = (s: string) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+        const handler = (ev: any) => {
+            const upserts: Material[] = Array.isArray(ev?.detail) ? ev.detail : [];
+            if (!upserts.length) return;
+
+            setMaterials(prev => {
+                const next = [...prev];
+                for (const up of upserts) {
+                    if (!up) continue;
+                    const idx = next.findIndex(m => m.id === up.id || normalize(m.name) === normalize(up.name));
+                    if (idx >= 0) next[idx] = { ...next[idx], ...up };
+                    else next.push(up);
+                }
+                return next;
+            });
+
+            for (const up of upserts) {
+                if (up?.name && typeof up.price === 'number' && Number.isFinite(up.price)) {
+                    updateDraftEstimatesWithNewMaterialPrice(up.name, up.price);
+                }
+            }
+        };
+
+        window.addEventListener('kmobn:materials-upsert', handler as any);
+        return () => window.removeEventListener('kmobn:materials-upsert', handler as any);
+    }, [updateDraftEstimatesWithNewMaterialPrice]);
 
     const handleAddMaterial = useCallback(async (
         name: string,
