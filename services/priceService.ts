@@ -20,6 +20,11 @@ export interface SearchPriceOptions {
     minPrice?: number;
     maxPrice?: number;
 
+    // Позволяет AI сформировать более точный поисковый запрос.
+    // Если задано, будет использовано вместо дефолтного `цена <materialName>`.
+    // ВАЖНО: сюда лучше не добавлять site:-фильтры, их контролирует `source`.
+    queryOverride?: string;
+
     // Для долговременного кэша и контроля квоты
     materialId?: string;
     lastUpdated?: string;
@@ -88,7 +93,8 @@ export async function searchPrice(materialName: string, options: SearchPriceOpti
         }
 
         // Query for price search, focusing on Russian sites
-        let query = `цена ${materialName}`;
+        const override = typeof options.queryOverride === 'string' ? options.queryOverride.trim() : '';
+        let query = override ? override : `цена ${materialName}`;
         if (options.source) {
             query += ` ${SOURCE_QUERY[options.source]}`;
         }

@@ -12,8 +12,8 @@ interface PricesProps {
         searchMinPrice?: number,
         searchMaxPrice?: number
     ) => void;
-    onUpdatePrice: (materialId: string) => void;
-    onUpdateAllPrices: () => void;
+    onUpdatePrice: (materialId: string, opts?: { useAi?: boolean; onLogs?: (lines: string[]) => void }) => Promise<void> | void;
+    onUpdateAllPrices: (opts?: { useAi?: boolean; onLogs?: (lines: string[]) => void }) => Promise<void> | void;
     onDeleteMaterial: (materialId: string) => void;
     onEditMaterialPrice: (materialId: string, newPrice: number) => void;
 
@@ -54,6 +54,10 @@ const Prices: React.FC<PricesProps> = ({
     const [newMaterialMaxPrice, setNewMaterialMaxPrice] = useState('');
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
     const [editingPrice, setEditingPrice] = useState<{ id: string; price: string } | null>(null);
+
+    const [useAiForUpdates, setUseAiForUpdates] = useState(false);
+    const [aiLogs, setAiLogs] = useState<string[]>([]);
+    const [aiLogsOpen, setAiLogsOpen] = useState(true);
 
     const filteredMaterials = useMemo(() => {
         return filterCategory === 'all' ? materials : materials.filter(m => m.category === filterCategory);
@@ -100,6 +104,22 @@ const Prices: React.FC<PricesProps> = ({
             setNewMaterialMinPrice('');
             setNewMaterialMaxPrice('');
         }
+    };
+
+    const runUpdatePrice = async (materialId: string) => {
+        setAiLogs([]);
+        await onUpdatePrice(materialId, {
+            useAi: useAiForUpdates,
+            onLogs: (lines) => setAiLogs(Array.isArray(lines) ? lines : []),
+        });
+    };
+
+    const runUpdateAllPrices = async () => {
+        setAiLogs([]);
+        await onUpdateAllPrices({
+            useAi: useAiForUpdates,
+            onLogs: (lines) => setAiLogs(Array.isArray(lines) ? lines : []),
+        });
     };
 
     return (
@@ -183,7 +203,7 @@ const Prices: React.FC<PricesProps> = ({
                     Добавить
                 </button>
                 <button
-                    onClick={onUpdateAllPrices}
+                    onClick={runUpdateAllPrices}
                     disabled={isUpdatingAllPrices}
                     className="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
                 >
@@ -204,6 +224,33 @@ const Prices: React.FC<PricesProps> = ({
                     </div>
                 )}
             </div>
+
+            <div className="flex items-center justify-between mb-4">
+                <label className="flex items-center gap-2 text-text-primary">
+                    <input
+                        type="checkbox"
+                        checked={useAiForUpdates}
+                        onChange={(e) => setUseAiForUpdates(e.target.checked)}
+                    />
+                    Обновлять цены через AI (точнее запрос)
+                </label>
+                {aiLogs.length > 0 && (
+                    <button
+                        type="button"
+                        onClick={() => setAiLogsOpen(v => !v)}
+                        className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-1 px-3 rounded transition-colors"
+                    >
+                        {aiLogsOpen ? 'Скрыть логи' : 'Показать логи'}
+                    </button>
+                )}
+            </div>
+
+            {aiLogs.length > 0 && aiLogsOpen && (
+                <div className="p-3 border border-border rounded-md bg-background/30 mb-6">
+                    <div className="font-semibold text-text-primary mb-2">Логи AI (последнее обновление)</div>
+                    <pre className="text-xs text-text-secondary whitespace-pre-wrap">{aiLogs.join('\n')}</pre>
+                </div>
+            )}
 
             {/* Фильтр по категориям */}
             <div className="flex gap-4 mb-6">
@@ -283,7 +330,7 @@ const Prices: React.FC<PricesProps> = ({
                                                 </button>
                                             ) : (
                                                 <button
-                                                    onClick={() => onUpdatePrice(material.id)}
+                                                    onClick={() => runUpdatePrice(material.id)}
                                                     disabled={isUpdatingAllPrices}
                                                     className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
                                                 >

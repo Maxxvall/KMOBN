@@ -63,6 +63,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiAnalysisReasoning, setAiAnalysisReasoning] = useState<string[]>([]);
     const [aiGenModalOpen, setAiGenModalOpen] = useState(false);
     const [aiGenDescription, setAiGenDescription] = useState('');
+    const [aiGenEnableAiPriceSearch, setAiGenEnableAiPriceSearch] = useState(true);
     const [aiAddedItemIds, setAiAddedItemIds] = useState<Set<string>>(new Set());
     const [showComparison, setShowComparison] = useState(false);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
@@ -436,7 +437,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }
     }, [genParams, templates]);
 
-    const handleGenerateWithAI = useCallback(async () => {
+    const handleGenerateWithAI = useCallback(async (opts?: { scopeDescription?: string; enableAiPriceSearch?: boolean }) => {
         if (!hasOpenRouterKey()) {
             alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
             return;
@@ -498,6 +499,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
             // AI дополняет базу (шаблон) и учитывает тип строения/шаблон
             const callParams = { ...genParams, area: estimate.area };
+            const scopeDescription = (opts?.scopeDescription ?? aiGenDescription) || '';
+            const enableAiPriceSearch = typeof opts?.enableAiPriceSearch === 'boolean'
+                ? opts.enableAiPriceSearch
+                : aiGenEnableAiPriceSearch;
+
             const { items: aiItems, suggestions, warnings } = await generateEstimateWithAI(
                 callParams,
                 latestOnlyEstimates,
@@ -509,7 +515,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     projectTemplateId: selectedTemplate?.id,
                     projectTemplateName: selectedTemplate?.name,
                     templateItems: baseItems,
-                    scopeDescription: aiGenDescription,
+                    scopeDescription,
+                    enableAiPriceSearch,
                 },
             );
 
@@ -550,7 +557,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     buildingType: estimate.buildingType,
                     projectTemplateId: selectedTemplate?.id,
                     projectTemplateName: selectedTemplate?.name,
-                    scopeDescription: aiGenDescription,
+                    scopeDescription,
                 },
             };
 
@@ -563,7 +570,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templates, allEstimates, materials, works, estimate.buildingType, estimate.area]);
+    }, [genParams, templates, allEstimates, materials, works, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch]);
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
@@ -1066,11 +1073,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             <AIGenerationModal
                 isOpen={aiGenModalOpen}
                 initialValue={aiGenDescription}
+                initialEnableAiPriceSearch={aiGenEnableAiPriceSearch}
                 onCancel={() => setAiGenModalOpen(false)}
-                onConfirm={(desc) => {
-                    setAiGenDescription(desc);
+                onConfirm={(payload) => {
+                    setAiGenDescription(payload.description);
+                    setAiGenEnableAiPriceSearch(payload.enableAiPriceSearch);
                     setAiGenModalOpen(false);
-                    handleGenerateWithAI();
+                    handleGenerateWithAI({ scopeDescription: payload.description, enableAiPriceSearch: payload.enableAiPriceSearch });
                 }}
             />
             {showComparison && getPreviousVersion() && (

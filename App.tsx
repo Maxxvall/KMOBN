@@ -16,6 +16,7 @@ import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
+import { aiPriceSearch } from './services/aiPriceSearch';
 import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, shouldUpdatePrice } from './services/priceCache';
 import { checkUserCredentials, loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
@@ -196,6 +197,37 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             setCurrentEstimate(null);
         }
     }, [setView, setCurrentEstimate]);
+
+    // Allow services to upsert materials and notify UI without prop plumbing
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const normalize = (s: string) => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+        const handler = (ev: any) => {
+            const upserts: Material[] = Array.isArray(ev?.detail) ? ev.detail : [];
+            if (!upserts.length) return;
+
+            setMaterials(prev => {
+                const next = [...prev];
+                for (const up of upserts) {
+                    if (!up) continue;
+                    const idx = next.findIndex(m => m.id === up.id || normalize(m.name) === normalize(up.name));
+                    if (idx >= 0) next[idx] = { ...next[idx], ...up };
+                    else next.push(up);
+                }
+                return next;
+            });
+
+            for (const up of upserts) {
+                if (up?.name && typeof up.price === 'number' && Number.isFinite(up.price)) {
+                    updateDraftEstimatesWithNewMaterialPrice(up.name, up.price);
+                }
+            }
+        };
+
+        window.addEventListener('kmobn:materials-upsert', handler as any);
+        return () => window.removeEventListener('kmobn:materials-upsert', handler as any);
+    }, [updateDraftEstimatesWithNewMaterialPrice]);
 
     const handleNavigationAttempt = useCallback((target: View) => {
         if (view === View.EDITOR && editorDirty && target !== View.EDITOR) {
@@ -467,7 +499,10 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         }
     }, []);
 
-    const handleUpdatePrice = useCallback(async (materialId: string) => {
+    const handleUpdatePrice = useCallback(async (
+        materialId: string,
+        opts?: { useAi?: boolean; onLogs?: (lines: string[]) => void }
+    ) => {
         const material = materials.find(m => m.id === materialId);
         if (!material || material.isManualPrice) return;
 
@@ -485,16 +520,54 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         }
 
         try {
-            const newPrice = await searchPrice(material.name, {
-                source: material.searchSource,
-                minPrice: material.searchMinPrice,
-                maxPrice: material.searchMaxPrice,
-                materialId: material.id,
-                lastUpdated: material.lastUpdated,
-                apiDailyLimit: DEFAULT_API_DAILY_LIMIT,
-                fallbackPrice: material.price,
-            });
-            const updatedMaterial = { ...material, price: newPrice, lastUpdated: new Date().toISOString() };
+            const useAi = Boolean(opts?.useAi);
+            let newPrice = material.price;
+            let nextSearchSource = material.searchSource;
+            let nextMin = material.searchMinPrice;
+            let nextMax = material.searchMaxPrice;
+
+            if (useAi) {
+                const res = await aiPriceSearch({
+                    materialName: material.name,
+                    context: { category: material.category },
+                    preferredSource: material.searchSource,
+                    minPriceHint: material.searchMinPrice,
+                    maxPriceHint: material.searchMaxPrice,
+                    materialId: material.id,
+                    lastUpdated: material.lastUpdated,
+                    apiDailyLimit: DEFAULT_API_DAILY_LIMIT,
+                    fallbackPrice: material.price,
+                });
+                newPrice = res.price;
+                nextSearchSource = res.decision?.source ?? nextSearchSource;
+                nextMin = res.decision?.minPrice ?? nextMin;
+                nextMax = res.decision?.maxPrice ?? nextMax;
+                opts?.onLogs?.(res.logs);
+            } else {
+                newPrice = await searchPrice(material.name, {
+                    source: material.searchSource,
+                    minPrice: material.searchMinPrice,
+                    maxPrice: material.searchMaxPrice,
+                    materialId: material.id,
+                    lastUpdated: material.lastUpdated,
+                    apiDailyLimit: DEFAULT_API_DAILY_LIMIT,
+                    fallbackPrice: material.price,
+                });
+                opts?.onLogs?.([
+                    'AI выключен: использован обычный поиск.',
+                    `Итог: выбрана цена ${newPrice.toLocaleString('ru-RU')} ₽`,
+                ]);
+            }
+
+            const updatedMaterial = {
+                ...material,
+                price: newPrice,
+                lastUpdated: new Date().toISOString(),
+                isManualPrice: false,
+                searchSource: nextSearchSource,
+                searchMinPrice: nextMin,
+                searchMaxPrice: nextMax,
+            };
             await updateMaterial(updatedMaterial);
             setMaterials(prev => prev.map(m => m.id === materialId ? updatedMaterial : m));
             // Update prices in draft estimates
@@ -506,7 +579,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         }
     }, [materials]);
 
-    const handleUpdateAllPrices = useCallback(async () => {
+    const handleUpdateAllPrices = useCallback(async (opts?: { useAi?: boolean; onLogs?: (lines: string[]) => void }) => {
         if (isUpdatingAllPrices) return;
 
         await withAutosaveSuppressed(async () => {
@@ -551,7 +624,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 let done = 0;
                 for (let i = 0; i < materialsToUpdate.length; i += BATCH_SIZE) {
                     const batch = materialsToUpdate.slice(i, i + BATCH_SIZE);
-                    await Promise.allSettled(batch.map(m => handleUpdatePrice(m.id)));
+                    await Promise.allSettled(batch.map(m => handleUpdatePrice(m.id, { useAi: opts?.useAi })));
                     done += batch.length;
                     setUpdateAllPricesProgress({ done, total: materialsToUpdate.length });
                     setApiUsageRefreshTick(t => t + 1);

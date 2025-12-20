@@ -3,15 +3,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 const AIGenerationModal = ({
   isOpen,
   initialValue,
+  initialEnableAiPriceSearch,
   onCancel,
   onConfirm,
 }: {
   isOpen: boolean;
   initialValue?: string;
+  initialEnableAiPriceSearch?: boolean;
   onCancel: () => void;
-  onConfirm: (description: string) => void;
+  onConfirm: (payload: { description: string; enableAiPriceSearch: boolean }) => void;
 }) => {
   const [value, setValue] = useState(initialValue || '');
+  const [enableAiPriceSearch, setEnableAiPriceSearch] = useState(Boolean(initialEnableAiPriceSearch));
 
   const presets = useMemo(
     () => [
@@ -25,8 +28,10 @@ const AIGenerationModal = ({
   );
 
   useEffect(() => {
-    if (isOpen) setValue(initialValue || '');
-  }, [isOpen, initialValue]);
+    if (!isOpen) return;
+    setValue(initialValue || '');
+    setEnableAiPriceSearch(Boolean(initialEnableAiPriceSearch));
+  }, [isOpen, initialValue, initialEnableAiPriceSearch]);
 
   if (!isOpen) return null;
 
@@ -64,6 +69,15 @@ const AIGenerationModal = ({
             className="w-full p-3 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
             placeholder="Например: Дом под ключ 110 м², без электрики и сантехники. Нужны фундамент, стены, кровля, окна/двери."
           />
+
+          <label className="flex items-center gap-2 text-sm text-text-primary">
+            <input
+              type="checkbox"
+              checked={enableAiPriceSearch}
+              onChange={(e) => setEnableAiPriceSearch(e.target.checked)}
+            />
+            Проставлять цены материалов через AI (если цена = 0)
+          </label>
         </div>
 
         <div className="p-4 border-t border-border flex justify-end gap-2">
@@ -71,7 +85,7 @@ const AIGenerationModal = ({
             Отмена
           </button>
           <button
-            onClick={() => onConfirm(value.trim())}
+            onClick={() => onConfirm({ description: value.trim(), enableAiPriceSearch })}
             className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md transition-colors"
           >
             Сгенерировать
