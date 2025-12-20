@@ -51,6 +51,36 @@ const clamp01 = (x: number) => Math.max(0, Math.min(1, x));
 
 const sum = (arr: number[]) => arr.reduce((a, b) => a + b, 0);
 
+const parseDateMs = (v: any): number => {
+  const ms = Date.parse(String(v || ''));
+  return Number.isFinite(ms) ? ms : 0;
+};
+
+export function filterToLatestEstimateVersions(estimates: Estimate[]): Estimate[] {
+  const latestByRoot = new Map<string, Estimate>();
+  for (const e of (estimates || [])) {
+    if (!e || (e as any).isArchived) continue;
+    const rootId = e.parentId || e.id;
+    const prev = latestByRoot.get(rootId);
+    if (!prev) {
+      latestByRoot.set(rootId, e);
+      continue;
+    }
+    const vA = typeof prev.version === 'number' ? prev.version : 0;
+    const vB = typeof e.version === 'number' ? e.version : 0;
+    if (vB > vA) {
+      latestByRoot.set(rootId, e);
+      continue;
+    }
+    if (vB === vA) {
+      const dA = parseDateMs(prev.date);
+      const dB = parseDateMs(e.date);
+      if (dB > dA) latestByRoot.set(rootId, e);
+    }
+  }
+  return Array.from(latestByRoot.values());
+}
+
 export function buildDependencyGraph(materials: Material[], works: Work[]): DependencyGraph {
   const workNames = new Set((works || []).map(w => normalizeKey(w.name)));
   const materialNames = new Set((materials || []).map(m => normalizeKey(m.name)));
@@ -146,11 +176,12 @@ export function analyzeHistoricalPatterns(
   estimates: Estimate[],
   params: { area: number; region?: string; buildingType?: string },
 ): HistoricalPatterns {
+  const latestOnly = filterToLatestEstimateVersions(estimates || []);
   const area = safeNumber(params.area, 0);
   const region = normalizeKey(params.region || '');
   const buildingType = normalizeKey(params.buildingType || '');
 
-  const similar = (estimates || []).filter(e => {
+  const similar = (latestOnly || []).filter(e => {
     if (!e?.area || area <= 0) return false;
     const areaClose = Math.abs(e.area - area) / area < 0.2;
     const typeOk = buildingType ? normalizeKey(e.buildingType) === buildingType : true;
@@ -337,9 +368,13 @@ export function scoreEstimateQuality(
 }
 
 export function buildPromptInsights(patterns: HistoricalPatterns): string {
+  const n = Math.max(1, patterns.similarCount);
   const freq = patterns.itemFrequency
-    .map(x => x.name)
-    .slice(0, 12);
+    .slice(0, 12)
+    .map(x => {
+      const pct = (x.count / n) * 100;
+      return `${x.name} (${x.count}/${n}, ${pct.toFixed(0)}%)`;
+    });
 
   const co = patterns.cooccurrence
     .slice(0, 10)
@@ -385,9 +420,10 @@ export function pickFewShotExamples(
   estimates: Estimate[],
   params: { area: number; region?: string; buildingType?: string },
   graph: DependencyGraph,
-): Array<{ title: string; example: any }>{
-  const patterns = analyzeHistoricalPatterns(estimates, params);
-  const similar = (estimates || []).filter(e => {
+): Array<{ title: string; example: any; qualityScore?: number }>{
+  const latestOnly = filterToLatestEstimateVersions(estimates || []);
+  const patterns = analyzeHistoricalPatterns(latestOnly, params);
+  const similar = (latestOnly || []).filter(e => {
     if (!e?.area || !params.area) return false;
     const areaClose = Math.abs(e.area - params.area) / params.area < 0.25;
     const typeOk = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
@@ -405,6 +441,7 @@ export function pickFewShotExamples(
   const picked = scored.slice(0, 3);
   return picked.map((x, idx) => ({
     title: `Пример ${idx + 1} (площадь ${safeNumber(x.e.area, 0)} м², качество ${x.q.score.toFixed(2)})`,
+    qualityScore: x.q.score,
     example: summarizeEstimateExample(x.e.items || [], 5),
   }));
 }

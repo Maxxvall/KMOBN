@@ -454,6 +454,31 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setAiWarnings([]);
         setAiTextSuggestions([]);
         try {
+            const latestOnlyEstimates = (() => {
+                const byRoot = new Map<string, Estimate>();
+                for (const e of (allEstimates || [])) {
+                    if (!e || e.isArchived) continue;
+                    const rootId = e.parentId || e.id;
+                    const prev = byRoot.get(rootId);
+                    if (!prev) {
+                        byRoot.set(rootId, e);
+                        continue;
+                    }
+                    const vA = typeof prev.version === 'number' ? prev.version : 0;
+                    const vB = typeof e.version === 'number' ? e.version : 0;
+                    if (vB > vA) {
+                        byRoot.set(rootId, e);
+                        continue;
+                    }
+                    if (vB === vA) {
+                        const dA = Date.parse(prev.date || '');
+                        const dB = Date.parse(e.date || '');
+                        if (Number.isFinite(dB) && (!Number.isFinite(dA) || dB > dA)) byRoot.set(rootId, e);
+                    }
+                }
+                return Array.from(byRoot.values());
+            })();
+
             const selectedTemplate = templates.find(t => t.id === genParams.projectTemplateId);
             const templateItems = selectedTemplate?.items || [];
             // Для AI-режима: масштабируем базу шаблона под введённую площадь (если у шаблона задана baseArea).
@@ -475,7 +500,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             const callParams = { ...genParams, area: estimate.area };
             const { items: aiItems, suggestions, warnings } = await generateEstimateWithAI(
                 callParams,
-                allEstimates,
+                latestOnlyEstimates,
                 materials,
                 works,
                 baseItems,

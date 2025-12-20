@@ -1,7 +1,7 @@
 import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, GenerationParams, Material, Work } from '../types';
 import { aiCache } from './aiCache';
 import { AI_CONFIG, hasOpenRouterKey } from './aiConfig';
-import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, pickFewShotExamples, scoreEstimateQuality } from './estimateIntelligence';
+import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, filterToLatestEstimateVersions, pickFewShotExamples, scoreEstimateQuality } from './estimateIntelligence';
 import { checkNormAnomalies, computeNormExpectations } from './constructionNorms';
 import { getLearningHints, isCacheKeyBad } from './aiLearning';
 import { buildSp31_105_2002SystemMessage, containsSp31Reference } from './sp31_105_2002';
@@ -445,16 +445,47 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
 3) Справочников материалов и работ
 
 ЖЁСТКИЕ правила:
+- ПРИОРИТЕТ ИСТОРИЧЕСКИХ ДАННЫХ:
+  - История похожих смет — это финальные, проверенные версии реальных проектов.
+  - Если в истории/паттернах есть позиция с частотой ≥ 50% похожих проектов — включи её, если это не противоречит описанию сметы и справочникам.
+  - Количества из истории трактуй как реальный ориентир и масштабируй под текущую площадь (не копируй 1:1, а нормируй на площадь).
+  - При конфликте между «логическими рассуждениями» и историей — предпочитай историю, но не нарушай справочники.
+
 - Используй названия ТОЛЬКО из переданных списков материалов и работ. Если модель не знает точное название, просто оставь его пустым или заменяй на ближайшее совпадение.
 - В тексте ответа никогда не придумывай новые названия. Только те, которые уже есть в списках.
+- РАБОТА СО СПРАВОЧНИКАМИ (критически важно):
+  - Справочник материалов и работ — ЕДИНСТВЕННЫЙ источник корректных названий.
+  - ЗАПРЕЩЕНО выдумывать названия, даже если они кажутся «логичными».
+  - Если не уверен в точном названии:
+    1) ищи по ключевым словам в справочнике,
+    2) выбирай наиболее близкое совпадение (ориентир: ≥ 70% совпадения токенов),
+    3) если нет приемлемого совпадения — ПРОПУСТИ позицию и добавь предупреждение в warnings.
 - НЕ задавай цены: поле price всегда 0.
 - Кол-во (quantity) строго масштабируй под указанную площадь.
 - Тебе могут дать: 1) исторические паттерны (корреляции/соотношения), 2) несколько примеров хороших смет (few-shot), 3) подсказки на основе пользовательских правок. Используй их как ориентиры, но не нарушай справочники.
-- Учитывай логические зависимости работ и материалов (если есть работа, обычно нужны соответствующие материалы и крепёж).
-- Если в названии явно указан объём/площадь упаковки/рулона/пачки (например: "25 м²", "25м2", "3 м²", "рулон 25м2", "пачка 3 м²"), то:
-  - Ед.изм ставь "шт" (или "уп" только если это действительно упаковка),
-  - quantity указывай как количество упаковок/рулонов, а НЕ как площадь из названия,
-  - количество упаковок рассчитывай как ceil(площадь / площадь_в_упаковке) с небольшим запасом (0-2 упаковки, в зависимости от масштаба).
+- КРИТИЧЕСКИЕ ЗАВИСИМОСТИ:
+  - Учитывай зависимости работ и материалов: если есть работа — обычно нужны соответствующие материалы и крепёж.
+  - Перед финальным JSON пройди по КАЖДОЙ работе и проверь комплектность.
+
+- ПРАВИЛА ЕДИНИЦ ИЗМЕРЕНИЯ (строго соблюдай):
+  1) Если в названии есть площадь/объём упаковки (примеры):
+     - "Мембрана ветровлагозащитная 25м2" → unit: "шт", quantity: ceil(площадь_проекта / 25) + запас
+     - "Утеплитель … 3 м²" → unit: "шт", quantity: ceil(площадь_проекта / 3) + запас
+     - "Пароизоляция рулон 50м2" → unit: "шт", quantity: ceil(площадь_проекта / 50) + запас
+  2) Если в названии есть "шт", "упак", "уп" — НИКОГДА не ставь "м2"; только "шт" или "уп".
+  3) Если материал обычно измеряется в м² (листовой/рулонный):
+     - если продаётся листами/упаковками → unit: "шт", quantity: количество листов/упаковок,
+     - если площадью без упаковки → unit: "м2", quantity: площадь с запасом.
+  4) Погонные метры (доска, брус, профиль с размерами типа "50x50x6000"):
+     - unit: "м/п" ИЛИ "шт" (если указана длина одной единицы),
+     - quantity: рассчитай из размеров профиля.
+
+- ТИПИЧНЫЕ ОШИБКИ ИИ (избегай их):
+  - Не ставь "м2" там, где продаётся упаковками/рулонами.
+  - Не добавляй работы без крепежа/материалов.
+  - Не копируй количества из истории 1:1 — масштабируй.
+  - Не дублируй одинаковые позиции — суммируй.
+  - Не игнорируй подсказки обучения (learning hints).
 - Если смета частичная — не добавляй лишние разделы.
 
 Категории смет: ФУНДАМЕНТ, РОСТВЕРК, ЛАГИ, ПОЛЫ, СТЕНЫ, КРОВЛЯ/ПОТОЛОК, ОКНА/ДВЕРИ, ЭЛЕКТРИКА, ЛОГИСТИКА, ОБЩАЯ, ДЕМОНТАЖ
@@ -487,7 +518,8 @@ const ensureSp31Mention = (texts: string[], fallbackLine: string): string[] => {
 
 const buildHistoricalContext = (estimates: Estimate[], params: GenerationParams, buildingType?: string): string => {
   const area = params.area || 0;
-  const similar = (estimates || []).filter(e => {
+  const latestOnly = filterToLatestEstimateVersions(estimates || []);
+  const similar = (latestOnly || []).filter(e => {
     if (!e?.area || area <= 0) return false;
     const areaClose = Math.abs(e.area - area) / area < 0.2;
     const typeOk = buildingType ? e.buildingType === buildingType : true;
@@ -513,7 +545,10 @@ const buildHistoricalContext = (estimates: Estimate[], params: GenerationParams,
   const mostCommon = Array.from(freq.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 15)
-    .map(([name]) => name);
+    .map(([name, count]) => {
+      const pct = similar.length ? (count / similar.length) * 100 : 0;
+      return `${name} (${count}/${Math.max(1, similar.length)}, ${pct.toFixed(0)}%)`;
+    });
 
   const avgArea = similar.length ? similar.reduce((s, e) => s + (e.area || 0), 0) / similar.length : 0;
 
@@ -531,8 +566,9 @@ const buildAdvancedContext = (opts: {
   projectTemplateId?: string;
   projectTemplateName?: string;
 }) => {
+  const latestHistory = filterToLatestEstimateVersions(opts.historicalEstimates || []);
   const graph = buildDependencyGraph(opts.materials || [], opts.works || []);
-  const patterns = analyzeHistoricalPatterns(opts.historicalEstimates || [], {
+  const patterns = analyzeHistoricalPatterns(latestHistory, {
     area: opts.params.area,
     region: opts.region || opts.params.region,
     buildingType: opts.buildingType,
@@ -540,7 +576,7 @@ const buildAdvancedContext = (opts: {
 
   const insightsText = buildPromptInsights(patterns);
   const fewShot = pickFewShotExamples(
-    opts.historicalEstimates || [],
+    latestHistory,
     { area: opts.params.area, region: opts.region || opts.params.region, buildingType: opts.buildingType },
     graph,
   );
@@ -555,8 +591,8 @@ const buildAdvancedContext = (opts: {
   });
 
   const fewShotText = fewShot.length
-    ? `Примеры хорошо составленных смет (для ориентира, few-shot):\n${fewShot
-      .map(x => `- ${x.title}: ${JSON.stringify(x.example)}`)
+    ? `ЭТАЛОННЫЕ ПРИМЕРЫ (few-shot learning) — лучшие сметы по качеству и полноте (используй структуру как образец):\n${fewShot
+      .map(x => `- ${x.title}\n  ВАЖНО: эта смета прошла проверку качества (score ${typeof x.qualityScore === 'number' ? x.qualityScore.toFixed(2) : 'N/A'}).\n  ${JSON.stringify(x.example)}`)
       .join('\n')}`
     : '';
 
@@ -573,7 +609,7 @@ const buildAdvancedContext = (opts: {
     if (depLines.length >= 14) break;
   }
   const depsText = depLines.length
-    ? `Логические зависимости (выжимка, используй для самопроверки комплектности):\n- ${depLines.join('\n- ')}`
+    ? `КРИТИЧЕСКИЕ ЗАВИСИМОСТИ (самопроверка ОБЯЗАТЕЛЬНА):\nЕсли ты добавляешь работу, АВТОМАТИЧЕСКИ проверь материалы/крепёж:\n- ${depLines.join('\n- ')}\n\nПРАВИЛО САМОПРОВЕРКИ: перед финальным ответом пройди по каждой работе и убедись, что ключевые материалы присутствуют. Если материала нет — добавь или объясни в warnings.`
     : '';
 
   return {
