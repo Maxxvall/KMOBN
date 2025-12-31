@@ -6,6 +6,7 @@ import { searchPrice, type SearchPriceOptions } from './priceService';
 type OpenRouterChatMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  reasoning_details?: any;
 };
 
 export type AiPriceSearchContext = {
@@ -49,17 +50,15 @@ export type AiPriceSearchResult = {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function callOpenRouterForJson(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number }) {
-  if (!hasOpenRouterKey()) {
-    throw new Error('OpenRouter API key is not configured (VITE_OPENROUTER_API_KEY)');
-  }
+type OpenRouterCallOptions = {
+  temperature?: number;
+  maxTokens?: number;
+};
 
-  const cacheKey = opts?.cacheKey;
-  if (cacheKey) {
-    const cached = aiCache.get<any>(cacheKey);
-    if (cached) return cached;
-  }
+const SECONDARY_CHECK_PROMPT =
+  'Проверь ответ еще раз и убедись, что он полностью соответствует инструкции (JSON-формат, разрешенные источники и диапазон).';
 
+async function performOpenRouterRequest(messages: OpenRouterChatMessage[], opts: OpenRouterCallOptions) {
   let lastError: any;
   const maxRetries = 3;
 
@@ -78,8 +77,9 @@ async function callOpenRouterForJson(messages: OpenRouterChatMessage[], opts?: {
         body: JSON.stringify({
           model: AI_CONFIG.model,
           messages,
-          temperature: opts?.temperature ?? 0.2,
-          max_tokens: opts?.maxTokens ?? 800,
+          temperature: opts.temperature ?? 0.2,
+          max_tokens: opts.maxTokens ?? 800,
+          reasoning: { enabled: true },
         }),
       });
 
@@ -93,11 +93,7 @@ async function callOpenRouterForJson(messages: OpenRouterChatMessage[], opts?: {
         throw new Error(`OpenRouter error ${res.status}: ${text || res.statusText}`);
       }
 
-      const data = await res.json();
-      if (cacheKey) {
-        aiCache.set(cacheKey, data, opts?.ttlMs ?? 30 * 60 * 1000);
-      }
-      return data;
+      return await res.json();
     } catch (e) {
       lastError = e;
       if (i < maxRetries - 1) await sleep(800);
@@ -105,6 +101,50 @@ async function callOpenRouterForJson(messages: OpenRouterChatMessage[], opts?: {
   }
 
   throw new Error(`OpenRouter failed after ${maxRetries} retries: ${String(lastError)}`);
+}
+
+async function callOpenRouterForJson(
+  messages: OpenRouterChatMessage[],
+  opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number },
+) {
+  if (!hasOpenRouterKey()) {
+    throw new Error('OpenRouter API key is not configured (VITE_OPENROUTER_API_KEY)');
+  }
+
+  const cacheKey = opts?.cacheKey;
+  if (cacheKey) {
+    const cached = aiCache.get<any>(cacheKey);
+    if (cached) return cached;
+  }
+
+  const callOpts: OpenRouterCallOptions = {
+    temperature: opts?.temperature ?? 0.2,
+    maxTokens: opts?.maxTokens ?? 800,
+  };
+
+  const firstData = await performOpenRouterRequest(messages, callOpts);
+  const assistantMessage = firstData?.choices?.[0]?.message;
+
+  const followUpMessages: OpenRouterChatMessage[] = [
+    ...messages,
+    {
+      role: 'assistant',
+      content: String(assistantMessage?.content || ''),
+      reasoning_details: assistantMessage?.reasoning_details,
+    },
+    {
+      role: 'user',
+      content: SECONDARY_CHECK_PROMPT,
+    },
+  ];
+
+  const finalData = await performOpenRouterRequest(followUpMessages, callOpts);
+
+  if (cacheKey) {
+    aiCache.set(cacheKey, finalData, opts?.ttlMs ?? 30 * 60 * 1000);
+  }
+
+  return finalData;
 }
 
 function extractJson(text: string): any {
