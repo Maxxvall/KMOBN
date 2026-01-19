@@ -85,6 +85,10 @@ export const deleteEstimatesByNumber = async (estimateNumber: string | number): 
   }
 };
 
+export const deleteEstimateById = async (estimateId: string): Promise<void> => {
+  await deleteRecord('estimates', estimateId);
+};
+
 export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void> => {
   await upsertRecords(upsertTemplates, templates);
 };

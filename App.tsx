@@ -20,7 +20,7 @@ import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
 import { aiPriceSearch } from './services/aiPriceSearch';
 import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, shouldUpdatePrice } from './services/priceCache';
-import { checkUserCredentials, loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { checkUserCredentials, loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 
 
@@ -308,6 +308,50 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
         }
     }, []);
+
+    const handleDeleteEstimateVersion = useCallback(async (estimateToDelete: Estimate) => {
+        const parentId = estimateToDelete.parentId || estimateToDelete.id;
+        const versionHistory = estimates
+            .filter(e => (e.parentId || e.id) === parentId)
+            .sort((a, b) => b.version - a.version);
+
+        if (versionHistory.length === 0) {
+            alert('Версия не найдена. Обновите список и попробуйте снова.');
+            return;
+        }
+
+        const isOnlyVersion = versionHistory.length === 1;
+        const latestVersionId = versionHistory[0].id;
+        const isLatest = estimateToDelete.id === latestVersionId;
+
+        let confirmMessage = '';
+        if (isOnlyVersion) {
+            confirmMessage = `Вы уверены, что хотите удалить смету №${estimateToDelete.estimateNumber} целиком? Это удалит единственную версию и всю цепочку.`;
+        } else if (!isLatest) {
+            confirmMessage = `Вы удаляете промежуточную версию v${estimateToDelete.version}. Это может нарушить историю изменений. Продолжить?`;
+        } else {
+            confirmMessage = `Вы уверены, что хотите удалить версию v${estimateToDelete.version} сметы №${estimateToDelete.estimateNumber}?`;
+        }
+
+        if (!window.confirm(confirmMessage)) return;
+
+        try {
+            if (isOnlyVersion) {
+                await deleteEstimatesByNumber(estimateToDelete.estimateNumber);
+                setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateToDelete.estimateNumber));
+                setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
+            } else {
+                await deleteEstimateById(estimateToDelete.id);
+                setEstimates(prevEstimates => prevEstimates.filter(e => e.id !== estimateToDelete.id));
+                setSync({ visible: true, message: 'Версия сметы удалена', type: 'success' });
+            }
+            setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
+        } catch (error) {
+            console.error('Failed to delete estimate version from DB:', error);
+            setSync({ visible: true, message: 'Ошибка удаления версии в БД', type: 'error' });
+            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+        }
+    }, [estimates]);
 
     const handleDraftChange = useCallback((draft: Estimate) => {
         setEditorDraft(draft);
@@ -795,6 +839,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                                 onCreateNew={handleCreateNew}
                                 onEdit={handleEdit}
                                 onDelete={handleDeleteEstimate}
+                                onDeleteVersion={handleDeleteEstimateVersion}
                                 onGeneratePdf={handleGeneratePdf}
                             />
                         )}

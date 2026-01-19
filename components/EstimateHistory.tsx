@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Estimate, EstimateStatus, ProjectTemplate } from '../types';
 import { exportData, importData } from '../services/database';
 
@@ -8,6 +8,7 @@ interface EstimateHistoryProps {
     onCreateNew: () => void;
     onEdit: (estimate: Estimate) => void;
     onDelete: (estimate: Estimate) => void;
+    onDeleteVersion: (estimate: Estimate) => void;
     onGeneratePdf: (estimate: Estimate) => void;
 }
 
@@ -18,7 +19,82 @@ const statusColors: { [key in EstimateStatus]: string } = {
     [EstimateStatus.ARCHIVED]: 'bg-gray-700 text-gray-300 border border-gray-600',
 };
 
-const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates, onCreateNew, onEdit, onDelete, onGeneratePdf }) => {
+const VersionDropdown: React.FC<{
+    versions: Estimate[];
+    selectedId: string;
+    onSelect: (id: string) => void;
+    onDelete: (estimate: Estimate) => void;
+}> = ({ versions, selectedId, onSelect, onDelete }) => {
+    const [open, setOpen] = useState(false);
+    const rootRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        const handler = (e: MouseEvent) => {
+            if (!rootRef.current) return;
+            if (e.target instanceof Node && rootRef.current.contains(e.target)) return;
+            setOpen(false);
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, []);
+
+    const selected = versions.find(v => v.id === selectedId) ?? versions[0];
+
+    return (
+        <div ref={rootRef} className="relative inline-flex">
+            <button
+                type="button"
+                onClick={() => setOpen(v => !v)}
+                className="min-w-[180px] p-1 bg-background border border-border rounded-md text-sm text-left flex items-center justify-between gap-2 hover:border-primary transition"
+                aria-haspopup="listbox"
+                aria-expanded={open}
+            >
+                <span className="truncate">
+                    {selected ? `v${selected.version} (${new Date(selected.date).toLocaleDateString()})` : 'Выбрать версию'}
+                </span>
+                <span className="text-text-secondary">▾</span>
+            </button>
+
+            {open && (
+                <div className="absolute z-30 mt-2 w-full bg-surface border border-border rounded-xl shadow-2xl overflow-hidden">
+                    <div role="listbox" className="max-h-72 overflow-auto">
+                        {versions.map(v => (
+                            <div
+                                key={v.id}
+                                className={`flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-background/50 transition ${v.id === selectedId ? 'bg-background/40' : ''}`}
+                            >
+                                <button
+                                    type="button"
+                                    className="flex-1 text-left truncate"
+                                    onClick={() => {
+                                        onSelect(v.id);
+                                        setOpen(false);
+                                    }}
+                                >
+                                    <span className="font-semibold">v{v.version}</span>{' '}
+                                    <span className="text-text-secondary">({new Date(v.date).toLocaleDateString()})</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className="text-text-secondary hover:text-red-400 transition-transform hover:scale-110"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onDelete(v);
+                                    }}
+                                    aria-label={`Удалить версию v${v.version}`}
+                                >
+                                    ✖
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates, onCreateNew, onEdit, onDelete, onDeleteVersion, onGeneratePdf }) => {
     const [filterClient, setFilterClient] = useState('');
     const [filterStatus, setFilterStatus] = useState<EstimateStatus | 'all'>('all');
     const [filterBuildingType, setFilterBuildingType] = useState<string>('');
@@ -105,6 +181,29 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
         }));
     }
 
+    useEffect(() => {
+        setSelectedVersions(prev => {
+            let changed = false;
+            const next = { ...prev };
+
+            Object.entries(prev).forEach(([parentId, selectedId]) => {
+                const exists = estimates.some(e => e.id === selectedId);
+                if (exists) return;
+                const versionHistory = estimates
+                    .filter(e => (e.parentId || e.id) === parentId)
+                    .sort((a, b) => b.version - a.version);
+                if (versionHistory.length > 0) {
+                    next[parentId] = versionHistory[0].id;
+                } else {
+                    delete next[parentId];
+                }
+                changed = true;
+            });
+
+            return changed ? next : prev;
+        });
+    }, [estimates]);
+
     return (
         <div className="bg-surface p-4 rounded-lg shadow-2xl">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
@@ -189,15 +288,12 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                                     <td className="text-left py-2 px-3">{estimate.client}</td>
                                     <td className="text-left py-2 px-3">{new Date(estimate.date).toLocaleDateString()}</td>
                                     <td className="text-center py-2 px-3">
-                                        <select 
-                                            className="p-1 bg-background border border-border rounded-md text-sm"
-                                            value={selectedVersions[parentId] || estimate.id}
-                                            onChange={(e) => handleVersionChange(parentId, e.target.value)}
-                                        >
-                                            {versionHistory.map(v => (
-                                                <option key={v.id} value={v.id}>v{v.version} ({new Date(v.date).toLocaleDateString()})</option>
-                                            ))}
-                                        </select>
+                                        <VersionDropdown
+                                            versions={versionHistory}
+                                            selectedId={selectedVersions[parentId] || estimate.id}
+                                            onSelect={(versionId) => handleVersionChange(parentId, versionId)}
+                                            onDelete={onDeleteVersion}
+                                        />
                                     </td>
                                     <td className="text-center py-3 px-4">
                                         <span className={`py-1 px-3 rounded-full text-xs font-semibold ${statusColors[estimate.status]}`}>
