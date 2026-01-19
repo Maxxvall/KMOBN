@@ -310,9 +310,9 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     }, []);
 
     const handleDeleteEstimateVersion = useCallback(async (estimateToDelete: Estimate) => {
-        const parentId = estimateToDelete.parentId || estimateToDelete.id;
+        const estimateNumber = estimateToDelete.estimateNumber;
         const versionHistory = estimates
-            .filter(e => (e.parentId || e.id) === parentId)
+            .filter(e => e.estimateNumber === estimateNumber)
             .sort((a, b) => b.version - a.version);
 
         if (versionHistory.length === 0) {
@@ -342,15 +342,24 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
             } else {
                 const remainingVersions = versionHistory.filter(e => e.id !== estimateToDelete.id);
-                const isRootVersion = !estimateToDelete.parentId || estimateToDelete.id === parentId;
+                const hasChildren = remainingVersions.some(e => e.parentId === estimateToDelete.id);
+                const isRootVersion = !estimateToDelete.parentId || hasChildren;
+                const shouldNormalize = remainingVersions.length > 0 && (isRootVersion || isLatest);
 
-                if (isRootVersion && remainingVersions.length > 0) {
-                    const [newRoot] = [...remainingVersions].sort((a, b) => b.version - a.version);
-                    const reparented = remainingVersions.map(e =>
-                        e.id === newRoot.id
-                            ? { ...e, parentId: undefined }
-                            : { ...e, parentId: newRoot.id }
-                    );
+                if (shouldNormalize) {
+                    const [newRoot] = [...remainingVersions].sort((a, b) => {
+                        if (b.version !== a.version) return b.version - a.version;
+                        return new Date(b.date).getTime() - new Date(a.date).getTime();
+                    });
+                    const reparented = remainingVersions.map(e => {
+                        const isNewRoot = e.id === newRoot.id;
+                        return {
+                            ...e,
+                            parentId: isNewRoot ? undefined : newRoot.id,
+                            isArchived: isNewRoot ? false : true,
+                            status: isNewRoot ? e.status : EstimateStatus.ARCHIVED,
+                        };
+                    });
 
                     await deleteEstimateById(estimateToDelete.id);
                     await saveEstimates(reparented);

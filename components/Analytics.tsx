@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Estimate } from '../types';
+import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
 import {
     Bar,
     BarChart,
@@ -333,8 +334,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         }
     }, [periodPreset, selectedCategory, selectedEstimate1, selectedEstimate2, showOnlyDifferent, showOnlySignificant, significantThreshold]);
 
-    // Фильтруем активные сметы
-    const activeEstimates = useMemo(() => estimates.filter(est => !est.isArchived), [estimates]);
+    // Берем только актуальные версии смет
+    const activeEstimates = useMemo(() => filterToLatestEstimateVersions(estimates), [estimates]);
 
     const options: EstimateOption[] = useMemo(() => {
         return activeEstimates

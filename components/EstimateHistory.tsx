@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate } from '../types';
+import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
 import { exportData, importData } from '../services/database';
 
 interface EstimateHistoryProps {
@@ -165,8 +166,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
     };
 
     const filteredEstimates = useMemo(() => {
-        return estimates
-            .filter(e => !e.isArchived)
+        const latestEstimates = filterToLatestEstimateVersions(estimates);
+        return latestEstimates
             .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
             .filter(e => filterStatus === 'all' || e.status === filterStatus)
             .filter(e => filterBuildingType === '' || e.buildingType.toLowerCase().includes(filterBuildingType.toLowerCase()))
@@ -179,15 +180,15 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
     }, [estimates, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
     
     const getVersionHistory = (estimate: Estimate) => {
-        const parentId = estimate.parentId || estimate.id;
+        const groupKey = estimate.estimateNumber;
         return estimates
-            .filter(e => e.parentId === parentId || e.id === parentId)
+            .filter(e => e.estimateNumber === groupKey)
             .sort((a, b) => b.version - a.version);
     }
 
     const getSelectedVersionEstimate = (estimate: Estimate): Estimate => {
-        const parentId = estimate.parentId || estimate.id;
-        const selectedVersionId = selectedVersions[parentId];
+        const groupKey = estimate.estimateNumber;
+        const selectedVersionId = selectedVersions[groupKey];
         
         if (selectedVersionId) {
             const selectedEstimate = estimates.find(e => e.id === selectedVersionId);
@@ -197,10 +198,10 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
         return estimate;
     }
 
-    const handleVersionChange = (parentId: string, versionId: string) => {
+    const handleVersionChange = (groupKey: string, versionId: string) => {
         setSelectedVersions(prev => ({
             ...prev,
-            [parentId]: versionId
+            [groupKey]: versionId
         }));
     }
 
@@ -210,18 +211,18 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
             const next = { ...prev };
             let changed = false;
 
-            // Collect all parentIds present in estimates
-            const parentIds = new Set<string>();
-            estimates.forEach(e => parentIds.add(e.parentId || e.id));
+            // Collect all estimate numbers present in estimates
+            const groupKeys = new Set<string>();
+            estimates.forEach(e => groupKeys.add(e.estimateNumber));
 
-            parentIds.forEach(parentId => {
+            groupKeys.forEach(groupKey => {
                 const versionHistory = estimates
-                    .filter(e => (e.parentId || e.id) === parentId)
+                    .filter(e => e.estimateNumber === groupKey)
                     .sort((a, b) => b.version - a.version);
 
                 if (versionHistory.length === 0) {
-                    if (next[parentId]) {
-                        delete next[parentId];
+                    if (next[groupKey]) {
+                        delete next[groupKey];
                         changed = true;
                     }
                     return;
@@ -229,8 +230,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
 
                 const latestId = versionHistory[0].id;
                 // if no selection for this parent or current selection no longer exists — set to latest
-                if (!next[parentId] || !estimates.some(e => e.id === next[parentId])) {
-                    next[parentId] = latestId;
+                if (!next[groupKey] || !estimates.some(e => e.id === next[groupKey])) {
+                    next[groupKey] = latestId;
                     changed = true;
                 }
             });
@@ -313,7 +314,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                     </thead>
                     <tbody className="text-text-primary">
                         {filteredEstimates.map(estimate => {
-                            const parentId = estimate.parentId || estimate.id;
+                            const groupKey = estimate.estimateNumber;
                             const selectedEstimate = getSelectedVersionEstimate(estimate);
                             const versionHistory = getVersionHistory(estimate);
                             
@@ -325,8 +326,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                                     <td className="text-center py-2 px-3">
                                         <VersionDropdown
                                             versions={versionHistory}
-                                            selectedId={selectedVersions[parentId] || (versionHistory[0] && versionHistory[0].id) || estimate.id}
-                                            onSelect={(versionId) => handleVersionChange(parentId, versionId)}
+                                            selectedId={selectedVersions[groupKey] || (versionHistory[0] && versionHistory[0].id) || estimate.id}
+                                            onSelect={(versionId) => handleVersionChange(groupKey, versionId)}
                                             onDelete={onDeleteVersion}
                                         />
                                     </td>

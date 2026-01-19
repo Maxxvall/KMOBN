@@ -60,7 +60,7 @@ export function filterToLatestEstimateVersions(estimates: Estimate[]): Estimate[
   const latestByRoot = new Map<string, Estimate>();
   for (const e of (estimates || [])) {
     if (!e || (e as any).isArchived) continue;
-    const rootId = e.parentId || e.id;
+    const rootId = e.parentId || (e.estimateNumber ? `num:${e.estimateNumber}` : e.id);
     const prev = latestByRoot.get(rootId);
     if (!prev) {
       latestByRoot.set(rootId, e);
