@@ -1,12 +1,23 @@
 // @ts-nocheck
 import { Estimate, EstimateItem, EstimateSubgroup } from '../types';
 import { ESTIMATE_CATEGORIES } from '../constants';
+import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
 
 const formatCurrency = (value: number) => `${value.toLocaleString('ru-RU')} ₽`;
 
 const safeTotal = (item: EstimateItem) => (item.total ?? item.quantity * item.price);
 
 const sanitizeFileName = (value: string) => value.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+
+const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+    let binary = '';
+    const bytes = new Uint8Array(buffer);
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+    }
+    return btoa(binary);
+};
 
 const declension = (value: number, forms: [string, string, string]) => {
     const n = Math.abs(value) % 100;
@@ -98,15 +109,35 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
+    const FONT_NAME = 'LiberationSans';
+    const fontResult = await Promise.allSettled([
+        fetch(LiberationFontUrl).then(r => r.arrayBuffer()),
+    ]);
+
+    if (fontResult[0].status === 'fulfilled') {
+        try {
+            const b64 = arrayBufferToBase64(fontResult[0].value);
+            doc.addFileToVFS('LiberationSans-Regular.ttf', b64);
+            doc.addFont('LiberationSans-Regular.ttf', FONT_NAME, 'normal');
+            doc.addFont('LiberationSans-Regular.ttf', FONT_NAME, 'bold');
+        } catch (e) {
+            console.error('Failed to setup LiberationSans font for PDF contract:', e);
+        }
+    } else {
+        console.error('Failed to load LiberationSans font for PDF contract:', fontResult[0].reason);
+    }
+
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 14;
 
-    doc.setFont('helvetica', 'bold');
+    doc.setFont(FONT_NAME, 'normal');
+    doc.setFontSize(16);
+    doc.setFont(FONT_NAME, 'bold');
     doc.setFontSize(16);
     doc.text(`Приложение №1 к договору ${normalizedContractName}`, pageWidth / 2, 20, { align: 'center' });
 
-    doc.setFont('helvetica', 'normal');
+    doc.setFont(FONT_NAME, 'normal');
     doc.setFontSize(12);
     doc.text(`Смета № ${estimate.estimateNumber} от ${estimateDate}`, pageWidth / 2, 28, { align: 'center' });
 
@@ -156,8 +187,9 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
         body: tableBody,
         theme: 'grid',
         margin: { left: margin, right: margin },
-        styles: { fontSize: 9, cellPadding: 2 },
-        headStyles: { fillColor: [245, 245, 245], textColor: 20, halign: 'center', fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 2, font: FONT_NAME },
+        headStyles: { fillColor: [245, 245, 245], textColor: 20, halign: 'center', fontStyle: 'bold', font: FONT_NAME },
+        bodyStyles: { font: FONT_NAME },
         columnStyles: {
             0: { cellWidth: colWidths.name },
             1: { cellWidth: colWidths.unit, halign: 'center' },
@@ -176,7 +208,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
 
     const addLine = (text: string, options?: { bold?: boolean; size?: number }) => {
         ensureSpace(6);
-        doc.setFont('helvetica', options?.bold ? 'bold' : 'normal');
+        doc.setFont(FONT_NAME, options?.bold ? 'bold' : 'normal');
         doc.setFontSize(options?.size ?? 11);
         doc.text(text, margin, y);
         y += 6;
