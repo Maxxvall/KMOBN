@@ -241,11 +241,20 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
 
     addLine(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 12 });
     y += 3;
+    // Блок согласования — печатаем без внутренних отступов между строками
     addLine('СОГЛАСОВАНО:', { bold: true });
-    y += 3;
-    addLine('Подрядчик: Афонькин В.А.');
-    y += 3;
-    addLine('Заказчик:');
+    const agreeLines = [
+        'Подрядчик: Афонькин В.А.',
+        'Заказчик:',
+    ];
+    const agreeLineHeight = 6;
+    ensureSpace(agreeLines.length * agreeLineHeight + 2);
+    agreeLines.forEach(line => {
+        doc.setFont(FONT_NAME, 'normal');
+        doc.setFontSize(11);
+        doc.text(line, margin, y);
+        y += agreeLineHeight;
+    });
 
     const safeContractName = sanitizeFileName(normalizedContractName);
     const fileName = `Приложение_№1_к_договору_${safeContractName}_Смета_${estimate.estimateNumber}.pdf`;
