@@ -120,11 +120,11 @@ const createCategoryRow = (category: string) => {
 const createHeaderRow = () => {
     return new TableRow({
         children: [
-            createCell('Наименование', { bold: true, align: AlignmentType.CENTER, width: 52 }),
-            createCell('Ед.изм', { bold: true, align: AlignmentType.CENTER, width: 10 }),
-            createCell('Кол-во', { bold: true, align: AlignmentType.CENTER, width: 10 }),
-            createCell('Цена', { bold: true, align: AlignmentType.CENTER, width: 14 }),
-            createCell('Сумма', { bold: true, align: AlignmentType.CENTER, width: 14 }),
+            createCell('Наименование', { bold: true, align: AlignmentType.CENTER, width: 60 }),
+            createCell('Ед.изм', { bold: true, align: AlignmentType.CENTER, width: 8 }),
+            createCell('Кол-во', { bold: true, align: AlignmentType.CENTER, width: 8 }),
+            createCell('Цена', { bold: true, align: AlignmentType.CENTER, width: 12 }),
+            createCell('Сумма', { bold: true, align: AlignmentType.CENTER, width: 12 }),
         ],
     });
 };
@@ -133,11 +133,11 @@ const createItemRow = (item: EstimateItem) => {
     return new TableRow({
         cantSplit: false,
         children: [
-            createCell(item.name, { width: 52 }),
-            createCell(item.unit, { align: AlignmentType.CENTER, width: 10 }),
-            createCell(item.quantity.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }), { align: AlignmentType.RIGHT, width: 10 }),
-            createCell(formatCurrency(item.price), { align: AlignmentType.RIGHT, width: 14 }),
-            createCell(formatCurrency(safeTotal(item)), { align: AlignmentType.RIGHT, width: 14 }),
+            createCell(item.name, { width: 60 }),
+            createCell(item.unit, { align: AlignmentType.CENTER, width: 8 }),
+            createCell(item.quantity.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }), { align: AlignmentType.RIGHT, width: 8 }),
+            createCell(formatCurrency(item.price), { align: AlignmentType.RIGHT, width: 12 }),
+            createCell(formatCurrency(safeTotal(item)), { align: AlignmentType.RIGHT, width: 12 }),
         ],
     });
 };
@@ -211,11 +211,12 @@ export const generateWordContract = async (estimate: Estimate, contractName: str
                     createTextParagraph(`Материалы: ${formatCurrency(materialsTotal)}`),
                     createTextParagraph(`Доставка: ${formatCurrency(deliveryTotal)}`),
                     new Paragraph({ text: '' }),
-                    createTextParagraph(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 28 }),
+                    createTextParagraph(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 24 }),
                     new Paragraph({ text: '' }),
                     createTextParagraph('СОГЛАСОВАНО:', { bold: true }),
                     new Paragraph({ text: '' }),
                     createTextParagraph('Подрядчик: Афонькин В.А.'),
+                    new Paragraph({ text: '' }),
                     createTextParagraph('Заказчик:'),
                 ],
             },
