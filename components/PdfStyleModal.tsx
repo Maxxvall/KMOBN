@@ -2,14 +2,14 @@ import React from 'react';
 
 interface PdfStyleModalProps {
     onClose: () => void;
-    onSelectStyle: (style: 'simple' | 'colored') => void;
+    onSelectStyle: (style: 'simple' | 'colored' | 'word-contract') => void;
 }
 
 const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle }) => {
     return (
         <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div className="bg-surface rounded-lg shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-                <h2 className="text-2xl font-bold text-text-primary mb-4">Выберите стиль PDF</h2>
+                <h2 className="text-2xl font-bold text-text-primary mb-4">Выберите формат экспорта</h2>
                 <p className="text-text-secondary mb-6">Выберите, в каком стиле вы хотите скачать смету:</p>
                 
                 <div className="space-y-4">
@@ -27,6 +27,14 @@ const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle })
                     >
                         <div className="font-bold text-lg mb-1">Цветной стиль</div>
                         <div className="text-sm text-green-100">Современная смета с фирменными цветами и логотипом</div>
+                    </button>
+
+                    <button
+                        onClick={() => onSelectStyle('word-contract')}
+                        className="w-full bg-blue-700 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-md shadow-md transition duration-300 text-left"
+                    >
+                        <div className="font-bold text-lg mb-1">Word - Приложение к договору</div>
+                        <div className="text-sm text-blue-100">Официальный документ для подписания договора</div>
                     </button>
                 </div>
                 

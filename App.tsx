@@ -9,11 +9,13 @@ import Works from './components/Works';
 import Bundles from './components/Bundles';
 import SalaryCalculator from './components/SalaryCalculator';
 import PdfStyleModal from './components/PdfStyleModal';
+import ContractNameModal from './components/ContractNameModal';
 import Analytics from './components/Analytics';
 import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
+import { generateWordContract } from './services/wordGenerator';
 import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
 import { aiPriceSearch } from './services/aiPriceSearch';
@@ -42,7 +44,8 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     const [isLoading, setIsLoading] = useState(true);
     const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
     const [showPdfStyleModal, setShowPdfStyleModal] = useState(false);
-    const [pendingPdfEstimate, setPendingPdfEstimate] = useState<Estimate | null>(null);
+    const [showContractNameModal, setShowContractNameModal] = useState(false);
+    const [pendingExportEstimate, setPendingExportEstimate] = useState<Estimate | null>(null);
     const [editorValidationResult, setEditorValidationResult] = useState<ReturnType<typeof validateEstimate> | null>(null);
     const [editorDirty, setEditorDirty] = useState(false);
     const [editorDraft, setEditorDraft] = useState<Estimate | null>(null);
@@ -368,27 +371,47 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             return;
         }
 
-        setPendingPdfEstimate(estimate);
+        setPendingExportEstimate(estimate);
         setShowPdfStyleModal(true);
     }, [goToView]);
 
-    const handlePdfStyleSelect = useCallback((style: 'simple' | 'colored') => {
-        if (!pendingPdfEstimate) return;
+    const handlePdfStyleSelect = useCallback((style: 'simple' | 'colored' | 'word-contract') => {
+        if (!pendingExportEstimate) return;
+
+        if (style === 'word-contract') {
+            setShowPdfStyleModal(false);
+            setShowContractNameModal(true);
+            return;
+        }
         
         try {
             if (style === 'simple') {
-                generatePdf(pendingPdfEstimate);
+                generatePdf(pendingExportEstimate);
             } else {
-                generatePdfColored(pendingPdfEstimate);
+                generatePdfColored(pendingExportEstimate);
             }
         } catch (error) {
             console.error("PDF Generation Error:", error);
             alert("Не удалось сгенерировать PDF. Проверьте консоль для получения дополнительной информации.");
         } finally {
             setShowPdfStyleModal(false);
-            setPendingPdfEstimate(null);
+            setPendingExportEstimate(null);
         }
-    }, [pendingPdfEstimate]);
+    }, [pendingExportEstimate]);
+
+    const handleContractNameConfirm = useCallback(async (contractName: string) => {
+        if (!pendingExportEstimate) return;
+
+        try {
+            await generateWordContract(pendingExportEstimate, contractName);
+        } catch (error) {
+            console.error('Word Generation Error:', error);
+            alert('Не удалось сгенерировать Word документ.');
+        } finally {
+            setShowContractNameModal(false);
+            setPendingExportEstimate(null);
+        }
+    }, [pendingExportEstimate]);
 
     const handleSaveAsTemplate = useCallback(async (estimate: Estimate) => {
         const templateName = prompt('Введите название шаблона:');
@@ -894,9 +917,19 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 <PdfStyleModal
                     onClose={() => {
                         setShowPdfStyleModal(false);
-                        setPendingPdfEstimate(null);
+                        setPendingExportEstimate(null);
                     }}
                     onSelectStyle={handlePdfStyleSelect}
+                />
+            )}
+            {showContractNameModal && pendingExportEstimate && (
+                <ContractNameModal
+                    onClose={() => {
+                        setShowContractNameModal(false);
+                        setPendingExportEstimate(null);
+                    }}
+                    onConfirm={handleContractNameConfirm}
+                    defaultContractName={`КМ ${pendingExportEstimate.estimateNumber}`}
                 />
             )}
             <SyncToast
