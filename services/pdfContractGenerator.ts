@@ -154,7 +154,6 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
                 styles: {
                     halign: 'center',
                     fontStyle: 'bold',
-                    fillColor: [230, 230, 230],
                 },
             },
         ];
@@ -188,7 +187,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
         theme: 'grid',
         margin: { left: margin, right: margin },
         styles: { fontSize: 9, cellPadding: 2, font: FONT_NAME },
-        headStyles: { fillColor: [245, 245, 245], textColor: 20, halign: 'center', fontStyle: 'bold', font: FONT_NAME },
+        headStyles: { textColor: 20, halign: 'center', fontStyle: 'bold', font: FONT_NAME },
         bodyStyles: { font: FONT_NAME },
         columnStyles: {
             0: { cellWidth: colWidths.name },
