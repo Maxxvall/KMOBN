@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate } from '../types';
 import { exportData, importData } from '../services/database';
 
@@ -26,23 +27,35 @@ const VersionDropdown: React.FC<{
     onDelete: (estimate: Estimate) => void;
 }> = ({ versions, selectedId, onSelect, onDelete }) => {
     const [open, setOpen] = useState(false);
-    const rootRef = useRef<HTMLDivElement | null>(null);
+    const buttonRef = useRef<HTMLButtonElement | null>(null);
+    const [rect, setRect] = useState<DOMRect | null>(null);
 
     useEffect(() => {
         const handler = (e: MouseEvent) => {
-            if (!rootRef.current) return;
-            if (e.target instanceof Node && rootRef.current.contains(e.target)) return;
+            const target = e.target as Node | null;
+            if (!open) return;
+            if (buttonRef.current && buttonRef.current.contains(target)) return;
+            // If click inside portal popup, ignore (popup has data-attr)
+            const popup = document.querySelector('[data-version-popup]');
+            if (popup && target && popup.contains(target)) return;
             setOpen(false);
         };
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
-    }, []);
+    }, [open]);
+
+    useEffect(() => {
+        if (open && buttonRef.current) {
+            setRect(buttonRef.current.getBoundingClientRect());
+        }
+    }, [open]);
 
     const selected = versions.find(v => v.id === selectedId) ?? versions[0];
 
     return (
-        <div ref={rootRef} className="relative inline-flex">
+        <div className="inline-flex">
             <button
+                ref={buttonRef}
                 type="button"
                 onClick={() => setOpen(v => !v)}
                 className="min-w-[180px] p-1 bg-background border border-border rounded-md text-sm text-left flex items-center justify-between gap-2 hover:border-primary transition"
@@ -55,8 +68,18 @@ const VersionDropdown: React.FC<{
                 <span className="text-text-secondary">▾</span>
             </button>
 
-            {open && (
-                <div className="absolute z-30 mt-2 w-full bg-surface border border-border rounded-xl shadow-2xl overflow-hidden">
+            {open && rect && createPortal(
+                <div
+                    data-version-popup
+                    style={{
+                        position: 'fixed',
+                        left: rect.left + 'px',
+                        top: rect.bottom + 'px',
+                        width: rect.width + 'px',
+                        zIndex: 9999,
+                      }}
+                    className="bg-surface border border-border rounded-xl shadow-2xl overflow-hidden"
+                >
                     <div role="listbox" className="max-h-72 overflow-auto">
                         {versions.map(v => (
                             <div
@@ -68,7 +91,6 @@ const VersionDropdown: React.FC<{
                                     className="flex-1 text-left truncate"
                                     onClick={() => {
                                         onSelect(v.id);
-                                        setOpen(false);
                                     }}
                                 >
                                     <span className="font-semibold">v{v.version}</span>{' '}
@@ -88,7 +110,8 @@ const VersionDropdown: React.FC<{
                             </div>
                         ))}
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
         </div>
     );
