@@ -205,22 +205,34 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
     }
 
     useEffect(() => {
+        // Ensure every parent chain has a selected version (default to latest)
         setSelectedVersions(prev => {
-            let changed = false;
             const next = { ...prev };
+            let changed = false;
 
-            Object.entries(prev).forEach(([parentId, selectedId]) => {
-                const exists = estimates.some(e => e.id === selectedId);
-                if (exists) return;
+            // Collect all parentIds present in estimates
+            const parentIds = new Set<string>();
+            estimates.forEach(e => parentIds.add(e.parentId || e.id));
+
+            parentIds.forEach(parentId => {
                 const versionHistory = estimates
                     .filter(e => (e.parentId || e.id) === parentId)
                     .sort((a, b) => b.version - a.version);
-                if (versionHistory.length > 0) {
-                    next[parentId] = versionHistory[0].id;
-                } else {
-                    delete next[parentId];
+
+                if (versionHistory.length === 0) {
+                    if (next[parentId]) {
+                        delete next[parentId];
+                        changed = true;
+                    }
+                    return;
                 }
-                changed = true;
+
+                const latestId = versionHistory[0].id;
+                // if no selection for this parent or current selection no longer exists — set to latest
+                if (!next[parentId] || !estimates.some(e => e.id === next[parentId])) {
+                    next[parentId] = latestId;
+                    changed = true;
+                }
             });
 
             return changed ? next : prev;
@@ -313,7 +325,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                                     <td className="text-center py-2 px-3">
                                         <VersionDropdown
                                             versions={versionHistory}
-                                            selectedId={selectedVersions[parentId] || estimate.id}
+                                            selectedId={selectedVersions[parentId] || (versionHistory[0] && versionHistory[0].id) || estimate.id}
                                             onSelect={(versionId) => handleVersionChange(parentId, versionId)}
                                             onDelete={onDeleteVersion}
                                         />
