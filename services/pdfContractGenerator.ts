@@ -154,6 +154,9 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
                 styles: {
                     halign: 'center',
                     fontStyle: 'bold',
+                    textColor: [0, 0, 0],
+                    fillColor: [255, 255, 255],
+                    font: FONT_NAME,
                 },
             },
         ];
@@ -187,7 +190,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
         theme: 'grid',
         margin: { left: margin, right: margin },
         styles: { fontSize: 9, cellPadding: 2, font: FONT_NAME },
-        headStyles: { textColor: 20, halign: 'center', fontStyle: 'bold', font: FONT_NAME },
+        headStyles: { textColor: [0, 0, 0], halign: 'center', fontStyle: 'bold', font: FONT_NAME, fillColor: [255, 255, 255] },
         bodyStyles: { font: FONT_NAME },
         columnStyles: {
             0: { cellWidth: colWidths.name },
@@ -219,7 +222,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     addLine(`Материалы: ${formatCurrency(materialsTotal)}`);
     addLine(`Доставка: ${formatCurrency(deliveryTotal)}`);
     y += 3;
-    addLine(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 12 });
+    addLine(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 13 });
     y += 3;
     addLine('СОГЛАСОВАНО:', { bold: true });
     y += 3;
