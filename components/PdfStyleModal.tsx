@@ -33,8 +33,8 @@ const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle })
                         onClick={() => onSelectStyle('word-contract')}
                         className="w-full bg-blue-700 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-md shadow-md transition duration-300 text-left"
                     >
-                        <div className="font-bold text-lg mb-1">Word - Приложение к договору</div>
-                        <div className="text-sm text-blue-100">Официальный документ для подписания договора</div>
+                        <div className="font-bold text-lg mb-1">PDF - Приложение к договору</div>
+                        <div className="text-sm text-blue-100">Официальный PDF документ для подписания договора</div>
                     </button>
                 </div>
                 

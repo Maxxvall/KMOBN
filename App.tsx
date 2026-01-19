@@ -15,7 +15,7 @@ import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
-import { generateWordContract } from './services/wordGenerator';
+import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
 import { aiPriceSearch } from './services/aiPriceSearch';
@@ -403,10 +403,10 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         if (!pendingExportEstimate) return;
 
         try {
-            await generateWordContract(pendingExportEstimate, contractName);
+            await generatePdfContract(pendingExportEstimate, contractName);
         } catch (error) {
-            console.error('Word Generation Error:', error);
-            alert('Не удалось сгенерировать Word документ.');
+            console.error('PDF Contract Generation Error:', error);
+            alert('Не удалось сгенерировать PDF документ.');
         } finally {
             setShowContractNameModal(false);
             setPendingExportEstimate(null);

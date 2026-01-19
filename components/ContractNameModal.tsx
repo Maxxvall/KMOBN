@@ -29,7 +29,7 @@ const ContractNameModal: React.FC<ContractNameModalProps> = ({ onClose, onConfir
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
             <div className="bg-surface rounded-lg shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
                 <h2 className="text-2xl font-bold text-text-primary mb-2">Название договора</h2>
-                <p className="text-text-secondary mb-4">Введите название договора, которое будет указано в Word документе.</p>
+                <p className="text-text-secondary mb-4">Введите название договора, которое будет указано в PDF документе.</p>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
