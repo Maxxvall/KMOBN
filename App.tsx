@@ -260,7 +260,12 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             if (existingIndex !== -1) {
                 const existing = prevEstimates[existingIndex];
                 if (saveMode === 'overwrite') {
-                    const updated = { ...draft, version: existing.version, parentId: existing.parentId };
+                    const updated = {
+                        ...draft,
+                        version: existing.version,
+                        parentId: existing.parentId,
+                        date: new Date().toISOString().split('T')[0],
+                    };
                     const updatedEstimates = [...prevEstimates];
                     updatedEstimates[existingIndex] = updated;
                     return updatedEstimates;
