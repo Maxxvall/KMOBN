@@ -32,6 +32,57 @@ type AppProps = {
 
 const AUTH_STORAGE_KEY = 'kmobn:isAuthenticated';
 
+const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; changed: boolean } => {
+    const byNumber = new Map<string, Estimate[]>();
+    raw.forEach(e => {
+        const key = e.estimateNumber || e.id;
+        const list = byNumber.get(key) ?? [];
+        list.push(e);
+        byNumber.set(key, list);
+    });
+
+    let changed = false;
+    const normalized: Estimate[] = [];
+
+    byNumber.forEach(list => {
+        if (list.length === 1) {
+            const only = list[0];
+            const fixed = {
+                ...only,
+                parentId: undefined,
+                isArchived: false,
+            };
+            if (only.parentId || only.isArchived) changed = true;
+            normalized.push(fixed);
+            return;
+        }
+
+        const sorted = [...list].sort((a, b) => {
+            if (b.version !== a.version) return b.version - a.version;
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+        });
+        const latest = sorted[0];
+        sorted.forEach(e => {
+            if (e.id === latest.id) {
+                const fixed = { ...e, parentId: undefined, isArchived: false };
+                if (e.parentId || e.isArchived) changed = true;
+                normalized.push(fixed);
+            } else {
+                const fixed = {
+                    ...e,
+                    parentId: latest.id,
+                    isArchived: true,
+                    status: EstimateStatus.ARCHIVED,
+                };
+                if (e.parentId !== latest.id || !e.isArchived || e.status !== EstimateStatus.ARCHIVED) changed = true;
+                normalized.push(fixed);
+            }
+        });
+    });
+
+    return { normalized, changed };
+};
+
 const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialAuthenticated));
     const [view, setView] = useState<View>(View.HISTORY);
@@ -93,7 +144,11 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 if (loadedEstimates.length === 0) {
                     setEstimates([]);
                 } else {
-                    setEstimates(loadedEstimates);
+                    const { normalized, changed } = normalizeEstimateChains(loadedEstimates);
+                    setEstimates(normalized);
+                    if (changed) {
+                        await saveEstimates(normalized);
+                    }
                 }
                 if (loadedTemplates.length === 0) {
                     setTemplates([]);
@@ -276,6 +331,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                     id: `sm-id-${Date.now()}`,
                     version: existing.version + 1,
                     parentId: existing.parentId || existing.id,
+                    isArchived: false,
                 };
                 const updatedEstimates = [...prevEstimates];
                 updatedEstimates[existingIndex] = archivedEstimate;
