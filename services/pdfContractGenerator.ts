@@ -143,6 +143,12 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
 
     const tableBody: Array<unknown> = [];
 
+    const subgroupOrder = [
+        EstimateSubgroup.WORKS,
+        EstimateSubgroup.MATERIALS,
+        EstimateSubgroup.DELIVERY,
+    ];
+
     ESTIMATE_CATEGORIES.forEach((category) => {
         const itemsInCategory = estimate.items.filter(item => item.category === category);
         if (itemsInCategory.length === 0) return;
@@ -163,14 +169,35 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
         (categoryRow as { rowPageBreak?: string }).rowPageBreak = 'avoid';
         tableBody.push(categoryRow);
 
-        itemsInCategory.forEach(item => {
-            tableBody.push([
-                item.name,
-                item.unit,
-                item.quantity.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
-                formatCurrency(item.price),
-                formatCurrency(safeTotal(item)),
-            ]);
+        subgroupOrder.forEach(subgroup => {
+            const subgroupItems = itemsInCategory.filter(item => item.subgroup === subgroup);
+            if (!subgroupItems.length) return;
+
+            const subgroupRow = [
+                {
+                    content: subgroup,
+                    colSpan: 5,
+                    styles: {
+                        halign: 'left',
+                        fontStyle: 'bold',
+                        textColor: [0, 0, 0],
+                        fillColor: [255, 255, 255],
+                        font: FONT_NAME,
+                    },
+                },
+            ];
+            (subgroupRow as { rowPageBreak?: string }).rowPageBreak = 'avoid';
+            tableBody.push(subgroupRow);
+
+            subgroupItems.forEach(item => {
+                tableBody.push([
+                    item.name,
+                    item.unit,
+                    item.quantity.toLocaleString('ru-RU', { minimumFractionDigits: 0, maximumFractionDigits: 2 }),
+                    formatCurrency(item.price),
+                    formatCurrency(safeTotal(item)),
+                ]);
+            });
         });
     });
 
@@ -219,6 +246,12 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     };
 
     addLine('ЦЕНЫ АКТУАЛЬНЫ НА ДАТУ СОСТАВЛЕНИЯ СМЕТЫ*', { bold: true });
+    // Маленькая сноска: допускается замена материалов на аналог
+    ensureSpace(10);
+    doc.setFont(FONT_NAME, 'normal');
+    doc.setFontSize(9);
+    doc.text('Допускается замена любого материала на аналог', margin, y);
+    y += 6;
 
     // Печатаем блок "Работы / Материалы / Доставка" без внутренних отступов,
     // но с отступом перед блоком и после блока.
