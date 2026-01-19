@@ -8,7 +8,6 @@ import {
     Table,
     TableCell,
     TableRow,
-    TableLayoutType,
     TextRun,
     WidthType,
 } from 'docx';
@@ -179,8 +178,6 @@ export const generateWordContract = async (estimate: Estimate, contractName: str
     const table = new Table({
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows,
-        layout: TableLayoutType.FIXED,
-        alignment: AlignmentType.CENTER,
         borders: {
             top: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
             bottom: { style: BorderStyle.SINGLE, size: 1, color: '000000' },
