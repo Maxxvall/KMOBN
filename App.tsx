@@ -341,38 +341,27 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateToDelete.estimateNumber));
                 setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
             } else {
-                // If deleting the root/original of the chain, reparent remaining versions to the latest
-                const isRoot = estimateToDelete.id === parentId;
-                if (isRoot) {
-                    const remaining = versionHistory.filter(e => e.id !== estimateToDelete.id);
-                    const newRoot = remaining[0]; // remaining is sorted desc, so [0] is latest
+                const remainingVersions = versionHistory.filter(e => e.id !== estimateToDelete.id);
+                const isRootVersion = !estimateToDelete.parentId || estimateToDelete.id === parentId;
 
-                    // Build updated estimates: remove deleted one, update parentId for chain
-                    setEstimates(prevEstimates => {
-                        const updated = prevEstimates
-                            .filter(e => e.id !== estimateToDelete.id)
-                            .map(e => {
-                                if ((e.parentId || e.id) === parentId) {
-                                    if (e.id === newRoot.id) {
-                                        const copy = { ...e } as Estimate;
-                                        delete (copy as any).parentId;
-                                        return copy;
-                                    }
-                                    return { ...e, parentId: newRoot.id };
-                                }
-                                return e;
-                            });
+                if (isRootVersion && remainingVersions.length > 0) {
+                    const [newRoot] = [...remainingVersions].sort((a, b) => b.version - a.version);
+                    const reparented = remainingVersions.map(e =>
+                        e.id === newRoot.id
+                            ? { ...e, parentId: undefined }
+                            : { ...e, parentId: newRoot.id }
+                    );
 
-                        // Persist reparented estimates to DB (only affected ones)
-                        const toUpsert = updated.filter(e => (e.parentId || e.id) === newRoot.id);
-                        saveEstimates(toUpsert).catch(err => console.error('Failed to save reparented estimates:', err));
-
-                        return updated;
-                    });
-
-                    // Delete the removed estimate from DB
                     await deleteEstimateById(estimateToDelete.id);
-                    setSync({ visible: true, message: 'Корневая версия удалена. Остальные версии перепривязаны к новой главной версии.', type: 'success' });
+                    await saveEstimates(reparented);
+
+                    setEstimates(prevEstimates => {
+                        const updatedById = new Map(reparented.map(e => [e.id, e]));
+                        return prevEstimates
+                            .filter(e => e.id !== estimateToDelete.id)
+                            .map(e => updatedById.get(e.id) ?? e);
+                    });
+                    setSync({ visible: true, message: 'Версия удалена, главная обновлена', type: 'success' });
                 } else {
                     await deleteEstimateById(estimateToDelete.id);
                     setEstimates(prevEstimates => prevEstimates.filter(e => e.id !== estimateToDelete.id));
