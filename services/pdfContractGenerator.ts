@@ -189,8 +189,8 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
         body: tableBody,
         theme: 'grid',
         margin: { left: margin, right: margin },
-        styles: { fontSize: 9, cellPadding: 2, font: FONT_NAME },
-        headStyles: { textColor: [0, 0, 0], halign: 'center', fontStyle: 'bold', font: FONT_NAME, fillColor: [255, 255, 255] },
+        styles: { fontSize: 9, cellPadding: 2, font: FONT_NAME, lineColor: [180, 180, 180], lineWidth: 0.3 },
+        headStyles: { textColor: [0, 0, 0], halign: 'center', fontStyle: 'bold', font: FONT_NAME, fillColor: [255, 255, 255], lineColor: [120, 120, 120], lineWidth: 0.5 },
         bodyStyles: { font: FONT_NAME },
         columnStyles: {
             0: { cellWidth: colWidths.name },
@@ -209,11 +209,13 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     };
 
     const addLine = (text: string, options?: { bold?: boolean; size?: number }) => {
-        ensureSpace(6);
+        const size = options?.size ?? 11;
+        const needed = Math.max(8, Math.ceil(size * 0.9));
+        ensureSpace(needed + 2);
         doc.setFont(FONT_NAME, options?.bold ? 'bold' : 'normal');
-        doc.setFontSize(options?.size ?? 11);
+        doc.setFontSize(size);
         doc.text(text, margin, y);
-        y += 6;
+        y += needed;
     };
 
     addLine('ЦЕНЫ АКТУАЛЬНЫ НА ДАТУ СОСТАВЛЕНИЯ СМЕТЫ*', { bold: true });
@@ -222,7 +224,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     addLine(`Материалы: ${formatCurrency(materialsTotal)}`);
     addLine(`Доставка: ${formatCurrency(deliveryTotal)}`);
     y += 3;
-    addLine(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 13 });
+    addLine(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 12 });
     y += 3;
     addLine('СОГЛАСОВАНО:', { bold: true });
     y += 3;
