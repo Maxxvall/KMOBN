@@ -219,11 +219,26 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     };
 
     addLine('ЦЕНЫ АКТУАЛЬНЫ НА ДАТУ СОСТАВЛЕНИЯ СМЕТЫ*', { bold: true });
-    y += 3;
-    addLine(`Работы: ${formatCurrency(worksTotal)}`);
-    addLine(`Материалы: ${formatCurrency(materialsTotal)}`);
-    addLine(`Доставка: ${formatCurrency(deliveryTotal)}`);
-    y += 3;
+
+    // Печатаем блок "Работы / Материалы / Доставка" без внутренних отступов,
+    // но с отступом перед блоком и после блока.
+    const tightLines = [
+        `Работы: ${formatCurrency(worksTotal)}`,
+        `Материалы: ${formatCurrency(materialsTotal)}`,
+        `Доставка: ${formatCurrency(deliveryTotal)}`,
+    ];
+    const tightLineHeight = 6; // плотный межстрочный интервал внутри блока
+    const blockNeeded = tightLines.length * tightLineHeight + 4;
+    ensureSpace(blockNeeded + 2);
+    y += 3; // отступ перед блоком
+    tightLines.forEach((line) => {
+        doc.setFont(FONT_NAME, 'normal');
+        doc.setFontSize(11);
+        doc.text(line, margin, y);
+        y += tightLineHeight;
+    });
+    y += 3; // отступ после блока
+
     addLine(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 12 });
     y += 3;
     addLine('СОГЛАСОВАНО:', { bold: true });
