@@ -766,17 +766,6 @@ const App: React.FC = () => {
         goToView(View.SUBSCRIPTIONS);
     }, [goToView]);
 
-    const aiAccess = useMemo(() => {
-        const canUse = canUseAi(subscriptionUsage, subscriptionLimits);
-        const limit = subscriptionLimits.aiRequestsPerDay;
-        const remaining = limit == null ? null : Math.max(0, limit - subscriptionUsage.aiRequestsToday);
-        return {
-            canUseAi: canUse,
-            remaining,
-            onConsume: consumeAiLimit,
-        };
-    }, [subscriptionUsage, subscriptionLimits, consumeAiLimit]);
-
     const handleNavigationAttempt = useCallback((target: View) => {
         if (view === View.EDITOR && editorDirty && target !== View.EDITOR) {
             setPendingView(target);
@@ -910,6 +899,17 @@ const App: React.FC = () => {
             last_ai_request_date: next.last_ai_request_date ?? null,
         });
     }, [subscription, supabaseUser]);
+
+    const aiAccess = useMemo(() => {
+        const canUse = canUseAi(subscriptionUsage, subscriptionLimits);
+        const limit = subscriptionLimits.aiRequestsPerDay;
+        const remaining = limit == null ? null : Math.max(0, limit - subscriptionUsage.aiRequestsToday);
+        return {
+            canUseAi: canUse,
+            remaining,
+            onConsume: consumeAiLimit,
+        };
+    }, [subscriptionUsage, subscriptionLimits, consumeAiLimit]);
 
     const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
         if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
