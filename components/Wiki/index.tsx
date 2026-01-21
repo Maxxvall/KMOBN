@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { WikiArticle as WikiArticleType } from '../../types';
 import { WIKI_ARTICLES, WIKI_CATEGORIES } from '../../services/wikiDatabase';
 import { askWikiAI } from '../../services/wikiAI';
@@ -8,14 +8,6 @@ import WikiArticle from './WikiArticle';
 import WikiAIChat from './WikiAIChat';
 import TabDescription from '../TabDescription';
 
-type WikiQuickLinkDetail = {
-    categoryId?: string;
-    articleId?: string;
-    query?: string;
-};
-
-const WIKI_QUICK_LINK_KEY = 'kmobn:wikiQuickLink';
-
 const Wiki: React.FC = () => {
     const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
     const [selectedArticle, setSelectedArticle] = useState<WikiArticleType | null>(null);
@@ -23,45 +15,6 @@ const Wiki: React.FC = () => {
     const [aiQuestion, setAiQuestion] = useState('');
     const [aiResponse, setAiResponse] = useState('');
     const [isLoadingAI, setIsLoadingAI] = useState(false);
-
-    const applyQuickLink = useCallback((detail: WikiQuickLinkDetail | null | undefined) => {
-        if (!detail) return;
-        if (detail.query) {
-            setSearchQuery(detail.query);
-        }
-        if (detail.articleId) {
-            const article = WIKI_ARTICLES.find(a => a.id === detail.articleId);
-            if (article) {
-                setSelectedCategoryId(article.categoryId);
-                setSelectedArticle(article);
-                return;
-            }
-        }
-        if (detail.categoryId) {
-            setSelectedCategoryId(detail.categoryId);
-        }
-    }, []);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        try {
-            const raw = localStorage.getItem(WIKI_QUICK_LINK_KEY);
-            if (raw) {
-                const parsed = JSON.parse(raw) as WikiQuickLinkDetail;
-                applyQuickLink(parsed);
-                localStorage.removeItem(WIKI_QUICK_LINK_KEY);
-            }
-        } catch {
-            // ignore
-        }
-
-        const handler = (event: Event) => {
-            const detail = (event as CustomEvent<WikiQuickLinkDetail>).detail;
-            applyQuickLink(detail);
-        };
-        window.addEventListener('kmobn:open-wiki', handler as EventListener);
-        return () => window.removeEventListener('kmobn:open-wiki', handler as EventListener);
-    }, [applyQuickLink]);
 
     const categories = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
