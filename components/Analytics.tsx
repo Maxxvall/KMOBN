@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Estimate } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
+import TabDescription from './TabDescription';
 import {
     Bar,
     BarChart,
@@ -751,6 +752,42 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
 
     return (
         <div className="space-y-6">
+            <TabDescription
+                storageKey="analytics"
+                summary="Визуализация и анализ бизнес-показателей. Отслеживайте объемы, динамику и сравнивайте сметы."
+                actions={[
+                    'Просматривать графики по периодам (месяц, квартал, год)',
+                    'Анализировать количество смет и их статусы',
+                    'Смотреть диаграммы по категориям работ',
+                    'Сравнивать две сметы (детальное сравнение)',
+                    'Экспортировать данные в CSV или XLSX',
+                ]}
+                steps={[
+                    'Выберите период для анализа.',
+                    'Изучите графики: динамика и распределение по статусам.',
+                    'Используйте фильтры для детального анализа.',
+                    'Сравните две сметы для выявления различий.',
+                    'Экспортируйте данные для внешнего анализа.',
+                ]}
+                examples={[
+                    'Сравните две версии сметы перед согласованием.',
+                    'Экспортируйте категории в XLSX для отчета руководству.',
+                ]}
+                quickLinks={[
+                    {
+                        id: 'analytics-foundation',
+                        label: 'Чек-лист подготовки фундамента',
+                        description: 'Используйте чек-лист при анализе стоимости.',
+                        wikiArticleId: 'foundation-1',
+                    },
+                    {
+                        id: 'analytics-insulation',
+                        label: 'Подбор толщины утеплителя',
+                        description: 'Уточните типовые решения по утеплению.',
+                        wikiArticleId: 'insulation-1',
+                    },
+                ]}
+            />
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                 <div>
                     <h1 className="text-3xl font-bold text-text-primary">Аналитика смет</h1>

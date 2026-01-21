@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { WikiArticle as WikiArticleType } from '../../types';
 import { WIKI_ARTICLES, WIKI_CATEGORIES } from '../../services/wikiDatabase';
 import { askWikiAI } from '../../services/wikiAI';
@@ -6,6 +6,15 @@ import { hasOpenRouterKey } from '../../services/aiConfig';
 import WikiCategories from './WikiCategories';
 import WikiArticle from './WikiArticle';
 import WikiAIChat from './WikiAIChat';
+import TabDescription from '../TabDescription';
+
+type WikiQuickLinkDetail = {
+    categoryId?: string;
+    articleId?: string;
+    query?: string;
+};
+
+const WIKI_QUICK_LINK_KEY = 'kmobn:wikiQuickLink';
 
 const Wiki: React.FC = () => {
     const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -14,6 +23,45 @@ const Wiki: React.FC = () => {
     const [aiQuestion, setAiQuestion] = useState('');
     const [aiResponse, setAiResponse] = useState('');
     const [isLoadingAI, setIsLoadingAI] = useState(false);
+
+    const applyQuickLink = useCallback((detail: WikiQuickLinkDetail | null | undefined) => {
+        if (!detail) return;
+        if (detail.query) {
+            setSearchQuery(detail.query);
+        }
+        if (detail.articleId) {
+            const article = WIKI_ARTICLES.find(a => a.id === detail.articleId);
+            if (article) {
+                setSelectedCategoryId(article.categoryId);
+                setSelectedArticle(article);
+                return;
+            }
+        }
+        if (detail.categoryId) {
+            setSelectedCategoryId(detail.categoryId);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const raw = localStorage.getItem(WIKI_QUICK_LINK_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw) as WikiQuickLinkDetail;
+                applyQuickLink(parsed);
+                localStorage.removeItem(WIKI_QUICK_LINK_KEY);
+            }
+        } catch {
+            // ignore
+        }
+
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<WikiQuickLinkDetail>).detail;
+            applyQuickLink(detail);
+        };
+        window.addEventListener('kmobn:open-wiki', handler as EventListener);
+        return () => window.removeEventListener('kmobn:open-wiki', handler as EventListener);
+    }, [applyQuickLink]);
 
     const categories = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
@@ -67,6 +115,40 @@ const Wiki: React.FC = () => {
 
     return (
         <div className="space-y-6">
+            <TabDescription
+                storageKey="wiki"
+                summary="База знаний и помощник. Найдите ответы на вопросы, изучите инструкции и используйте AI-помощника."
+                actions={[
+                    'Найти статьи по категориям',
+                    'Использовать поиск по базе знаний',
+                    'Задать вопрос AI-помощнику',
+                    'Изучить инструкции по работе с системой',
+                ]}
+                steps={[
+                    'Выберите категорию или используйте поиск.',
+                    'Прочитайте статью с инструкцией.',
+                    'Задайте вопрос AI-чату, если нужна помощь.',
+                    'Применяйте знания на практике.',
+                ]}
+                examples={[
+                    'Найдите чек-лист по фундаменту и используйте его перед стартом работ.',
+                    'Спросите у AI про оптимальную толщину утеплителя для региона.',
+                ]}
+                quickLinks={[
+                    {
+                        id: 'wiki-quick-foundation',
+                        label: 'Чек-лист подготовки фундамента',
+                        description: 'Быстрый контроль перед монтажом стен.',
+                        wikiArticleId: 'foundation-1',
+                    },
+                    {
+                        id: 'wiki-quick-vapor',
+                        label: 'Правильная укладка пароизоляции',
+                        description: 'Сохраните герметичность контура.',
+                        wikiArticleId: 'vapor-1',
+                    },
+                ]}
+            />
             <div className="flex flex-col gap-2">
                 <h1 className="text-3xl font-bold text-text-primary">Wiki</h1>
                 <p className="text-sm text-text-secondary">База знаний по строительным разделам и быстрые ответы от AI.</p>

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { WorkBundle, EstimateCategory, EstimateItem, EstimateSubgroup, Work, Material } from '../types';
+import TabDescription from './TabDescription';
 
 interface BundlesProps {
     bundles: WorkBundle[];
@@ -118,6 +119,41 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
 
     return (
         <div className="bg-surface p-6 rounded-lg shadow-2xl">
+            <TabDescription
+                storageKey="bundles"
+                summary="Готовые наборы работ и материалов. Создавайте комплекты для типовых задач и добавляйте их в сметы одним кликом."
+                actions={[
+                    'Создать комплект работ и материалов',
+                    'Добавить в комплект несколько позиций',
+                    'Применить готовый комплект к смете',
+                    'Редактировать состав комплекта',
+                    'Удалять неактуальные комплекты',
+                ]}
+                steps={[
+                    'Создайте комплект, например «Монтаж окна ПВХ».',
+                    'Добавьте в него работы и материалы.',
+                    'При создании сметы примените этот комплект одним кликом.',
+                    'Все позиции добавятся в нужную категорию автоматически.',
+                ]}
+                examples={[
+                    'Сделайте комплект для повторяющихся работ и ускорьте подготовку смет.',
+                    'Создайте набор для типовой отделки и используйте его в проектах.',
+                ]}
+                quickLinks={[
+                    {
+                        id: 'bundles-windows',
+                        label: 'Монтаж окон по уровню',
+                        description: 'Сформируйте комплект работ и материалов.',
+                        wikiArticleId: 'windows-1',
+                    },
+                    {
+                        id: 'bundles-finishing',
+                        label: 'Подготовка стен под чистовую отделку',
+                        description: 'Добавьте отделочные этапы в комплект.',
+                        wikiArticleId: 'finishing-1',
+                    },
+                ]}
+            />
             <h2 className="text-2xl font-bold text-text-primary mb-6">Комплекты работ</h2>
 
             {/* Добавление нового комплекта */}

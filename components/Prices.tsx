@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Material, EstimateCategory } from '../types';
+import TabDescription from './TabDescription';
 
 interface PricesProps {
     materials: Material[];
@@ -83,6 +84,46 @@ const Prices: React.FC<PricesProps> = ({
 
     return (
         <div className="bg-surface p-6 rounded-lg shadow-2xl">
+            <TabDescription
+                storageKey="prices"
+                summary="Единая база цен на материалы. Обновляйте цены в одном месте — они автоматически применятся ко всем черновикам смет."
+                actions={[
+                    'Добавить новый материал с ценой',
+                    'Изменить цену материала',
+                    'Указать ссылку на поставщика',
+                    'Фильтровать материалы по категориям',
+                    'Удалять устаревшие материалы',
+                    'Синхронизировать цены в черновиках автоматически',
+                ]}
+                steps={[
+                    'Добавьте материал: название, категория, цена, ссылка.',
+                    'При изменении цены здесь — она обновится во всех черновиках.',
+                    'Используйте фильтры для быстрого поиска.',
+                    'Согласованные сметы не меняются автоматически.',
+                ]}
+                examples={[
+                    'Обновите цену OSB и проверьте черновики смет.',
+                    'Добавьте ссылку на поставщика, чтобы ускорить закупку.',
+                ]}
+                notice={{
+                    tone: 'warning',
+                    text: 'Изменение цены не влияет на сметы со статусом «Отправлена» или «Согласована».',
+                }}
+                quickLinks={[
+                    {
+                        id: 'prices-foundation',
+                        label: 'Чек-лист подготовки фундамента',
+                        description: 'Сверьте базовые материалы и крепеж.',
+                        wikiArticleId: 'foundation-1',
+                    },
+                    {
+                        id: 'prices-windows',
+                        label: 'Монтаж окон по уровню',
+                        description: 'Подготовьте комплект материалов заранее.',
+                        wikiArticleId: 'windows-1',
+                    },
+                ]}
+            />
             <h2 className="text-2xl font-bold text-text-primary mb-6">Цены материалов</h2>
 
             {/* Добавление нового материала */}

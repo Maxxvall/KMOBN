@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Estimate, Worker, WorkAllocation, SalaryCalculation, EstimateSubgroup } from '../types';
 import { saveSalaryCalculation, loadSalaryCalculationByEstimateId } from '../services/database';
+import TabDescription from './TabDescription';
 
 interface SalaryCalculatorProps {
     estimates: Estimate[];
@@ -240,6 +241,42 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
 
     return (
         <div className="container mx-auto px-4 py-8">
+            <TabDescription
+                storageKey="salary-calculator"
+                summary="Автоматический расчет зарплаты работников на основе выполненных работ из сметы."
+                actions={[
+                    'Выбрать смету для расчета зарплаты',
+                    'Добавить работников в проект',
+                    'Распределить процент выполнения работ между работниками',
+                    'Автоматически рассчитать сумму к выплате каждому',
+                    'Сохранить расчет (автосохранение)',
+                ]}
+                steps={[
+                    'Выберите смету из списка.',
+                    'Добавьте работников, участвующих в проекте.',
+                    'Для каждой работы укажите, кто и сколько процентов выполнил.',
+                    'Система автоматически рассчитает сумму для каждого работника.',
+                    'Данные сохраняются автоматически.',
+                ]}
+                examples={[
+                    'Распределите работы 60/40 между двумя сотрудниками.',
+                    'Сохраните расчет для повторной сверки перед выплатой.',
+                ]}
+                quickLinks={[
+                    {
+                        id: 'salary-walls',
+                        label: 'Ошибки при сборке стен',
+                        description: 'Подсказки по контролю качества работ.',
+                        wikiArticleId: 'walls-1',
+                    },
+                    {
+                        id: 'salary-finishing',
+                        label: 'Подготовка стен под чистовую отделку',
+                        description: 'Проверьте ключевые этапы отделки.',
+                        wikiArticleId: 'finishing-1',
+                    },
+                ]}
+            />
             <h1 className="text-3xl font-bold mb-6 text-text-primary">Калькулятор Зарплаты</h1>
 
             {/* Выбор сметы */}

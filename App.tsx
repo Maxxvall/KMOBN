@@ -14,6 +14,7 @@ import ContractNameModal from './components/ContractNameModal';
 import Analytics from './components/Analytics';
 import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
+import OnboardingTour, { type TourStep } from './components/OnboardingTour';
 import LandingPage from './components/LandingPage.tsx';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import { generatePdf } from './services/pdfGenerator';
@@ -31,6 +32,15 @@ const Wiki = lazy(() => import('./components/Wiki'));
 type SaveMode = 'overwrite' | 'new';
 
 const RECOVERY_STORAGE_KEY = 'kmobn:recoveryRequired';
+const ONBOARDING_STORAGE_KEY = 'kmobn:onboarding:v1';
+const ONBOARDING_SNOOZE_KEY = 'kmobn:onboarding:snoozeUntil';
+const ONBOARDING_SNOOZE_MS = 24 * 60 * 60 * 1000;
+
+type WikiQuickLinkDetail = {
+    categoryId?: string;
+    articleId?: string;
+    query?: string;
+};
 const hasRecoveryFlagInUrl = (): boolean => {
     if (typeof window === 'undefined') return false;
     const combined = `${window.location.search}${window.location.hash}`.toLowerCase();
@@ -116,6 +126,8 @@ const App: React.FC = () => {
         return null;
     }, [supabaseUser]);
     const [view, setView] = useState<View>(View.HISTORY);
+    const [tourOpen, setTourOpen] = useState(false);
+    const [tourStepIndex, setTourStepIndex] = useState(0);
     const [estimates, setEstimates] = useState<Estimate[]>([]);
     const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
     const [materials, setMaterials] = useState<Material[]>([]);
@@ -147,6 +159,58 @@ const App: React.FC = () => {
     const [viewAfterSave, setViewAfterSave] = useState<View>(View.HISTORY);
     const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [pendingView, setPendingView] = useState<View | null>(null);
+
+    const onboardingSteps = useMemo<TourStep[]>(() => [
+        {
+            id: 'history',
+            title: 'Сметы',
+            description: 'Создавайте, редактируйте и экспортируйте сметы с контролем версий.',
+            hint: 'Начните с кнопки «Создать смету», затем заполните клиента и площадь.',
+            view: View.HISTORY,
+        },
+        {
+            id: 'salary',
+            title: 'Калькулятор',
+            description: 'Распределяйте работы между сотрудниками и получайте суммы выплат автоматически.',
+            hint: 'Добавьте работников и укажите проценты выполнения по каждой работе.',
+            view: View.SALARY_CALCULATOR,
+        },
+        {
+            id: 'prices',
+            title: 'Цены',
+            description: 'Обновляйте стоимость материалов в одном месте и синхронизируйте черновики.',
+            hint: 'Согласованные сметы не изменяются автоматически.',
+            view: View.PRICES,
+        },
+        {
+            id: 'works',
+            title: 'Работы',
+            description: 'Соберите единый справочник работ для быстрого заполнения смет.',
+            hint: 'Разносите работы по категориям, чтобы поддерживать порядок.',
+            view: View.WORKS,
+        },
+        {
+            id: 'bundles',
+            title: 'Комплекты',
+            description: 'Создавайте наборы работ и материалов для типовых задач.',
+            hint: 'Комплект можно применять к смете в один клик.',
+            view: View.BUNDLES,
+        },
+        {
+            id: 'analytics',
+            title: 'Аналитика',
+            description: 'Следите за динамикой, сравнивайте сметы и выгружайте отчеты.',
+            hint: 'Используйте фильтры по периодам и категориям.',
+            view: View.ANALYTICS,
+        },
+        {
+            id: 'wiki',
+            title: 'Wiki',
+            description: 'Открывайте статьи и задавайте вопросы AI-помощнику.',
+            hint: 'Воспользуйтесь быстрыми ссылками на ключевые инструкции.',
+            view: View.WIKI,
+        },
+    ], []);
 
     const [isSaving, setIsSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -697,6 +761,41 @@ const App: React.FC = () => {
         goToView(target);
     }, [view, editorDirty, goToView]);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const handler = (event: Event) => {
+            const detail = (event as CustomEvent<WikiQuickLinkDetail>).detail;
+            if (!detail) return;
+            handleNavigationAttempt(View.WIKI);
+        };
+        window.addEventListener('kmobn:open-wiki', handler as EventListener);
+        return () => window.removeEventListener('kmobn:open-wiki', handler as EventListener);
+    }, [handleNavigationAttempt]);
+
+    useEffect(() => {
+        if (!isAuthenticated) {
+            setTourOpen(false);
+            return;
+        }
+        if (typeof window === 'undefined') return;
+        try {
+            const status = localStorage.getItem(ONBOARDING_STORAGE_KEY);
+            const snoozeUntil = Number(localStorage.getItem(ONBOARDING_SNOOZE_KEY) || 0);
+            if (status === 'completed' || status === 'skipped') return;
+            if (snoozeUntil && Date.now() < snoozeUntil) return;
+            setTourOpen(true);
+        } catch {
+            setTourOpen(true);
+        }
+    }, [isAuthenticated]);
+
+    useEffect(() => {
+        if (!tourOpen) return;
+        const step = onboardingSteps[tourStepIndex];
+        if (!step) return;
+        handleNavigationAttempt(step.view);
+    }, [handleNavigationAttempt, onboardingSteps, tourOpen, tourStepIndex]);
+
     const handleCreateNew = () => {
         setCurrentEstimate(null);
         setEditorValidationResult(null);
@@ -722,6 +821,28 @@ const App: React.FC = () => {
     const handleBackToHistory = () => {
         handleNavigationAttempt(View.HISTORY);
     };
+
+    const handleCloseTour = useCallback((mode: 'skip' | 'later' | 'complete') => {
+        if (typeof window !== 'undefined') {
+            try {
+                if (mode === 'complete') {
+                    localStorage.setItem(ONBOARDING_STORAGE_KEY, 'completed');
+                    localStorage.removeItem(ONBOARDING_SNOOZE_KEY);
+                }
+                if (mode === 'skip') {
+                    localStorage.setItem(ONBOARDING_STORAGE_KEY, 'skipped');
+                    localStorage.removeItem(ONBOARDING_SNOOZE_KEY);
+                }
+                if (mode === 'later') {
+                    localStorage.setItem(ONBOARDING_SNOOZE_KEY, String(Date.now() + ONBOARDING_SNOOZE_MS));
+                }
+            } catch {
+                // ignore
+            }
+        }
+        setTourOpen(false);
+        setTourStepIndex(0);
+    }, []);
 
     const handleSaveEstimate = useCallback((draft: Estimate, saveMode: SaveMode, afterSaveView: View = View.HISTORY) => {
         if (!draft) return;
@@ -1282,6 +1403,15 @@ const App: React.FC = () => {
                 userName={displayName}
                 onLogout={handleLogout}
                 onUserNameClick={handleOpenPasswordChange}
+                highlightView={tourOpen ? onboardingSteps[tourStepIndex]?.view ?? null : null}
+            />
+            <OnboardingTour
+                isOpen={tourOpen}
+                steps={onboardingSteps}
+                stepIndex={tourStepIndex}
+                onStepChange={setTourStepIndex}
+                onOpenView={handleNavigationAttempt}
+                onClose={handleCloseTour}
             />
             <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto">
                 {isLoading ? (

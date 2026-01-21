@@ -7,9 +7,10 @@ interface HeaderProps {
     userName?: string | null;
     onLogout?: () => void;
     onUserNameClick?: () => void;
+    highlightView?: View | null;
 }
 
-const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout, onUserNameClick }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout, onUserNameClick, highlightView }) => {
     const [showVersionsModal, setShowVersionsModal] = useState(false);
     const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
 
@@ -53,6 +54,12 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
         setSelectedVersion(null);
     };
 
+    const getHighlightClass = (view: View) => {
+        return highlightView === view
+            ? 'ring-2 ring-primary ring-offset-2 ring-offset-background animate-pulse'
+            : '';
+    };
+
     return (
         <>
             <header className="bg-surface shadow-lg">
@@ -68,7 +75,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 onClick={() => onViewChange(View.HISTORY)}
                                 className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
                                     currentView === View.HISTORY ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
-                                }`}
+                                } ${getHighlightClass(View.HISTORY)}`}
                             >
                                 Сметы
                             </button>
@@ -76,7 +83,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 onClick={() => onViewChange(View.SALARY_CALCULATOR)}
                                 className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
                                     currentView === View.SALARY_CALCULATOR ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
-                                }`}
+                                } ${getHighlightClass(View.SALARY_CALCULATOR)}`}
                             >
                                 Калькулятор
                             </button>
@@ -84,7 +91,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 onClick={() => onViewChange(View.PRICES)}
                                 className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
                                     currentView === View.PRICES ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
-                                }`}
+                                } ${getHighlightClass(View.PRICES)}`}
                             >
                                 Цены
                             </button>
@@ -92,7 +99,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 onClick={() => onViewChange(View.WORKS)}
                                 className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
                                     currentView === View.WORKS ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
-                                }`}
+                                } ${getHighlightClass(View.WORKS)}`}
                             >
                                 Работы
                             </button>
@@ -100,7 +107,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 onClick={() => onViewChange(View.BUNDLES)}
                                 className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
                                     currentView === View.BUNDLES ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
-                                }`}
+                                } ${getHighlightClass(View.BUNDLES)}`}
                             >
                                 Комплекты
                             </button>
@@ -108,7 +115,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 onClick={() => onViewChange(View.ANALYTICS)}
                                 className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
                                     currentView === View.ANALYTICS ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
-                                }`}
+                                } ${getHighlightClass(View.ANALYTICS)}`}
                             >
                                 Аналитика
                             </button>
@@ -116,7 +123,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 onClick={() => onViewChange(View.WIKI)}
                                 className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
                                     currentView === View.WIKI ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
-                                }`}
+                                } ${getHighlightClass(View.WIKI)}`}
                             >
                                 Wiki
                             </button>
