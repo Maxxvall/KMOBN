@@ -30,10 +30,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                                 aria-label="ВКонтакте"
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path
-                                        fill="currentColor"
-                                        d="M3.5 6.5c.2-1.2 1.2-2 2.4-2h12.2c1.2 0 2.2.8 2.4 2 .1.9-.5 1.6-1.4 1.6h-1.9c-.7 0-1.1.2-1.4.8-.5 1.1-1.2 2.3-2.1 3.3-.4.5-.5.7 0 1.2.4.4 1.7 1.6 2.3 2.6.4.7.1 1.5-.8 1.5h-2.7c-.8 0-1.3-.2-1.9-.8-.9-.9-1.8-2.1-2.4-3.2-.2-.4-.5-.4-.5 0v2.4c0 1-.3 1.6-1.2 1.6h-1.4c-.8 0-1.3-.4-1.3-1.4V8.1c0-1.2.6-1.6 1.3-1.6h1.4c.8 0 1.1.5 1.1 1.6v2.4c0 .5.2.6.5.2.9-1.4 1.6-2.9 2.2-4.3.3-.6.7-.9 1.4-.9h1.9c1 0 1.5.5 1.2 1.5-.4 1.2-1.5 2.9-2.4 4.3-.4.6-.4.9 0 1.4.7.8 1.6 1.7 2.4 2.6.8 1 .4 1.8-.8 1.8h-2.7c-.9 0-1.5-.3-2.1-1.1-.9-1-1.7-2.2-2.4-3.3-.2-.4-.5-.4-.5 0v2.6c0 .9-.3 1.8-1.2 1.8h-1.4c-.9 0-1.6-.6-1.6-1.7V6.5z"
-                                    />
+                                    <path fill="currentColor" d="M12 0C5.373 0 0 5.373 0 12c0 6.627 5.373 12 12 12s12-5.373 12-12C24 5.373 18.627 0 12 0zm4.406 16.5c-.145.395-.52.649-.951.649-.844 0-1.628-.205-2.38-.614-.748-.406-1.182-.72-1.58-1.03-.31-.24-.488-.317-.66-.317-.092 0-.172.06-.172.317v1.4c0 .38-.177.556-.487.556h-.888c-.384 0-.6-.227-.6-.63V8.6c0-.384.14-.544.467-.544h1.107c.28 0 .397.097.462.33.274.9.97 1.66 1.756 2.076.344.2.528.244.658.244.071 0 .163-.03.163-.316V8.6c0-.384.129-.546.46-.546h1.06c.357 0 .495.172.35.493-.96 2.35-1.99 3.7-3.18 4.56.61.084 1.4.08 2.03-.08.6-.16 1.06-.43 1.42-.8.25-.25.47-.33.66-.33.086 0 .18.03.18.31v1.37c0 .37-.13.67-.33.98z" />
                                 </svg>
                             </a>
                             <a
@@ -42,10 +39,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                                 aria-label="Telegram"
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path
-                                        fill="currentColor"
-                                        d="M20.5 4.6c.9-.4 1.8.4 1.5 1.4l-3 13.9c-.2.9-1.2 1.2-2 .7l-4.4-3.2-2.1 2c-.2.2-.5.3-.8.3-.1 0-.2 0-.3-.1-.3-.1-.5-.4-.5-.8v-3.3l9.2-8.5c.4-.4 0-.5-.5-.2l-11.4 7-4.9-1.6c-.9-.3-.9-1.6 0-1.9l18.2-7.7z"
-                                    />
+                                    <path fill="currentColor" d="M21.6 3.4c-.2-.8-.9-1.2-1.6-.9L3.4 10.1c-.7.3-.7 1.2.1 1.5l4.5 1.4 1.4 4.5c.3.8 1.1 1 1.6.6L21.6 5.1c.6-.5.7-1.2.4-1.7z" />
                                 </svg>
                             </a>
                             <a
@@ -77,7 +71,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                     <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(255,255,255,0.06),_transparent_55%)]" />
                     <div className="mx-auto max-w-6xl px-4 pb-14 pt-12 text-center">
                         <p className="mx-auto inline-flex items-center gap-2 rounded-full border border-border bg-surface/80 px-4 py-1 text-xs uppercase tracking-[0.2em] text-text-secondary">
-                            Премиальная платформа для смет и знаний
+                            Платформа для смет и знаний
                         </p>
                         <h1 className="mt-6 text-4xl font-semibold leading-tight sm:text-5xl lg:text-6xl">
                             Сметы, материалы и работы
@@ -109,18 +103,18 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                             <span className="inline-flex items-center gap-2">✅ Полный контроль версий</span>
                             <span className="inline-flex items-center gap-2">✅ PDF и контракты за 1 клик</span>
                         </div>
-                        <div className="mt-10 grid gap-4 rounded-2xl border border-border bg-surface/60 px-6 py-6 text-left sm:grid-cols-3">
-                            <div>
-                                <div className="text-2xl font-semibold text-text-primary">90%+</div>
+                        <div className="mt-10 grid gap-4 rounded-2xl border border-border bg-surface/60 px-6 py-6 text-center sm:grid-cols-3">
+                            <div className="flex flex-col items-center">
+                                <div className="text-2xl font-semibold text-text-primary">60%+</div>
                                 <p className="mt-2 text-sm text-text-secondary">Экономия времени на подготовку смет</p>
                             </div>
-                            <div>
+                            <div className="flex flex-col items-center">
                                 <div className="text-2xl font-semibold text-text-primary">15+</div>
-                                <p className="mt-2 text-sm text-text-secondary">Сценариев экспорта документов</p>
+                                <p className="mt-2 text-sm text-text-secondary">Вариантов/типов экспорта документов</p>
                             </div>
-                            <div>
+                            <div className="flex flex-col items-center">
                                 <div className="text-2xl font-semibold text-text-primary">24/7</div>
-                                <p className="mt-2 text-sm text-text-secondary">Доступ к базе знаний и шаблонам</p>
+                                <p className="mt-2 text-sm text-text-secondary">Доступ к базе знаний</p>
                             </div>
                         </div>
                     </div>
@@ -167,8 +161,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                         <div>
                             <h3 className="text-2xl font-semibold">Стандартизируйте экспертизу через Wiki</h3>
                             <p className="mt-3 text-sm text-text-secondary">
-                                Храните инструкции, нормы и типовые узлы в одном месте. Обновления мгновенно доступны всей
-                                команде и отображаются прямо в рабочих процессах.
+                                Предоставляйте всем участникам команды доступ к инструкциям, нормам и типовым узлам —
+                                обновления становятся мгновенно доступны в рабочих процессах.
                             </p>
                             <div className="mt-5 space-y-3 text-sm text-text-secondary">
                                 <div className="flex items-start gap-2">✅ Быстрый поиск по категориям</div>
@@ -221,10 +215,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                             aria-label="ВКонтакте"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path
-                                    fill="currentColor"
-                                    d="M3.5 6.5c.2-1.2 1.2-2 2.4-2h12.2c1.2 0 2.2.8 2.4 2 .1.9-.5 1.6-1.4 1.6h-1.9c-.7 0-1.1.2-1.4.8-.5 1.1-1.2 2.3-2.1 3.3-.4.5-.5.7 0 1.2.4.4 1.7 1.6 2.3 2.6.4.7.1 1.5-.8 1.5h-2.7c-.8 0-1.3-.2-1.9-.8-.9-.9-1.8-2.1-2.4-3.2-.2-.4-.5-.4-.5 0v2.4c0 1-.3 1.6-1.2 1.6h-1.4c-.8 0-1.3-.4-1.3-1.4V8.1c0-1.2.6-1.6 1.3-1.6h1.4c.8 0 1.1.5 1.1 1.6v2.4c0 .5.2.6.5.2.9-1.4 1.6-2.9 2.2-4.3.3-.6.7-.9 1.4-.9h1.9c1 0 1.5.5 1.2 1.5-.4 1.2-1.5 2.9-2.4 4.3-.4.6-.4.9 0 1.4.7.8 1.6 1.7 2.4 2.6.8 1 .4 1.8-.8 1.8h-2.7c-.9 0-1.5-.3-2.1-1.1-.9-1-1.7-2.2-2.4-3.3-.2-.4-.5-.4-.5 0v2.6c0 .9-.3 1.8-1.2 1.8h-1.4c-.9 0-1.6-.6-1.6-1.7V6.5z"
-                                />
+                                <path fill="currentColor" d="M12 0C5.373 0 0 5.373 0 12c0 6.627 5.373 12 12 12s12-5.373 12-12C24 5.373 18.627 0 12 0zm4.406 16.5c-.145.395-.52.649-.951.649-.844 0-1.628-.205-2.38-.614-.748-.406-1.182-.72-1.58-1.03-.31-.24-.488-.317-.66-.317-.092 0-.172.06-.172.317v1.4c0 .38-.177.556-.487.556h-.888c-.384 0-.6-.227-.6-.63V8.6c0-.384.14-.544.467-.544h1.107c.28 0 .397.097.462.33.274.9.97 1.66 1.756 2.076.344.2.528.244.658.244.071 0 .163-.03.163-.316V8.6c0-.384.129-.546.46-.546h1.06c.357 0 .495.172.35.493-.96 2.35-1.99 3.7-3.18 4.56.61.084 1.4.08 2.03-.08.6-.16 1.06-.43 1.42-.8.25-.25.47-.33.66-.33.086 0 .18.03.18.31v1.37c0 .37-.13.67-.33.98z" />
                             </svg>
                         </a>
                         <a
@@ -233,10 +224,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                             aria-label="Telegram"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path
-                                    fill="currentColor"
-                                    d="M20.5 4.6c.9-.4 1.8.4 1.5 1.4l-3 13.9c-.2.9-1.2 1.2-2 .7l-4.4-3.2-2.1 2c-.2.2-.5.3-.8.3-.1 0-.2 0-.3-.1-.3-.1-.5-.4-.5-.8v-3.3l9.2-8.5c.4-.4 0-.5-.5-.2l-11.4 7-4.9-1.6c-.9-.3-.9-1.6 0-1.9l18.2-7.7z"
-                                />
+                                <path fill="currentColor" d="M21.6 3.4c-.2-.8-.9-1.2-1.6-.9L3.4 10.1c-.7.3-.7 1.2.1 1.5l4.5 1.4 1.4 4.5c.3.8 1.1 1 1.6.6L21.6 5.1c.6-.5.7-1.2.4-1.7z" />
                             </svg>
                         </a>
                         <a
