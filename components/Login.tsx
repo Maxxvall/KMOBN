@@ -3,9 +3,10 @@ import React, { useMemo, useState } from 'react';
 type LoginProps = {
   onLogin: (username: string, password: string) => Promise<void> | void;
   onGoogleLogin: () => Promise<void> | void;
+  allowLocalLogin?: boolean;
 };
 
-const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, allowLocalLogin = true }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -48,44 +49,52 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin }) => {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md bg-surface border border-border rounded-lg p-6">
         <h1 className="text-xl font-semibold text-text-primary">Вход</h1>
-        <p className="mt-1 text-sm text-text-secondary">Введите логин и пароль или войдите через Google</p>
+        <p className="mt-1 text-sm text-text-secondary">
+          {allowLocalLogin ? 'Введите логин и пароль или войдите через Google' : 'Войдите через Google'}
+        </p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <div>
-            <label className="block text-sm text-text-secondary">Логин</label>
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
-              autoComplete="username"
-            />
-          </div>
+        {allowLocalLogin && (
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+            <div>
+              <label className="block text-sm text-text-secondary">Логин</label>
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+                autoComplete="username"
+              />
+            </div>
 
-          <div>
-            <label className="block text-sm text-text-secondary">Пароль</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
-              autoComplete="current-password"
-            />
-          </div>
+            <div>
+              <label className="block text-sm text-text-secondary">Пароль</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+                autoComplete="current-password"
+              />
+            </div>
 
-          {error && (
-            <div className="text-sm text-primary">{error}</div>
-          )}
+            {error && (
+              <div className="text-sm text-primary">{error}</div>
+            )}
 
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="w-full rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
-          >
-            {isSubmitting ? 'Проверка…' : 'Войти'}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="w-full rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+            >
+              {isSubmitting ? 'Проверка…' : 'Войти'}
+            </button>
+          </form>
+        )}
 
-        <div className="mt-4">
+        {error && !allowLocalLogin && (
+          <div className="mt-4 text-sm text-primary">{error}</div>
+        )}
+
+        <div className={allowLocalLogin ? 'mt-4' : 'mt-6'}>
           <button
             type="button"
             onClick={handleGoogleLogin}

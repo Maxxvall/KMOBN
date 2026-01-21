@@ -22,7 +22,7 @@ import { searchPrice } from './services/priceService';
 import { aiPriceSearch } from './services/aiPriceSearch';
 import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, shouldUpdatePrice } from './services/priceCache';
 import { checkUserCredentials, loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
-import supabase from './services/supabase';
+import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 
 
@@ -96,7 +96,10 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         }
     });
     const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
-    const isAuthenticated = useMemo(() => Boolean(supabaseUser) || localAuthenticated, [localAuthenticated, supabaseUser]);
+    const useSupabaseAuth = isSupabaseConfigured();
+    const isAuthenticated = useMemo(() => {
+        return useSupabaseAuth ? Boolean(supabaseUser) : localAuthenticated;
+    }, [localAuthenticated, supabaseUser, useSupabaseAuth]);
     const displayName = useMemo(() => {
         if (supabaseUser) {
             const meta = supabaseUser.user_metadata as Record<string, string | undefined> | undefined;
@@ -144,6 +147,9 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const handleLogin = useCallback(async (username: string, password: string) => {
+        if (useSupabaseAuth) {
+            throw new Error('Используйте вход через Google');
+        }
         const ok = await checkUserCredentials(username, password);
         if (!ok) {
             throw new Error('Неверный логин или пароль');
@@ -156,16 +162,21 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         } catch {
             // ignore
         }
-    }, []);
+    }, [useSupabaseAuth]);
 
     const handleGoogleLogin = useCallback(async () => {
         if (!supabase) {
             throw new Error('Supabase не настроен для входа через Google');
         }
+        const redirectTo =
+            (import.meta.env.VITE_AUTH_REDIRECT_URL as string) ||
+            (import.meta.env.VITE_SITE_URL as string) ||
+            window.location.origin;
+
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                redirectTo: window.location.origin,
+                redirectTo,
             },
         });
         if (error) {
@@ -193,7 +204,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     }, []);
 
     useEffect(() => {
-        if (!supabase) return;
+        if (!supabase || !useSupabaseAuth) return;
 
         let isMounted = true;
 
@@ -217,7 +228,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             isMounted = false;
             data.subscription.unsubscribe();
         };
-    }, []);
+    }, [useSupabaseAuth]);
 
     // Load estimates and templates from database on mount
     useEffect(() => {
@@ -995,7 +1006,13 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
 
 
     if (!isAuthenticated) {
-        return <Login onLogin={handleLogin} onGoogleLogin={handleGoogleLogin} />;
+        return (
+            <Login
+                onLogin={handleLogin}
+                onGoogleLogin={handleGoogleLogin}
+                allowLocalLogin={!useSupabaseAuth}
+            />
+        );
     }
 
     return (

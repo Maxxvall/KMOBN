@@ -28,11 +28,36 @@ const ensureSupabase = () => {
   return supabase;
 };
 
-const readTable = async <T>(fetcher: () => Promise<{ data: T[] | null; error: any }>): Promise<T[]> => {
+const getAuthenticatedUserId = async (): Promise<string | null> => {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+  const client = ensureSupabase();
+  const { data, error } = await client.auth.getSession();
+  if (error) {
+    console.error('Supabase getSession error:', error);
+    return null;
+  }
+  return data.session?.user.id ?? null;
+};
+
+const requireUserId = async (): Promise<string> => {
+  const userId = await getAuthenticatedUserId();
+  if (!userId) {
+    throw new Error('User is not authenticated');
+  }
+  return userId;
+};
+
+const readTable = async <T>(fetcher: (userId: string) => Promise<{ data: T[] | null; error: any }>): Promise<T[]> => {
   if (!isSupabaseConfigured()) {
     return [];
   }
-  const { data, error } = await fetcher();
+  const userId = await getAuthenticatedUserId();
+  if (!userId) {
+    return [];
+  }
+  const { data, error } = await fetcher(userId);
   if (error) {
     console.error('Supabase fetch error:', error);
     return [];
@@ -45,18 +70,20 @@ const deleteRecord = async (table: string, id: string) => {
     return;
   }
   const client = ensureSupabase();
-  const { error } = await client.from(table).delete().eq('id', id);
+  const userId = await requireUserId();
+  const { error } = await client.from(table).delete().eq('id', id).eq('user_id', userId);
   if (error) {
     console.error(`Failed to delete from ${table}:`, error);
     throw error;
   }
 };
 
-const upsertRecords = async (upserter: (records: any[]) => Promise<{ data?: any; error: any }>, records: any[]) => {
+const upsertRecords = async (upserter: (records: any[], userId: string) => Promise<{ data?: any; error: any }>, records: any[]) => {
   if (!records.length || !isSupabaseConfigured()) {
     return;
   }
-  const { error } = await upserter(records);
+  const userId = await requireUserId();
+  const { error } = await upserter(records, userId);
   if (error) {
     console.error('Supabase upsert error:', error);
     throw error;
@@ -73,8 +100,9 @@ export const deleteEstimatesByNumber = async (estimateNumber: string | number): 
   if (!isSupabaseConfigured()) return;
   const client = ensureSupabase();
   try {
+    const userId = await requireUserId();
     const key = String(estimateNumber);
-    const { error } = await client.from('estimates').delete().eq("payload->>estimateNumber", key);
+    const { error } = await client.from('estimates').delete().eq('user_id', userId).eq("payload->>estimateNumber", key);
     if (error) {
       console.error('Failed to delete estimates by estimateNumber:', error);
       throw error;

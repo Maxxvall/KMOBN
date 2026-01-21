@@ -20,21 +20,23 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
 
 export const isSupabaseConfigured = (): boolean => !!supabase;
 
-export const upsertTable = async (table: string, records: any[]) => {
+export const upsertTable = async (table: string, records: any[], userId?: string) => {
   if (!supabase) return { error: new Error('Supabase not configured') };
+  if (!userId) return { error: new Error('User is not authenticated') };
 
   // Store each record under `payload` jsonb column to avoid strict schema requirements.
-  const payloads = records.map(r => ({ id: r.id, payload: r }));
+  const payloads = records.map(r => ({ id: r.id, user_id: userId, payload: r }));
   const { data, error } = await supabase.from(table).upsert(payloads).select();
   return { data, error };
 };
 
-export const fetchTable = async (table: string) => {
+export const fetchTable = async (table: string, userId?: string) => {
   if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+  if (!userId) return { data: null, error: new Error('User is not authenticated') };
 
   // Select all columns. Some rows may store the object under `payload` (jsonb),
   // older rows may store object fields as top-level columns. Handle both.
-  const { data, error } = await supabase.from(table).select('*');
+  const { data, error } = await supabase.from(table).select('*').eq('user_id', userId);
   if (error) return { data: null, error };
 
   const parsed = (data as any[]).map(row => {
@@ -49,22 +51,22 @@ export const fetchTable = async (table: string) => {
   return { data: parsed, error: null };
 };
 
-export const upsertEstimates = async (estimates: any[]) => upsertTable('estimates', estimates);
-export const fetchEstimates = async () => fetchTable('estimates');
+export const upsertEstimates = async (estimates: any[], userId: string) => upsertTable('estimates', estimates, userId);
+export const fetchEstimates = async (userId: string) => fetchTable('estimates', userId);
 
-export const upsertTemplates = async (templates: any[]) => upsertTable('templates', templates);
-export const fetchTemplates = async () => fetchTable('templates');
+export const upsertTemplates = async (templates: any[], userId: string) => upsertTable('templates', templates, userId);
+export const fetchTemplates = async (userId: string) => fetchTable('templates', userId);
 
-export const upsertMaterials = async (materials: any[]) => upsertTable('materials', materials);
-export const fetchMaterials = async () => fetchTable('materials');
+export const upsertMaterials = async (materials: any[], userId: string) => upsertTable('materials', materials, userId);
+export const fetchMaterials = async (userId: string) => fetchTable('materials', userId);
 
-export const upsertWorks = async (works: any[]) => upsertTable('works', works);
-export const fetchWorks = async () => fetchTable('works');
+export const upsertWorks = async (works: any[], userId: string) => upsertTable('works', works, userId);
+export const fetchWorks = async (userId: string) => fetchTable('works', userId);
 
-export const upsertBundles = async (bundles: any[]) => upsertTable('bundles', bundles);
-export const fetchBundles = async () => fetchTable('bundles');
+export const upsertBundles = async (bundles: any[], userId: string) => upsertTable('bundles', bundles, userId);
+export const fetchBundles = async (userId: string) => fetchTable('bundles', userId);
 
-export const upsertSalaryCalculations = async (calculations: any[]) => upsertTable('salary_calculations', calculations);
-export const fetchSalaryCalculations = async () => fetchTable('salary_calculations');
+export const upsertSalaryCalculations = async (calculations: any[], userId: string) => upsertTable('salary_calculations', calculations, userId);
+export const fetchSalaryCalculations = async (userId: string) => fetchTable('salary_calculations', userId);
 
 export default supabase;
