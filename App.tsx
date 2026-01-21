@@ -129,6 +129,9 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         bundles: false,
     });
     const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
+    const [showPasswordRecoveryModal, setShowPasswordRecoveryModal] = useState(false);
+    const [recoveryPassword, setRecoveryPassword] = useState('');
+    const [recoverySubmitting, setRecoverySubmitting] = useState(false);
     const [showPdfStyleModal, setShowPdfStyleModal] = useState(false);
     const [showContractNameModal, setShowContractNameModal] = useState(false);
     const [pendingExportEstimate, setPendingExportEstimate] = useState<Estimate | null>(null);
@@ -201,7 +204,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         }
     }, []);
 
-    const handleEmailSignup = useCallback(async (email: string, password: string) => {
+    const handleEmailSignup = useCallback(async (payload: { name: string; email: string; password: string; phone?: string }) => {
         if (!supabase) {
             throw new Error('Supabase не настроен для регистрации');
         }
@@ -210,11 +213,31 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             (import.meta.env.VITE_SITE_URL as string) ||
             window.location.origin;
         const { error } = await supabase.auth.signUp({
-            email,
-            password,
+            email: payload.email,
+            password: payload.password,
             options: {
                 emailRedirectTo: redirectTo,
+                data: {
+                    full_name: payload.name,
+                    phone: payload.phone,
+                },
             },
+        });
+        if (error) {
+            throw new Error(error.message);
+        }
+    }, []);
+
+    const handleResetPassword = useCallback(async (email: string) => {
+        if (!supabase) {
+            throw new Error('Supabase не настроен для восстановления пароля');
+        }
+        const redirectTo =
+            (import.meta.env.VITE_AUTH_REDIRECT_URL as string) ||
+            (import.meta.env.VITE_SITE_URL as string) ||
+            window.location.origin;
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo,
         });
         if (error) {
             throw new Error(error.message);
@@ -257,8 +280,11 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
 
         void initSession();
 
-        const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data } = supabase.auth.onAuthStateChange((event, session) => {
             setSupabaseUser(session?.user ?? null);
+            if (event === 'PASSWORD_RECOVERY') {
+                setShowPasswordRecoveryModal(true);
+            }
         });
 
         return () => {
@@ -266,6 +292,33 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             data.subscription.unsubscribe();
         };
     }, [useSupabaseAuth]);
+
+    const handleUpdatePassword = useCallback(async () => {
+        if (!supabase) return;
+        if (!recoveryPassword) {
+            setSync({ visible: true, message: 'Введите новый пароль', type: 'error' });
+            setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
+            return;
+        }
+        setRecoverySubmitting(true);
+        try {
+            const { error } = await supabase.auth.updateUser({ password: recoveryPassword });
+            if (error) {
+                throw error;
+            }
+            setShowPasswordRecoveryModal(false);
+            setRecoveryPassword('');
+            setSync({ visible: true, message: 'Пароль обновлен. Войдите заново.', type: 'success' });
+            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            await supabase.auth.signOut();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Ошибка обновления пароля';
+            setSync({ visible: true, message, type: 'error' });
+            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+        } finally {
+            setRecoverySubmitting(false);
+        }
+    }, [recoveryPassword]);
 
     const loadHistoryData = useCallback(async (showToast: boolean) => {
         if (loadedFlags.estimates && loadedFlags.templates) return;
@@ -1102,6 +1155,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 onGoogleLogin={handleGoogleLogin}
                 onEmailLogin={handleEmailLogin}
                 onEmailSignup={handleEmailSignup}
+                onResetPassword={handleResetPassword}
                 useSupabaseAuth={useSupabaseAuth}
             />
         );
@@ -1271,6 +1325,49 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                     onConfirm={handleContractNameConfirm}
                     defaultContractName={`КМ ${pendingExportEstimate.estimateNumber}`}
                 />
+            )}
+            {showPasswordRecoveryModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+                    <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-2xl">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-lg font-semibold text-text-primary">Новый пароль</h2>
+                            <button
+                                type="button"
+                                onClick={() => setShowPasswordRecoveryModal(false)}
+                                className="text-text-secondary hover:text-text-primary"
+                            >
+                                ×
+                            </button>
+                        </div>
+                        <div className="mt-4">
+                            <label className="block text-sm text-text-secondary">Новый пароль</label>
+                            <input
+                                type="password"
+                                value={recoveryPassword}
+                                onChange={(e) => setRecoveryPassword(e.target.value)}
+                                className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
+                                autoComplete="new-password"
+                            />
+                        </div>
+                        <div className="mt-6 flex gap-2">
+                            <button
+                                type="button"
+                                onClick={handleUpdatePassword}
+                                disabled={recoverySubmitting}
+                                className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                            >
+                                {recoverySubmitting ? 'Сохраняю…' : 'Сохранить'}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowPasswordRecoveryModal(false)}
+                                className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
+                            >
+                                Отмена
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
             <SyncToast
                 visible={sync.visible}
