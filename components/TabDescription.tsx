@@ -104,7 +104,7 @@ const TabDescription: React.FC<TabDescriptionProps> = ({
         : 'border-primary/40 bg-primary/10 text-text-secondary';
 
     return (
-        <section className="rounded-xl border border-border bg-surface p-4 sm:p-6 shadow" aria-labelledby={`${contentId}-title`}>
+        <section className="rounded-xl border border-border bg-surface p-4 sm:p-6 shadow mb-6" aria-labelledby={`${contentId}-title`}>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                     <span className="text-lg" aria-hidden>
