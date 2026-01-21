@@ -261,13 +261,70 @@ export const importData = async (jsonData: string): Promise<void> => {
   }
   try {
     const data = JSON.parse(jsonData);
+    const generateId = (): string => {
+      if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+        return crypto.randomUUID();
+      }
+      return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    };
+    const asArray = <T>(value: unknown): T[] => Array.isArray(value) ? (value as T[]) : [];
+
+    const rawEstimates = asArray<Estimate>(data.estimates);
+    const rawTemplates = asArray<ProjectTemplate>(data.templates);
+    const rawMaterials = asArray<Material>(data.materials);
+    const rawWorks = asArray<Work>(data.works);
+    const rawBundles = asArray<WorkBundle>(data.bundles);
+    const rawSalaryCalculations = asArray<SalaryCalculation>(data.salaryCalculations);
+
+    const estimateIdMap = new Map<string, string>();
+    rawEstimates.forEach(e => {
+      estimateIdMap.set(e.id, generateId());
+    });
+    const estimates = rawEstimates.map(e => ({
+      ...e,
+      id: estimateIdMap.get(e.id) as string,
+      parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
+      items: Array.isArray(e.items) ? e.items : [],
+    }));
+
+    const templates = rawTemplates.map(t => ({
+      ...t,
+      id: generateId(),
+      items: Array.isArray(t.items) ? t.items : [],
+    }));
+
+    const materials = rawMaterials.map(m => ({
+      ...m,
+      id: generateId(),
+    }));
+
+    const works = rawWorks.map(w => ({
+      ...w,
+      id: generateId(),
+    }));
+
+    const bundles = rawBundles.map(b => ({
+      ...b,
+      id: generateId(),
+      items: Array.isArray(b.items) ? b.items : [],
+    }));
+
+    const salaryCalculations = rawSalaryCalculations.map(s => {
+      const newEstimateId = estimateIdMap.get(s.estimateId);
+      const estimateId = newEstimateId ?? s.estimateId;
+      return {
+        ...s,
+        estimateId,
+        id: newEstimateId ? `salary-${estimateId}` : generateId(),
+      };
+    });
     await Promise.all([
-      data.estimates ? upsertRecords(upsertEstimates, data.estimates) : Promise.resolve(),
-      data.templates ? upsertRecords(upsertTemplates, data.templates) : Promise.resolve(),
-      data.materials ? upsertRecords(upsertMaterials, data.materials) : Promise.resolve(),
-      data.works ? upsertRecords(upsertWorks, data.works) : Promise.resolve(),
-      data.bundles ? upsertRecords(upsertBundles, data.bundles) : Promise.resolve(),
-      data.salaryCalculations ? upsertRecords(upsertSalaryCalculations, data.salaryCalculations) : Promise.resolve(),
+      estimates.length ? upsertRecords(upsertEstimates, estimates) : Promise.resolve(),
+      templates.length ? upsertRecords(upsertTemplates, templates) : Promise.resolve(),
+      materials.length ? upsertRecords(upsertMaterials, materials) : Promise.resolve(),
+      works.length ? upsertRecords(upsertWorks, works) : Promise.resolve(),
+      bundles.length ? upsertRecords(upsertBundles, bundles) : Promise.resolve(),
+      salaryCalculations.length ? upsertRecords(upsertSalaryCalculations, salaryCalculations) : Promise.resolve(),
     ]);
     console.log('Data imported successfully');
   } catch (error) {

@@ -121,6 +121,13 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     const [bundles, setBundles] = useState<WorkBundle[]>([]);
     const [currentEstimate, setCurrentEstimate] = useState<Estimate | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadedFlags, setLoadedFlags] = useState({
+        estimates: false,
+        templates: false,
+        materials: false,
+        works: false,
+        bundles: false,
+    });
     const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
     const [showPdfStyleModal, setShowPdfStyleModal] = useState(false);
     const [showContractNameModal, setShowContractNameModal] = useState(false);
@@ -230,48 +237,99 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         };
     }, [useSupabaseAuth]);
 
-    // Load estimates and templates from database on mount
-    useEffect(() => {
-        if (!isAuthenticated) return;
-        const initializeData = async () => {
-            try {
-                const loadedEstimates = await loadEstimates();
-                const loadedTemplates = await loadTemplates();
-                const loadedMaterials = await loadMaterials();
-                const loadedWorks = await loadWorks();
-                const loadedBundles = await loadBundles();
-                if (loadedEstimates.length === 0) {
-                    setEstimates([]);
-                } else {
-                    const { normalized, changed } = normalizeEstimateChains(loadedEstimates);
-                    setEstimates(normalized);
-                    if (changed) {
-                        await saveEstimates(normalized);
-                    }
+    const loadHistoryData = useCallback(async (showToast: boolean) => {
+        if (loadedFlags.estimates && loadedFlags.templates) return;
+        setIsLoading(true);
+        try {
+            const [loadedEstimates, loadedTemplates] = await Promise.all([
+                loadedFlags.estimates ? Promise.resolve(estimates) : loadEstimates(),
+                loadedFlags.templates ? Promise.resolve(templates) : loadTemplates(),
+            ]);
+            if (loadedEstimates.length === 0) {
+                setEstimates([]);
+            } else {
+                const { normalized, changed } = normalizeEstimateChains(loadedEstimates);
+                setEstimates(normalized);
+                if (changed) {
+                    await saveEstimates(normalized);
                 }
-                if (loadedTemplates.length === 0) {
-                    setTemplates([]);
-                } else {
-                    setTemplates(loadedTemplates);
-                }
-                setMaterials(loadedMaterials || []);
-                setWorks(loadedWorks || []);
-                setBundles(loadedBundles || []);
+            }
+            setTemplates(loadedTemplates || []);
+            setLoadedFlags(prev => ({ ...prev, estimates: true, templates: true }));
+            if (showToast) {
                 setSync({ visible: true, message: 'Данные загружены', type: 'success' });
                 setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
-            } catch (error) {
-                console.error('Failed to load data:', error);
-                setEstimates([]);
-                setTemplates([]);
-                setMaterials([]);
+            }
+        } catch (error) {
+            console.error('Failed to load history data:', error);
+            setEstimates([]);
+            setTemplates([]);
+            if (showToast) {
                 setSync({ visible: true, message: 'Ошибка загрузки данных', type: 'error' });
                 setTimeout(() => setSync(s => ({ ...s, visible: false })), 5000);
-            } finally {
-                setIsLoading(false);
             }
-        };
-        initializeData();
-    }, [isAuthenticated]);
+        } finally {
+            setIsLoading(false);
+        }
+    }, [estimates, loadedFlags.estimates, loadedFlags.templates, templates]);
+
+    const loadMaterialsData = useCallback(async () => {
+        if (loadedFlags.materials) return;
+        try {
+            const loaded = await loadMaterials();
+            setMaterials(loaded || []);
+            setLoadedFlags(prev => ({ ...prev, materials: true }));
+        } catch (error) {
+            console.error('Failed to load materials:', error);
+            setMaterials([]);
+        }
+    }, [loadedFlags.materials]);
+
+    const loadWorksData = useCallback(async () => {
+        if (loadedFlags.works) return;
+        try {
+            const loaded = await loadWorks();
+            setWorks(loaded || []);
+            setLoadedFlags(prev => ({ ...prev, works: true }));
+        } catch (error) {
+            console.error('Failed to load works:', error);
+            setWorks([]);
+        }
+    }, [loadedFlags.works]);
+
+    const loadBundlesData = useCallback(async () => {
+        if (loadedFlags.bundles) return;
+        try {
+            const loaded = await loadBundles();
+            setBundles(loaded || []);
+            setLoadedFlags(prev => ({ ...prev, bundles: true }));
+        } catch (error) {
+            console.error('Failed to load bundles:', error);
+            setBundles([]);
+        }
+    }, [loadedFlags.bundles]);
+
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        if (view === View.HISTORY) {
+            void loadHistoryData(true);
+        }
+        if (view === View.ANALYTICS || view === View.SALARY_CALCULATOR) {
+            void loadHistoryData(false);
+        }
+        if (view === View.PRICES) {
+            void loadMaterialsData();
+        }
+        if (view === View.WORKS) {
+            void loadWorksData();
+        }
+        if (view === View.BUNDLES) {
+            void Promise.all([loadMaterialsData(), loadWorksData(), loadBundlesData()]);
+        }
+        if (view === View.EDITOR) {
+            void Promise.all([loadHistoryData(false), loadMaterialsData(), loadWorksData(), loadBundlesData()]);
+        }
+    }, [isAuthenticated, loadBundlesData, loadHistoryData, loadMaterialsData, loadWorksData, view]);
 
     const saveAllToDatabase = useCallback(async () => {
         if (isLoading) return;
@@ -287,12 +345,14 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         setSaveError(null);
 
         try {
-            await Promise.all([
-                saveEstimates(estimates),
-                saveMaterials(materials),
-                saveWorks(works),
-                saveBundles(bundles),
-            ]);
+            const tasks: Promise<void>[] = [];
+            if (loadedFlags.estimates) tasks.push(saveEstimates(estimates));
+            if (loadedFlags.materials) tasks.push(saveMaterials(materials));
+            if (loadedFlags.works) tasks.push(saveWorks(works));
+            if (loadedFlags.bundles) tasks.push(saveBundles(bundles));
+            if (tasks.length) {
+                await Promise.all(tasks);
+            }
             const now = new Date();
             setLastSaved(now);
             if (savedIndicatorTimerRef.current) {
@@ -313,7 +373,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 void saveAllToDatabase();
             }
         }
-    }, [bundles, estimates, isLoading, materials, works]);
+    }, [bundles, estimates, isLoading, loadedFlags.bundles, loadedFlags.estimates, loadedFlags.materials, loadedFlags.works, materials, works]);
 
     const debouncedSaveAll = useDebouncedSave(saveAllToDatabase, 2000);
 
