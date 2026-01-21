@@ -6,9 +6,10 @@ interface HeaderProps {
     onViewChange: (view: View) => void;
     userName?: string | null;
     onLogout?: () => void;
+    onUserNameClick?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout, onUserNameClick }) => {
     const [showVersionsModal, setShowVersionsModal] = useState(false);
     const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
 
@@ -114,9 +115,20 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                         </nav>
                         <div className="flex items-center gap-2">
                             {userName && (
-                                <span className="text-sm text-text-secondary max-w-[180px] truncate" title={userName}>
-                                    {userName}
-                                </span>
+                                onUserNameClick ? (
+                                    <button
+                                        type="button"
+                                        onClick={onUserNameClick}
+                                        className="text-sm text-text-secondary max-w-[180px] truncate hover:text-text-primary transition-colors"
+                                        title="Сменить пароль"
+                                    >
+                                        {userName}
+                                    </button>
+                                ) : (
+                                    <span className="text-sm text-text-secondary max-w-[180px] truncate" title={userName}>
+                                        {userName}
+                                    </span>
+                                )
                             )}
                             <button
                                 onClick={() => setShowVersionsModal(true)}

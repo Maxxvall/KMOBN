@@ -110,9 +110,10 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             return hasRecoveryFlagInUrl();
         }
     });
+    const recoveryIntent = recoveryRequired || hasRecoveryFlagInUrl();
     const isAuthenticated = useMemo(() => {
-        return useSupabaseAuth ? Boolean(supabaseUser) && !recoveryRequired : localAuthenticated;
-    }, [localAuthenticated, supabaseUser, useSupabaseAuth, recoveryRequired]);
+        return useSupabaseAuth ? Boolean(supabaseUser) && !recoveryIntent : localAuthenticated;
+    }, [localAuthenticated, supabaseUser, useSupabaseAuth, recoveryIntent]);
     const displayName = useMemo(() => {
         if (supabaseUser) {
             const meta = supabaseUser.user_metadata as Record<string, string | undefined> | undefined;
@@ -260,6 +261,10 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         }
     }, []);
 
+    const handleOpenPasswordChange = useCallback(() => {
+        setShowPasswordRecoveryModal(true);
+    }, []);
+
     const handleLogout = useCallback(async () => {
         try {
             if (supabase) {
@@ -363,6 +368,12 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             data.subscription.unsubscribe();
         };
     }, [useSupabaseAuth]);
+
+    useEffect(() => {
+        if (recoveryIntent) {
+            setShowPasswordRecoveryModal(true);
+        }
+    }, [recoveryIntent]);
 
     const handleUpdatePassword = useCallback(async () => {
         if (!supabase) return;
@@ -1292,6 +1303,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 onViewChange={handleNavigationAttempt}
                 userName={displayName}
                 onLogout={handleLogout}
+                onUserNameClick={handleOpenPasswordChange}
             />
             <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto">
                 {isLoading ? (
