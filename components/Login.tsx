@@ -3,13 +3,16 @@ import React, { useMemo, useState } from 'react';
 type LoginProps = {
   onLogin: (username: string, password: string) => Promise<void> | void;
   onGoogleLogin: () => Promise<void> | void;
-  allowLocalLogin?: boolean;
+  onEmailLogin?: (email: string, password: string) => Promise<void> | void;
+  onEmailSignup?: (email: string, password: string) => Promise<void> | void;
+  useSupabaseAuth?: boolean;
 };
 
-const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, allowLocalLogin = true }) => {
+const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onEmailSignup, useSupabaseAuth = false }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSignupSubmitting, setIsSignupSubmitting] = useState(false);
   const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,12 +25,32 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, allowLocalLogin =
     setIsSubmitting(true);
     setError(null);
     try {
-      await onLogin(username.trim(), password);
+      if (useSupabaseAuth) {
+        if (!onEmailLogin) throw new Error('Вход по email недоступен');
+        await onEmailLogin(username.trim(), password);
+      } else {
+        await onLogin(username.trim(), password);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Ошибка входа';
       setError(message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSignup = async () => {
+    if (!canSubmit || isSignupSubmitting) return;
+    setIsSignupSubmitting(true);
+    setError(null);
+    try {
+      if (!onEmailSignup) throw new Error('Регистрация недоступна');
+      await onEmailSignup(username.trim(), password);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Ошибка регистрации';
+      setError(message);
+    } finally {
+      setIsSignupSubmitting(false);
     }
   };
 
@@ -50,18 +73,17 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, allowLocalLogin =
       <div className="w-full max-w-md bg-surface border border-border rounded-lg p-6">
         <h1 className="text-xl font-semibold text-text-primary">Вход</h1>
         <p className="mt-1 text-sm text-text-secondary">
-          {allowLocalLogin ? 'Введите логин и пароль или войдите через Google' : 'Войдите через Google'}
+          {useSupabaseAuth ? 'Введите email и пароль или войдите через Google' : 'Введите логин и пароль'}
         </p>
 
-        {allowLocalLogin && (
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
-              <label className="block text-sm text-text-secondary">Логин</label>
+              <label className="block text-sm text-text-secondary">{useSupabaseAuth ? 'Email' : 'Логин'}</label>
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
-                autoComplete="username"
+                autoComplete={useSupabaseAuth ? 'email' : 'username'}
               />
             </div>
 
@@ -87,23 +109,51 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, allowLocalLogin =
             >
               {isSubmitting ? 'Проверка…' : 'Войти'}
             </button>
+            {useSupabaseAuth ? (
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={!canSubmit}
+                  className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                >
+                  {isSubmitting ? 'Проверка…' : 'Войти'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!canSubmit || isSignupSubmitting}
+                  onClick={handleSignup}
+                  className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface disabled:opacity-60"
+                >
+                  {isSignupSubmitting ? 'Создаю…' : 'Зарегистрироваться'}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="submit"
+                disabled={!canSubmit}
+                className="w-full rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+              >
+                {isSubmitting ? 'Проверка…' : 'Войти'}
+              </button>
+            )}
           </form>
-        )}
 
-        {error && !allowLocalLogin && (
+        {error && (
           <div className="mt-4 text-sm text-primary">{error}</div>
         )}
 
-        <div className={allowLocalLogin ? 'mt-4' : 'mt-6'}>
-          <button
-            type="button"
-            onClick={handleGoogleLogin}
-            disabled={isGoogleSubmitting}
-            className="w-full rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface disabled:opacity-60"
-          >
-            {isGoogleSubmitting ? 'Открываю Google…' : 'Войти через Google'}
-          </button>
-        </div>
+        {useSupabaseAuth && (
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={isGoogleSubmitting}
+              className="w-full rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface disabled:opacity-60"
+            >
+              {isGoogleSubmitting ? 'Открываю Google…' : 'Войти через Google'}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

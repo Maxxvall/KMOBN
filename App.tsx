@@ -155,7 +155,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
 
     const handleLogin = useCallback(async (username: string, password: string) => {
         if (useSupabaseAuth) {
-            throw new Error('Используйте вход через Google');
+            throw new Error('Используйте вход через email или Google');
         }
         const ok = await checkUserCredentials(username, password);
         if (!ok) {
@@ -184,6 +184,36 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             provider: 'google',
             options: {
                 redirectTo,
+            },
+        });
+        if (error) {
+            throw new Error(error.message);
+        }
+    }, []);
+
+    const handleEmailLogin = useCallback(async (email: string, password: string) => {
+        if (!supabase) {
+            throw new Error('Supabase не настроен для входа по email');
+        }
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) {
+            throw new Error(error.message);
+        }
+    }, []);
+
+    const handleEmailSignup = useCallback(async (email: string, password: string) => {
+        if (!supabase) {
+            throw new Error('Supabase не настроен для регистрации');
+        }
+        const redirectTo =
+            (import.meta.env.VITE_AUTH_REDIRECT_URL as string) ||
+            (import.meta.env.VITE_SITE_URL as string) ||
+            window.location.origin;
+        const { error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+                emailRedirectTo: redirectTo,
             },
         });
         if (error) {
@@ -1070,7 +1100,9 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             <Login
                 onLogin={handleLogin}
                 onGoogleLogin={handleGoogleLogin}
-                allowLocalLogin={!useSupabaseAuth}
+                onEmailLogin={handleEmailLogin}
+                onEmailSignup={handleEmailSignup}
+                useSupabaseAuth={useSupabaseAuth}
             />
         );
     }

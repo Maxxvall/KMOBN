@@ -261,12 +261,8 @@ export const importData = async (jsonData: string): Promise<void> => {
   }
   try {
     const data = JSON.parse(jsonData);
-    const generateId = (): string => {
-      if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-        return crypto.randomUUID();
-      }
-      return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    };
+    const randomSuffix = () => Math.random().toString(36).slice(2, 8);
+    const generateId = (prefix: string): string => `${prefix}-${Date.now()}-${randomSuffix()}`;
     const asArray = <T>(value: unknown): T[] => Array.isArray(value) ? (value as T[]) : [];
 
     const rawEstimates = asArray<Estimate>(data.estimates);
@@ -278,7 +274,7 @@ export const importData = async (jsonData: string): Promise<void> => {
 
     const estimateIdMap = new Map<string, string>();
     rawEstimates.forEach(e => {
-      estimateIdMap.set(e.id, generateId());
+      estimateIdMap.set(e.id, generateId('sm-id'));
     });
     const estimates = rawEstimates.map(e => ({
       ...e,
@@ -289,23 +285,23 @@ export const importData = async (jsonData: string): Promise<void> => {
 
     const templates = rawTemplates.map(t => ({
       ...t,
-      id: generateId(),
+      id: generateId('template'),
       items: Array.isArray(t.items) ? t.items : [],
     }));
 
     const materials = rawMaterials.map(m => ({
       ...m,
-      id: generateId(),
+      id: generateId('material'),
     }));
 
     const works = rawWorks.map(w => ({
       ...w,
-      id: generateId(),
+      id: generateId('work'),
     }));
 
     const bundles = rawBundles.map(b => ({
       ...b,
-      id: generateId(),
+      id: generateId('bundle'),
       items: Array.isArray(b.items) ? b.items : [],
     }));
 
@@ -315,7 +311,7 @@ export const importData = async (jsonData: string): Promise<void> => {
       return {
         ...s,
         estimateId,
-        id: newEstimateId ? `salary-${estimateId}` : generateId(),
+        id: newEstimateId ? `salary-${estimateId}` : generateId('salary'),
       };
     });
     await Promise.all([
