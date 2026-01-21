@@ -1,4 +1,5 @@
 import { Estimate, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation } from '../types';
+import { CacheTableKey, getCachedRecords, getCacheUserId, syncCachedRecords } from './indexedDbCache';
 import supabase, {
   isSupabaseConfigured,
   upsertEstimates,
@@ -43,20 +44,65 @@ const requireUserId = async (): Promise<string> => {
   return userId;
 };
 
-const readTable = async <T>(fetcher: (userId: string) => Promise<{ data: unknown[] | null; error: unknown }>): Promise<T[]> => {
-  if (!isSupabaseConfigured()) {
-    return [];
+const dispatchCacheUpdate = <T>(key: CacheTableKey, data: T[]): void => {
+  if (typeof window === 'undefined') return;
+  try {
+    window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key, data } }));
+  } catch {
+    // ignore
   }
+};
+
+const refreshCacheInBackground = async <T extends { id: string }>(
+  key: CacheTableKey,
+  userId: string,
+  fetcher: (uid: string) => Promise<{ data: unknown[] | null; error: unknown }>,
+): Promise<void> => {
+  try {
+    const { data, error } = await fetcher(userId);
+    if (error) {
+      console.error('Supabase fetch error:', error);
+      return;
+    }
+    const records = (data ?? []) as T[];
+    const cacheUserId = getCacheUserId(userId);
+    const result = await syncCachedRecords(key, cacheUserId, records);
+    if (result.changed) {
+      dispatchCacheUpdate(key, records);
+    }
+  } catch (error) {
+    console.error('Cache refresh error:', error);
+  }
+};
+
+const readTableCached = async <T extends { id: string }>(
+  key: CacheTableKey,
+  fetcher: (userId: string) => Promise<{ data: unknown[] | null; error: unknown }>,
+): Promise<T[]> => {
   const userId = await getAuthenticatedUserId();
-  if (!userId) {
-    return [];
+  const cacheUserId = getCacheUserId(userId);
+  const cached = await getCachedRecords<T>(key, cacheUserId);
+  const canFetch = isSupabaseConfigured() && !!userId;
+
+  if (cached.length > 0) {
+    if (canFetch) {
+      void refreshCacheInBackground<T>(key, userId as string, fetcher);
+    }
+    return cached;
   }
-  const { data, error } = await fetcher(userId);
+
+  if (!canFetch) {
+    return cached;
+  }
+
+  const { data, error } = await fetcher(userId as string);
   if (error) {
     console.error('Supabase fetch error:', error);
-    return [];
+    return cached;
   }
-  return (data ?? []) as T[];
+  const records = (data ?? []) as T[];
+  await syncCachedRecords(key, cacheUserId, records);
+  return records;
 };
 
 const deleteRecord = async (table: string, id: string) => {
@@ -85,10 +131,14 @@ const upsertRecords = async (upserter: (records: any[], userId: string) => Promi
 };
 
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
-  await upsertRecords(upsertEstimates, estimates);
+  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
+  await Promise.all([
+    upsertRecords(upsertEstimates, estimates),
+    syncCachedRecords('estimates', cacheUserId, estimates),
+  ]);
 };
 
-export const loadEstimates = async (): Promise<Estimate[]> => readTable<Estimate>(fetchEstimates);
+export const loadEstimates = async (): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates);
 
 export const deleteEstimatesByNumber = async (estimateNumber: string | number): Promise<void> => {
   if (!isSupabaseConfigured()) return;
@@ -115,10 +165,14 @@ export const deleteEstimateById = async (estimateId: string): Promise<void> => {
 };
 
 export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void> => {
-  await upsertRecords(upsertTemplates, templates);
+  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
+  await Promise.all([
+    upsertRecords(upsertTemplates, templates),
+    syncCachedRecords('templates', cacheUserId, templates),
+  ]);
 };
 
-export const loadTemplates = async (): Promise<ProjectTemplate[]> => readTable<ProjectTemplate>(fetchTemplates);
+export const loadTemplates = async (): Promise<ProjectTemplate[]> => readTableCached<ProjectTemplate>('templates', fetchTemplates);
 
 export const addTemplate = async (template: ProjectTemplate): Promise<void> => {
   await upsertRecords(upsertTemplates, [template]);
@@ -129,10 +183,14 @@ export const deleteTemplate = async (templateId: string): Promise<void> => {
 };
 
 export const saveMaterials = async (materials: Material[]): Promise<void> => {
-  await upsertRecords(upsertMaterials, materials);
+  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
+  await Promise.all([
+    upsertRecords(upsertMaterials, materials),
+    syncCachedRecords('materials', cacheUserId, materials),
+  ]);
 };
 
-export const loadMaterials = async (): Promise<Material[]> => readTable<Material>(fetchMaterials);
+export const loadMaterials = async (): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials);
 
 export const addMaterial = async (material: Material): Promise<void> => {
   await upsertRecords(upsertMaterials, [material]);
@@ -147,10 +205,14 @@ export const deleteMaterial = async (materialId: string): Promise<void> => {
 };
 
 export const saveWorks = async (works: Work[]): Promise<void> => {
-  await upsertRecords(upsertWorks, works);
+  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
+  await Promise.all([
+    upsertRecords(upsertWorks, works),
+    syncCachedRecords('works', cacheUserId, works),
+  ]);
 };
 
-export const loadWorks = async (): Promise<Work[]> => readTable<Work>(fetchWorks);
+export const loadWorks = async (): Promise<Work[]> => readTableCached<Work>('works', fetchWorks);
 
 export const addWork = async (work: Work): Promise<void> => {
   await upsertRecords(upsertWorks, [work]);
@@ -165,10 +227,14 @@ export const deleteWork = async (workId: string): Promise<void> => {
 };
 
 export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
-  await upsertRecords(upsertBundles, bundles);
+  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
+  await Promise.all([
+    upsertRecords(upsertBundles, bundles),
+    syncCachedRecords('bundles', cacheUserId, bundles),
+  ]);
 };
 
-export const loadBundles = async (): Promise<WorkBundle[]> => readTable<WorkBundle>(fetchBundles);
+export const loadBundles = async (): Promise<WorkBundle[]> => readTableCached<WorkBundle>('bundles', fetchBundles);
 
 export const addBundle = async (bundle: WorkBundle): Promise<void> => {
   await upsertRecords(upsertBundles, [bundle]);
@@ -183,16 +249,20 @@ export const deleteBundle = async (bundleId: string): Promise<void> => {
 };
 
 export const saveSalaryCalculation = async (calculation: SalaryCalculation): Promise<void> => {
-  await upsertRecords(upsertSalaryCalculations, [calculation]);
+  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
+  await Promise.all([
+    upsertRecords(upsertSalaryCalculations, [calculation]),
+    syncCachedRecords('salary_calculations', cacheUserId, [calculation]),
+  ]);
 };
 
 export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
-  const calculations = await readTable<SalaryCalculation>(fetchSalaryCalculations);
+  const calculations = await readTableCached<SalaryCalculation>('salary_calculations', fetchSalaryCalculations);
   return calculations.find(calc => calc.estimateId === estimateId);
 };
 
 export const loadAllSalaryCalculations = async (): Promise<SalaryCalculation[]> => {
-  return readTable<SalaryCalculation>(fetchSalaryCalculations);
+  return readTableCached<SalaryCalculation>('salary_calculations', fetchSalaryCalculations);
 };
 
 export const deleteSalaryCalculation = async (calculationId: string): Promise<void> => {

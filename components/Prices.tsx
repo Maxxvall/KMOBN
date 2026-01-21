@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Material, EstimateCategory } from '../types';
 
 interface PricesProps {
@@ -27,10 +27,24 @@ const Prices: React.FC<PricesProps> = ({
     const [newMaterialLink, setNewMaterialLink] = useState('');
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
     const [editingPrice, setEditingPrice] = useState<{ id: string; price: string } | null>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const ITEMS_PER_PAGE = 25;
 
     const filteredMaterials = useMemo(() => {
         return filterCategory === 'all' ? materials : materials.filter(m => m.category === filterCategory);
     }, [materials, filterCategory]);
+
+    const paginatedMaterials = useMemo(() => {
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        return filteredMaterials.slice(startIndex, endIndex);
+    }, [filteredMaterials, currentPage]);
+
+    const totalPages = Math.ceil(filteredMaterials.length / ITEMS_PER_PAGE);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filterCategory]);
 
     const handleEditPrice = (materialId: string, currentPrice: number) => {
         setEditingPrice({ id: materialId, price: currentPrice.toString() });
@@ -142,7 +156,7 @@ const Prices: React.FC<PricesProps> = ({
                         </tr>
                     </thead>
                     <tbody className="text-text-primary">
-                        {filteredMaterials.map(material => (
+                        {paginatedMaterials.map(material => (
                             (() => {
                                 const lastUpdatedLabel = new Date(material.lastUpdated).toLocaleDateString('ru-RU');
                                 return (
@@ -232,6 +246,46 @@ const Prices: React.FC<PricesProps> = ({
                     </tbody>
                 </table>
             </div>
+            {totalPages > 1 && (
+                <div className="flex justify-center items-center gap-2 mt-6">
+                    <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded"
+                    >
+                        ← Назад
+                    </button>
+
+                    <div className="flex gap-1">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                            <button
+                                key={page}
+                                onClick={() => setCurrentPage(page)}
+                                className={`px-3 py-1 rounded ${
+                                    currentPage === page
+                                        ? 'bg-primary text-white'
+                                        : 'bg-gray-700 hover:bg-gray-600 text-text-primary'
+                                }`}
+                            >
+                                {page}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded"
+                    >
+                        Вперед →
+                    </button>
+
+                    <span className="ml-4 text-text-secondary">
+                        Показано {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredMaterials.length)}-
+                        {Math.min(currentPage * ITEMS_PER_PAGE, filteredMaterials.length)} из {filteredMaterials.length}
+                    </span>
+                </div>
+            )}
         </div>
     );
 };

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Work, EstimateCategory } from '../types';
 
 interface WorksProps {
@@ -15,10 +15,24 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
     const [editingWorkId, setEditingWorkId] = useState<string | null>(null);
     const [editingPrice, setEditingPrice] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const ITEMS_PER_PAGE = 25;
 
     const filteredWorks = useMemo(() => {
         return filterCategory === 'all' ? works : works.filter(w => w.category === filterCategory);
     }, [works, filterCategory]);
+
+    const paginatedWorks = useMemo(() => {
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        return filteredWorks.slice(startIndex, endIndex);
+    }, [filteredWorks, currentPage]);
+
+    const totalPages = Math.ceil(filteredWorks.length / ITEMS_PER_PAGE);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [filterCategory]);
 
     const handleAdd = () => {
         const price = parseFloat(newWorkPrice);
@@ -118,7 +132,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                         </tr>
                     </thead>
                     <tbody className="text-text-primary">
-                        {filteredWorks.map(work => (
+                        {paginatedWorks.map(work => (
                             <tr key={work.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
                                 <td className="text-left py-3 px-4">{work.category}</td>
                                 <td className="text-left py-3 px-4">{work.name}</td>
@@ -180,6 +194,46 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                     </tbody>
                 </table>
             </div>
+            {totalPages > 1 && (
+                <div className="flex justify-center items-center gap-2 mt-6">
+                    <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="px-3 py-1 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded"
+                    >
+                        ← Назад
+                    </button>
+
+                    <div className="flex gap-1">
+                        {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                            <button
+                                key={page}
+                                onClick={() => setCurrentPage(page)}
+                                className={`px-3 py-1 rounded ${
+                                    currentPage === page
+                                        ? 'bg-primary text-white'
+                                        : 'bg-gray-700 hover:bg-gray-600 text-text-primary'
+                                }`}
+                            >
+                                {page}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="px-3 py-1 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded"
+                    >
+                        Вперед →
+                    </button>
+
+                    <span className="ml-4 text-text-secondary">
+                        Показано {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredWorks.length)}-
+                        {Math.min(currentPage * ITEMS_PER_PAGE, filteredWorks.length)} из {filteredWorks.length}
+                    </span>
+                </div>
+            )}
         </div>
     );
 };

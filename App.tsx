@@ -21,6 +21,7 @@ import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate } from './services/estimateValidation';
 import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 
@@ -169,6 +170,66 @@ const App: React.FC = () => {
         const savedHash = dataHashes[key];
         return savedHash !== currentHash;
     }, [dataHashes, hashData]);
+
+    const handleCacheUpdate = useCallback((detail: { key: CacheTableKey; data: unknown[] }) => {
+        const nextHash = hashData(detail.data);
+        if (dataHashes[detail.key] === nextHash) return;
+
+        if (detail.key === 'estimates') {
+            const loaded = detail.data as Estimate[];
+            const { normalized, changed } = normalizeEstimateChains(loaded);
+            setEstimates(normalized);
+            setLoadedFlags(prev => ({ ...prev, estimates: true }));
+            setDataHashes(prev => ({ ...prev, estimates: hashData(loaded) }));
+            if (changed) {
+                void saveEstimates(normalized);
+            }
+            return;
+        }
+
+        if (detail.key === 'templates') {
+            const loaded = detail.data as ProjectTemplate[];
+            setTemplates(loaded);
+            setLoadedFlags(prev => ({ ...prev, templates: true }));
+            setDataHashes(prev => ({ ...prev, templates: hashData(loaded) }));
+            return;
+        }
+
+        if (detail.key === 'materials') {
+            const loaded = detail.data as Material[];
+            setMaterials(loaded);
+            setLoadedFlags(prev => ({ ...prev, materials: true }));
+            setDataHashes(prev => ({ ...prev, materials: hashData(loaded) }));
+            return;
+        }
+
+        if (detail.key === 'works') {
+            const loaded = detail.data as Work[];
+            setWorks(loaded);
+            setLoadedFlags(prev => ({ ...prev, works: true }));
+            setDataHashes(prev => ({ ...prev, works: hashData(loaded) }));
+            return;
+        }
+
+        if (detail.key === 'bundles') {
+            const loaded = detail.data as WorkBundle[];
+            setBundles(loaded);
+            setLoadedFlags(prev => ({ ...prev, bundles: true }));
+            setDataHashes(prev => ({ ...prev, bundles: hashData(loaded) }));
+        }
+    }, [dataHashes, hashData]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const handler = (event: Event) => {
+            const custom = event as CustomEvent;
+            const detail = custom.detail as { key: CacheTableKey; data: unknown[] } | undefined;
+            if (!detail || !detail.key || !Array.isArray(detail.data)) return;
+            handleCacheUpdate(detail);
+        };
+        window.addEventListener('kmobn:cache-update', handler as EventListener);
+        return () => window.removeEventListener('kmobn:cache-update', handler as EventListener);
+    }, [handleCacheUpdate]);
 
     const handleLogin = useCallback(async (_username: string, _password: string) => {
         if (!useSupabaseAuth) {
