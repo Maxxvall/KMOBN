@@ -268,6 +268,26 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
 
         let isMounted = true;
 
+        const hasRecoveryFlag = () => {
+            if (typeof window === 'undefined') return false;
+            const { hash, search } = window.location;
+            return /type=recovery/i.test(hash) || /type=recovery/i.test(search);
+        };
+
+        const clearRecoveryFlag = () => {
+            if (typeof window === 'undefined') return;
+            const url = new URL(window.location.href);
+            if (url.hash) {
+                url.hash = '';
+            }
+            if (url.searchParams.get('type') === 'recovery') {
+                url.searchParams.delete('type');
+                url.searchParams.delete('token');
+                url.searchParams.delete('redirect_to');
+            }
+            window.history.replaceState({}, document.title, url.toString());
+        };
+
         const initSession = async () => {
             const { data, error } = await supabase.auth.getSession();
             if (error) {
@@ -276,14 +296,19 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             }
             if (!isMounted) return;
             setSupabaseUser(data.session?.user ?? null);
+            if (data.session?.user && hasRecoveryFlag()) {
+                setShowPasswordRecoveryModal(true);
+                clearRecoveryFlag();
+            }
         };
 
         void initSession();
 
         const { data } = supabase.auth.onAuthStateChange((event, session) => {
             setSupabaseUser(session?.user ?? null);
-            if (event === 'PASSWORD_RECOVERY') {
+            if (event === 'PASSWORD_RECOVERY' || (event === 'INITIAL_SESSION' && hasRecoveryFlag())) {
                 setShowPasswordRecoveryModal(true);
+                clearRecoveryFlag();
             }
         });
 
