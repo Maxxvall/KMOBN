@@ -1,4 +1,5 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import type { User } from '@supabase/supabase-js';
 import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, MaterialSearchSource } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
@@ -21,6 +22,7 @@ import { searchPrice } from './services/priceService';
 import { aiPriceSearch } from './services/aiPriceSearch';
 import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, shouldUpdatePrice } from './services/priceCache';
 import { checkUserCredentials, loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import supabase from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 
 
@@ -31,6 +33,7 @@ type AppProps = {
 };
 
 const AUTH_STORAGE_KEY = 'kmobn:isAuthenticated';
+const LOCAL_USER_STORAGE_KEY = 'kmobn:username';
 
 const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; changed: boolean } => {
     const byNumber = new Map<string, Estimate[]>();
@@ -84,7 +87,29 @@ const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; cha
 };
 
 const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
-    const [isAuthenticated, setIsAuthenticated] = useState(Boolean(initialAuthenticated));
+    const [localAuthenticated, setLocalAuthenticated] = useState(Boolean(initialAuthenticated));
+    const [localUserName, setLocalUserName] = useState<string | null>(() => {
+        try {
+            return localStorage.getItem(LOCAL_USER_STORAGE_KEY);
+        } catch {
+            return null;
+        }
+    });
+    const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
+    const isAuthenticated = useMemo(() => Boolean(supabaseUser) || localAuthenticated, [localAuthenticated, supabaseUser]);
+    const displayName = useMemo(() => {
+        if (supabaseUser) {
+            const meta = supabaseUser.user_metadata as Record<string, string | undefined> | undefined;
+            return (
+                meta?.full_name ||
+                meta?.name ||
+                supabaseUser.email ||
+                supabaseUser.phone ||
+                'Пользователь'
+            );
+        }
+        return localUserName || null;
+    }, [localUserName, supabaseUser]);
     const [view, setView] = useState<View>(View.HISTORY);
     const [estimates, setEstimates] = useState<Estimate[]>([]);
     const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
@@ -123,12 +148,75 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         if (!ok) {
             throw new Error('Неверный логин или пароль');
         }
-        setIsAuthenticated(true);
+        setLocalAuthenticated(true);
+        setLocalUserName(username);
         try {
             localStorage.setItem(AUTH_STORAGE_KEY, 'true');
+            localStorage.setItem(LOCAL_USER_STORAGE_KEY, username);
         } catch {
             // ignore
         }
+    }, []);
+
+    const handleGoogleLogin = useCallback(async () => {
+        if (!supabase) {
+            throw new Error('Supabase не настроен для входа через Google');
+        }
+        const { error } = await supabase.auth.signInWithOAuth({
+            provider: 'google',
+            options: {
+                redirectTo: window.location.origin,
+            },
+        });
+        if (error) {
+            throw new Error(error.message);
+        }
+    }, []);
+
+    const handleLogout = useCallback(async () => {
+        try {
+            if (supabase) {
+                await supabase.auth.signOut();
+            }
+        } catch (error) {
+            console.error('Supabase signOut error:', error);
+        }
+        setLocalAuthenticated(false);
+        setLocalUserName(null);
+        setSupabaseUser(null);
+        try {
+            localStorage.removeItem(AUTH_STORAGE_KEY);
+            localStorage.removeItem(LOCAL_USER_STORAGE_KEY);
+        } catch {
+            // ignore
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!supabase) return;
+
+        let isMounted = true;
+
+        const initSession = async () => {
+            const { data, error } = await supabase.auth.getSession();
+            if (error) {
+                console.error('Supabase getSession error:', error);
+                return;
+            }
+            if (!isMounted) return;
+            setSupabaseUser(data.session?.user ?? null);
+        };
+
+        void initSession();
+
+        const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+            setSupabaseUser(session?.user ?? null);
+        });
+
+        return () => {
+            isMounted = false;
+            data.subscription.unsubscribe();
+        };
     }, []);
 
     // Load estimates and templates from database on mount
@@ -907,12 +995,17 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
 
 
     if (!isAuthenticated) {
-        return <Login onLogin={handleLogin} />;
+        return <Login onLogin={handleLogin} onGoogleLogin={handleGoogleLogin} />;
     }
 
     return (
         <div className="min-h-screen bg-background text-text-primary">
-            <Header currentView={view} onViewChange={handleNavigationAttempt} />
+            <Header
+                currentView={view}
+                onViewChange={handleNavigationAttempt}
+                userName={displayName}
+                onLogout={handleLogout}
+            />
             <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto">
                 {isLoading ? (
                     <div className="flex justify-center items-center h-64">

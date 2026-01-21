@@ -4,9 +4,11 @@ import { View } from '../types';
 interface HeaderProps {
     currentView: View;
     onViewChange: (view: View) => void;
+    userName?: string | null;
+    onLogout?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ currentView, onViewChange }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout }) => {
     const [showVersionsModal, setShowVersionsModal] = useState(false);
     const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
 
@@ -110,12 +112,27 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange }) => {
                                 Аналитика
                             </button>
                         </nav>
-                        <button
-                            onClick={() => setShowVersionsModal(true)}
-                            className="text-sm text-text-secondary hover:text-text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary"
-                        >
-                            V
-                        </button>
+                        <div className="flex items-center gap-2">
+                            {userName && (
+                                <span className="text-sm text-text-secondary max-w-[180px] truncate" title={userName}>
+                                    {userName}
+                                </span>
+                            )}
+                            <button
+                                onClick={() => setShowVersionsModal(true)}
+                                className="text-sm text-text-secondary hover:text-text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary"
+                            >
+                                V
+                            </button>
+                            {onLogout && (
+                                <button
+                                    onClick={onLogout}
+                                    className="text-sm text-text-secondary hover:text-text-primary transition-colors px-3 py-1 rounded border border-border hover:border-primary"
+                                >
+                                    Выход
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
             </header>
