@@ -24,7 +24,14 @@ export const upsertTable = async (table: string, records: any[], userId?: string
   if (!supabase) return { error: new Error('Supabase not configured') };
   if (!userId) return { error: new Error('User is not authenticated') };
 
-  const recordsWithUserId = records.map(record => ({ ...record, user_id: userId }));
+  const recordsWithUserId = records.map(record => {
+    const payload = record && typeof record === 'object' ? record : { value: record };
+    const base: Record<string, unknown> = { user_id: userId, payload };
+    if (payload && (payload as any).id != null) {
+      base.id = (payload as any).id;
+    }
+    return base;
+  });
   const { data, error } = await supabase.from(table).upsert(recordsWithUserId).select();
   return { data, error };
 };
