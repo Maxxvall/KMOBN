@@ -27,9 +27,15 @@ interface EstimateEditorProps {
     onBack: () => void;
     allEstimates: Estimate[];
     validationResult?: EstimateValidationResult | null;
+    aiAccess?: {
+        canUseAi: boolean;
+        remaining?: number | null;
+        onConsume?: (reason: 'autocomplete' | 'generation' | 'analysis') => void;
+    };
+    onUpgradeRequest?: () => void;
 }
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates, validationResult }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates, validationResult, aiAccess, onUpgradeRequest }) => {
     const createEmptyEstimate = useCallback((): Estimate => ({
         id: `sm-temp-${Date.now()}`,
         estimateNumber: `SM-${new Date().getFullYear()}-...`,
@@ -134,10 +140,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             // AI autocomplete as a fallback when local results are weak.
             // IMPORTANT: never blocks typing; runs after local results are shown.
             if (query.length >= 3 && results.length < 5) {
+                if (aiAccess && !aiAccess.canUseAi) {
+                    if (onUpgradeRequest) onUpgradeRequest();
+                    return;
+                }
                 // run AI autocomplete in idle time to avoid blocking typing/render
                 const runAi = () => {
                     (async () => {
                         try {
+                            aiAccess?.onConsume?.('autocomplete');
                             const isMaterialPool = pool.length > 0 && (pool[0] as any).lastUpdated !== undefined;
                             const category = estimate.items.find(i => i.id === itemId)?.category;
                             if (!category) return;
@@ -407,6 +418,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     }, [genParams, templates]);
 
     const handleGenerateWithAI = useCallback(async (opts?: { scopeDescription?: string; enableAiPriceSearch?: boolean }) => {
+        if (aiAccess && !aiAccess.canUseAi) {
+            alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
+            if (onUpgradeRequest) onUpgradeRequest();
+            return;
+        }
         if (!hasOpenRouterKey()) {
             alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
             return;
@@ -424,6 +440,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setAiWarnings([]);
         setAiTextSuggestions([]);
         try {
+            aiAccess?.onConsume?.('generation');
             const latestOnlyEstimates = (() => {
                 const byRoot = new Map<string, Estimate>();
                 for (const e of (allEstimates || [])) {
@@ -539,7 +556,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templates, allEstimates, materials, works, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch]);
+    }, [genParams, templates, allEstimates, materials, works, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch, aiAccess, onUpgradeRequest]);
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
@@ -693,6 +710,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </button>
                         <button
                             onClick={() => {
+                                if (aiAccess && !aiAccess.canUseAi) {
+                                    alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
+                                    if (onUpgradeRequest) onUpgradeRequest();
+                                    return;
+                                }
                                 if (!hasOpenRouterKey()) {
                                     alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
                                     return;
@@ -718,9 +740,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 <div className="flex gap-2 mb-4">
                     <button
                         onClick={async () => {
+                                if (aiAccess && !aiAccess.canUseAi) {
+                                    alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
+                                    if (onUpgradeRequest) onUpgradeRequest();
+                                    return;
+                                }
                             setIsLoading(true);
                             setAiBusyMessage('Анализирую смету');
                             try {
+                                    aiAccess?.onConsume?.('analysis');
                                 const similar = allEstimates.filter(e =>
                                     e.buildingType === estimate.buildingType &&
                                     estimate.area > 0 &&

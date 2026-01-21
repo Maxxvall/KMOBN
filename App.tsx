@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle } from './types';
+import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import EstimateHistory from './components/EstimateHistory';
@@ -12,6 +12,7 @@ import SalaryCalculator from './components/SalaryCalculator';
 import PdfStyleModal from './components/PdfStyleModal';
 import ContractNameModal from './components/ContractNameModal';
 import Analytics from './components/Analytics';
+import Subscriptions from './components/Subscriptions';
 import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
 import LandingPage from './components/LandingPage.tsx';
@@ -24,6 +25,25 @@ import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate
 import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
+import {
+    canCreateBundle,
+    canCreateEstimate,
+    canCreateMaterial,
+    canCreateWork,
+    canDeleteEstimate,
+    canUseAi,
+    canUseAnalytics,
+    canUseSalaryCalculator,
+    canUseWiki,
+    deriveSubscriptionUsage,
+    getSubscriptionLimits,
+    getUserSubscription,
+    incrementAiUsage,
+    incrementDeletedEstimates,
+    normalizeSubscriptionUsage,
+    updateUserSubscription,
+} from './services/subscriptionService';
+import { createPayment } from './services/paymentService';
 
 const Wiki = lazy(() => import('./components/Wiki'));
 
@@ -91,6 +111,9 @@ const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; cha
 const App: React.FC = () => {
     const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
     const useSupabaseAuth = isSupabaseConfigured();
+    const [subscription, setSubscription] = useState<UserSubscription | null>(null);
+    const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+    const [paymentLoading, setPaymentLoading] = useState(false);
     const [recoveryRequired, setRecoveryRequired] = useState(() => {
         try {
             return localStorage.getItem(RECOVERY_STORAGE_KEY) === 'true' || hasRecoveryFlagInUrl();
@@ -122,6 +145,22 @@ const App: React.FC = () => {
     const [works, setWorks] = useState<Work[]>([]);
     const [bundles, setBundles] = useState<WorkBundle[]>([]);
     const [currentEstimate, setCurrentEstimate] = useState<Estimate | null>(null);
+    const subscriptionTier: SubscriptionTier = subscription?.subscription_tier ?? 'free';
+    const subscriptionLimits: SubscriptionLimits = useMemo(() => getSubscriptionLimits(subscriptionTier), [subscriptionTier]);
+    const subscriptionUsage: SubscriptionUsage = useMemo(() => {
+        return deriveSubscriptionUsage({
+            subscription,
+            estimates,
+            materials,
+            works,
+            bundles,
+        });
+    }, [subscription, estimates, materials, works, bundles]);
+    const headerSubscriptionSummary = useMemo(() => ({
+        tier: subscriptionTier,
+        usage: subscriptionUsage,
+        limits: subscriptionLimits,
+    }), [subscriptionTier, subscriptionUsage, subscriptionLimits]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadedFlags, setLoadedFlags] = useState({
         estimates: false,
@@ -237,6 +276,41 @@ const App: React.FC = () => {
         }
         throw new Error('Локальный вход отключен');
     }, [useSupabaseAuth]);
+
+    useEffect(() => {
+        if (!supabaseUser) {
+            setSubscription(null);
+            setSubscriptionLoading(false);
+            return;
+        }
+
+        let isMounted = true;
+        setSubscriptionLoading(true);
+
+        const loadSubscription = async () => {
+            const data = await getUserSubscription(supabaseUser.id);
+            if (!isMounted) return;
+            if (!data) {
+                setSubscription(null);
+                setSubscriptionLoading(false);
+                return;
+            }
+
+            const normalized = normalizeSubscriptionUsage(data);
+            setSubscription(normalized.subscription);
+            setSubscriptionLoading(false);
+
+            if (Object.keys(normalized.updates).length > 0) {
+                void updateUserSubscription(supabaseUser.id, normalized.updates);
+            }
+        };
+
+        void loadSubscription();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [supabaseUser]);
 
     const handleGoogleLogin = useCallback(async () => {
         if (!supabase) {
@@ -688,16 +762,53 @@ const App: React.FC = () => {
         }
     }, [setView, setCurrentEstimate]);
 
+    const handleUpgradeClick = useCallback(() => {
+        goToView(View.SUBSCRIPTIONS);
+    }, [goToView]);
+
+    const aiAccess = useMemo(() => {
+        const canUse = canUseAi(subscriptionUsage, subscriptionLimits);
+        const limit = subscriptionLimits.aiRequestsPerDay;
+        const remaining = limit == null ? null : Math.max(0, limit - subscriptionUsage.aiRequestsToday);
+        return {
+            canUseAi: canUse,
+            remaining,
+            onConsume: consumeAiLimit,
+        };
+    }, [subscriptionUsage, subscriptionLimits, consumeAiLimit]);
+
     const handleNavigationAttempt = useCallback((target: View) => {
         if (view === View.EDITOR && editorDirty && target !== View.EDITOR) {
             setPendingView(target);
             setShowUnsavedModal(true);
             return;
         }
+
+        if (target === View.ANALYTICS && !canUseAnalytics(subscriptionLimits)) {
+            alert('Аналитика доступна только на Premium.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
+        if (target === View.SALARY_CALCULATOR && !canUseSalaryCalculator(subscriptionLimits)) {
+            alert('Калькулятор зарплаты доступен на Basic и Premium.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
+        if (target === View.WIKI && !canUseWiki(subscriptionLimits)) {
+            alert('Wiki доступна на Basic и Premium.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
+
         goToView(target);
-    }, [view, editorDirty, goToView]);
+    }, [view, editorDirty, goToView, subscriptionLimits]);
 
     const handleCreateNew = () => {
+        if (!canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
+            alert('Лимит смет исчерпан. Перейдите на платный план для продолжения.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
         setCurrentEstimate(null);
         setEditorValidationResult(null);
         setEditorDirty(false);
@@ -780,7 +891,32 @@ const App: React.FC = () => {
         goToView(afterSaveView);
     }, [goToView, setEstimates]);
 
+    const consumeDeleteLimit = useCallback(() => {
+        if (!subscription || !supabaseUser) return;
+        const next = incrementDeletedEstimates(subscription);
+        setSubscription(next);
+        void updateUserSubscription(supabaseUser.id, {
+            estimates_deleted_this_month: next.estimates_deleted_this_month ?? 0,
+            limits_reset_date: next.limits_reset_date ?? null,
+        });
+    }, [subscription, supabaseUser]);
+
+    const consumeAiLimit = useCallback(() => {
+        if (!subscription || !supabaseUser) return;
+        const next = incrementAiUsage(subscription);
+        setSubscription(next);
+        void updateUserSubscription(supabaseUser.id, {
+            ai_requests_today: next.ai_requests_today ?? 0,
+            last_ai_request_date: next.last_ai_request_date ?? null,
+        });
+    }, [subscription, supabaseUser]);
+
     const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
+        if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
+            alert('Удаление смет доступно на платных планах.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
         if (!window.confirm(`Вы уверены, что хотите удалить смету №${estimateToDelete.estimateNumber} и все ее версии? Это действие необратимо.`)) return;
         const estimateNumberToDelete = estimateToDelete.estimateNumber;
         try {
@@ -788,6 +924,7 @@ const App: React.FC = () => {
             await deleteEstimatesByNumber(estimateNumberToDelete);
             // Update local state
             setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateNumberToDelete));
+            consumeDeleteLimit();
             setSync({ visible: true, message: 'Сметы удалены из БД', type: 'success' });
             setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
         } catch (error) {
@@ -795,9 +932,14 @@ const App: React.FC = () => {
             setSync({ visible: true, message: 'Ошибка удаления смет в БД', type: 'error' });
             setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
         }
-    }, []);
+    }, [subscriptionUsage, subscriptionLimits, goToView, consumeDeleteLimit]);
 
     const handleDeleteEstimateVersion = useCallback(async (estimateToDelete: Estimate) => {
+        if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
+            alert('Удаление смет доступно на платных планах.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
         const estimateNumber = estimateToDelete.estimateNumber;
         const versionHistory = estimates
             .filter(e => e.estimateNumber === estimateNumber)
@@ -827,6 +969,7 @@ const App: React.FC = () => {
             if (isOnlyVersion) {
                 await deleteEstimatesByNumber(estimateToDelete.estimateNumber);
                 setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateToDelete.estimateNumber));
+                consumeDeleteLimit();
                 setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
             } else {
                 const remainingVersions = versionHistory.filter(e => e.id !== estimateToDelete.id);
@@ -858,10 +1001,12 @@ const App: React.FC = () => {
                             .filter(e => e.id !== estimateToDelete.id)
                             .map(e => updatedById.get(e.id) ?? e);
                     });
+                    consumeDeleteLimit();
                     setSync({ visible: true, message: 'Версия удалена, главная обновлена', type: 'success' });
                 } else {
                     await deleteEstimateById(estimateToDelete.id);
                     setEstimates(prevEstimates => prevEstimates.filter(e => e.id !== estimateToDelete.id));
+                    consumeDeleteLimit();
                     setSync({ visible: true, message: 'Версия сметы удалена', type: 'success' });
                 }
             }
@@ -871,7 +1016,7 @@ const App: React.FC = () => {
             setSync({ visible: true, message: 'Ошибка удаления версии в БД', type: 'error' });
             setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
         }
-    }, [estimates]);
+    }, [subscriptionUsage, subscriptionLimits, goToView, estimates, consumeDeleteLimit]);
 
     const handleDraftChange = useCallback((draft: Estimate) => {
         setEditorDraft(draft);
@@ -1068,6 +1213,11 @@ const App: React.FC = () => {
         price?: number,
         link?: string
     ) => {
+        if (!canCreateMaterial(subscriptionUsage, subscriptionLimits)) {
+            alert('Лимит материалов исчерпан. Перейдите на платный план для продолжения.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
         const newMaterial: Material = {
             id: `material-${Date.now()}`,
             name,
@@ -1084,7 +1234,7 @@ const App: React.FC = () => {
             console.error('Failed to add material:', error);
             alert('Не удалось добавить материал.');
         }
-    }, []);
+    }, [subscriptionUsage, subscriptionLimits, goToView]);
 
     const handleEditMaterialPrice = useCallback(async (materialId: string, newPrice: number) => {
         const material = materials.find(m => m.id === materialId);
@@ -1130,6 +1280,11 @@ const App: React.FC = () => {
     }, []);
 
     const handleAddWork = useCallback(async (name: string, category: EstimateCategory, price: number) => {
+        if (!canCreateWork(subscriptionUsage, subscriptionLimits)) {
+            alert('Лимит работ исчерпан. Перейдите на платный план для продолжения.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
         const newWork: Work = {
             id: `work-${Date.now()}`,
             name,
@@ -1143,7 +1298,7 @@ const App: React.FC = () => {
             console.error('Failed to add work:', error);
             alert('Не удалось добавить работу.');
         }
-    }, []);
+    }, [subscriptionUsage, subscriptionLimits, goToView]);
 
     const handleUpdateWork = useCallback(async (work: Work) => {
         try {
@@ -1168,6 +1323,11 @@ const App: React.FC = () => {
     }, []);
 
     const handleAddBundle = useCallback(async (bundle: WorkBundle) => {
+        if (!canCreateBundle(subscriptionUsage, subscriptionLimits)) {
+            alert('Лимит комплектов исчерпан. Перейдите на платный план для продолжения.');
+            goToView(View.SUBSCRIPTIONS);
+            return;
+        }
         try {
             await addBundle(bundle);
             setBundles(prev => [...prev, bundle]);
@@ -1175,7 +1335,7 @@ const App: React.FC = () => {
             console.error('Failed to add bundle:', error);
             alert('Не удалось добавить комплект.');
         }
-    }, []);
+    }, [subscriptionUsage, subscriptionLimits, goToView]);
 
     const handleUpdateBundle = useCallback(async (bundle: WorkBundle) => {
         try {
@@ -1198,6 +1358,31 @@ const App: React.FC = () => {
             }
         }
     }, []);
+
+    const handleStartPayment = useCallback(async (tier: SubscriptionTier) => {
+        if (!supabaseUser) {
+            alert('Для оплаты нужна авторизация.');
+            return;
+        }
+        if (tier === 'free') return;
+
+        setPaymentLoading(true);
+        try {
+            const redirectBase = window.location.origin;
+            const { paymentUrl } = await createPayment({
+                tier,
+                userId: supabaseUser.id,
+                successUrl: redirectBase,
+                cancelUrl: redirectBase,
+            });
+            window.location.href = paymentUrl;
+        } catch (error) {
+            console.error('Failed to start payment:', error);
+            alert('Не удалось создать платёж. Попробуйте позже.');
+        } finally {
+            setPaymentLoading(false);
+        }
+    }, [supabaseUser]);
 
     const passwordRecoveryModal = showPasswordRecoveryModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -1282,6 +1467,8 @@ const App: React.FC = () => {
                 userName={displayName}
                 onLogout={handleLogout}
                 onUserNameClick={handleOpenPasswordChange}
+                subscriptionSummary={headerSubscriptionSummary}
+                onUpgradeClick={handleUpgradeClick}
             />
             <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto">
                 {isLoading ? (
@@ -1316,6 +1503,8 @@ const App: React.FC = () => {
                                 onDeleteTemplate={handleDeleteTemplate}
                                 onBack={handleBackToHistory}
                                 allEstimates={estimates}
+                                aiAccess={aiAccess}
+                                onUpgradeRequest={handleUpgradeClick}
                             />
                         )}
                         {view === View.PRICES && (
@@ -1343,6 +1532,15 @@ const App: React.FC = () => {
                                 onAddBundle={handleAddBundle}
                                 onUpdateBundle={handleUpdateBundle}
                                 onDeleteBundle={handleDeleteBundle}
+                            />
+                        )}
+                        {view === View.SUBSCRIPTIONS && (
+                            <Subscriptions
+                                subscription={subscription}
+                                limits={subscriptionLimits}
+                                usage={subscriptionUsage}
+                                onStartPayment={handleStartPayment}
+                                isLoading={subscriptionLoading || paymentLoading}
                             />
                         )}
                         {view === View.SALARY_CALCULATOR && (

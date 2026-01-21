@@ -52,7 +52,69 @@ export enum View {
     BUNDLES,
     SALARY_CALCULATOR,
     ANALYTICS,
+    SUBSCRIPTIONS,
     WIKI,
+}
+
+export type SubscriptionTier = 'free' | 'basic' | 'premium';
+
+export type SubscriptionStatus = 'active' | 'expired' | 'cancelled';
+
+export type SubscriptionFeatures = {
+    analytics: boolean;
+    salaryCalculator: boolean;
+    wiki: boolean;
+};
+
+export interface SubscriptionLimits {
+    estimates: {
+        max: number | null;
+        canDelete: boolean;
+        deletePerMonth?: number | null;
+    };
+    materials: {
+        max: number | null;
+    };
+    works: {
+        max: number | null;
+    };
+    bundles: {
+        max: number | null;
+    };
+    aiRequestsPerDay: number | null;
+    features: SubscriptionFeatures;
+}
+
+export interface SubscriptionUsage {
+    estimatesCreated: number;
+    estimatesDeletedThisMonth: number;
+    materialsCreated: number;
+    worksCreated: number;
+    bundlesCreated: number;
+    aiRequestsToday: number;
+}
+
+export interface UserSubscription {
+    id: string;
+    user_id: string;
+    subscription_tier: SubscriptionTier;
+    status: SubscriptionStatus;
+    started_at: string;
+    expires_at: string | null;
+    last_payment_id?: string | null;
+    last_payment_amount?: number | null;
+    last_payment_currency?: string | null;
+    last_payment_date?: string | null;
+    estimates_created?: number | null;
+    estimates_deleted_this_month?: number | null;
+    materials_created?: number | null;
+    works_created?: number | null;
+    bundles_created?: number | null;
+    ai_requests_today?: number | null;
+    last_ai_request_date?: string | null;
+    limits_reset_date?: string | null;
+    created_at?: string | null;
+    updated_at?: string | null;
 }
 
 export interface ProjectTemplate {

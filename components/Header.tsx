@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { View } from '../types';
+import { SubscriptionLimits, SubscriptionTier, SubscriptionUsage, View } from '../types';
+import { getSubscriptionLabel } from '../services/subscriptionService';
+
+type SubscriptionSummary = {
+    tier: SubscriptionTier;
+    usage: SubscriptionUsage;
+    limits: SubscriptionLimits;
+};
 
 interface HeaderProps {
     currentView: View;
@@ -7,11 +14,15 @@ interface HeaderProps {
     userName?: string | null;
     onLogout?: () => void;
     onUserNameClick?: () => void;
+    subscriptionSummary?: SubscriptionSummary;
+    onUpgradeClick?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout, onUserNameClick }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout, onUserNameClick, subscriptionSummary, onUpgradeClick }) => {
     const [showVersionsModal, setShowVersionsModal] = useState(false);
     const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
+
+    const formatLimit = (value: number | null) => (value == null ? '∞' : String(value));
 
     const versions = {
         "v1.4": [
@@ -73,6 +84,14 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 Сметы
                             </button>
                             <button
+                                onClick={() => onViewChange(View.SUBSCRIPTIONS)}
+                                className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
+                                    currentView === View.SUBSCRIPTIONS ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
+                                }`}
+                            >
+                                Подписка
+                            </button>
+                            <button
                                 onClick={() => onViewChange(View.SALARY_CALCULATOR)}
                                 className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
                                     currentView === View.SALARY_CALCULATOR ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
@@ -122,6 +141,28 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                             </button>
                         </nav>
                         <div className="flex items-center gap-2">
+                            {subscriptionSummary && (
+                                <div className="hidden lg:flex flex-col items-end gap-1 text-xs text-text-secondary mr-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="px-2 py-1 rounded border border-border text-text-primary">
+                                            План: {getSubscriptionLabel(subscriptionSummary.tier)}
+                                        </span>
+                                        {onUpgradeClick && subscriptionSummary.tier !== 'premium' && (
+                                            <button
+                                                type="button"
+                                                onClick={onUpgradeClick}
+                                                className="px-2 py-1 rounded border border-primary text-primary hover:bg-primary hover:text-white transition-colors"
+                                            >
+                                                Upgrade
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        <span>Сметы {subscriptionSummary.usage.estimatesCreated}/{formatLimit(subscriptionSummary.limits.estimates.max)}</span>
+                                        <span>AI {subscriptionSummary.usage.aiRequestsToday}/{formatLimit(subscriptionSummary.limits.aiRequestsPerDay)}</span>
+                                    </div>
+                                </div>
+                            )}
                             {userName && (
                                 onUserNameClick ? (
                                     <button
