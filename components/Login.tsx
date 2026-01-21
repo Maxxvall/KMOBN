@@ -198,7 +198,15 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
               disabled={isGoogleSubmitting}
               className="w-full rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface disabled:opacity-60"
             >
-              {isGoogleSubmitting ? 'Открываю Google…' : 'Войти через Google'}
+              <span className="flex items-center justify-center gap-2">
+                <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.72 1.23 9.22 3.24l6.9-6.9C35.86 2.45 30.28 0 24 0 14.62 0 6.51 5.38 2.56 13.22l8.06 6.26C12.4 13.09 17.74 9.5 24 9.5z"/>
+                  <path fill="#4285F4" d="M46.5 24c0-1.62-.14-3.18-.41-4.7H24v9.26h12.7c-.55 2.97-2.23 5.49-4.73 7.18l7.24 5.62C43.38 37.36 46.5 31.19 46.5 24z"/>
+                  <path fill="#FBBC05" d="M10.62 28.48a14.5 14.5 0 0 1 0-8.96l-8.06-6.26A24 24 0 0 0 0 24c0 3.87.93 7.52 2.56 10.74l8.06-6.26z"/>
+                  <path fill="#34A853" d="M24 48c6.28 0 11.56-2.08 15.41-5.64l-7.24-5.62c-2.02 1.36-4.6 2.16-8.17 2.16-6.26 0-11.6-3.59-13.38-8.98l-8.06 6.26C6.51 42.62 14.62 48 24 48z"/>
+                </svg>
+                <span>{isGoogleSubmitting ? 'Открываю Google…' : 'Войти через Google'}</span>
+              </span>
             </button>
           </div>
         )}

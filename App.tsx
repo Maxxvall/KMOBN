@@ -34,6 +34,7 @@ type AppProps = {
 
 const AUTH_STORAGE_KEY = 'kmobn:isAuthenticated';
 const LOCAL_USER_STORAGE_KEY = 'kmobn:username';
+const RECOVERY_STORAGE_KEY = 'kmobn:recoveryRequired';
 
 const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; changed: boolean } => {
     const byNumber = new Map<string, Estimate[]>();
@@ -97,9 +98,16 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     });
     const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
     const useSupabaseAuth = isSupabaseConfigured();
+    const [recoveryRequired, setRecoveryRequired] = useState(() => {
+        try {
+            return localStorage.getItem(RECOVERY_STORAGE_KEY) === 'true';
+        } catch {
+            return false;
+        }
+    });
     const isAuthenticated = useMemo(() => {
-        return useSupabaseAuth ? Boolean(supabaseUser) : localAuthenticated;
-    }, [localAuthenticated, supabaseUser, useSupabaseAuth]);
+        return useSupabaseAuth ? Boolean(supabaseUser) && !recoveryRequired : localAuthenticated;
+    }, [localAuthenticated, supabaseUser, useSupabaseAuth, recoveryRequired]);
     const displayName = useMemo(() => {
         if (supabaseUser) {
             const meta = supabaseUser.user_metadata as Record<string, string | undefined> | undefined;
@@ -200,7 +208,10 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         }
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
-            throw new Error(error.message);
+            const message = error.message?.toLowerCase().includes('invalid login credentials')
+                ? 'Неверные данные'
+                : error.message;
+            throw new Error(message);
         }
     }, []);
 
@@ -274,6 +285,24 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             return /type=recovery/i.test(hash) || /type=recovery/i.test(search);
         };
 
+        const markRecoveryRequired = () => {
+            setRecoveryRequired(true);
+            try {
+                localStorage.setItem(RECOVERY_STORAGE_KEY, 'true');
+            } catch {
+                // ignore
+            }
+        };
+
+        const clearRecoveryRequired = () => {
+            setRecoveryRequired(false);
+            try {
+                localStorage.removeItem(RECOVERY_STORAGE_KEY);
+            } catch {
+                // ignore
+            }
+        };
+
         const clearRecoveryFlag = () => {
             if (typeof window === 'undefined') return;
             const url = new URL(window.location.href);
@@ -296,8 +325,12 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             }
             if (!isMounted) return;
             setSupabaseUser(data.session?.user ?? null);
+            if (!data.session?.user) {
+                clearRecoveryRequired();
+            }
             if (data.session?.user && hasRecoveryFlag()) {
                 setShowPasswordRecoveryModal(true);
+                markRecoveryRequired();
                 clearRecoveryFlag();
             }
         };
@@ -306,8 +339,12 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
 
         const { data } = supabase.auth.onAuthStateChange((event, session) => {
             setSupabaseUser(session?.user ?? null);
+            if (!session?.user) {
+                clearRecoveryRequired();
+            }
             if (event === 'PASSWORD_RECOVERY' || (event === 'INITIAL_SESSION' && hasRecoveryFlag())) {
                 setShowPasswordRecoveryModal(true);
+                markRecoveryRequired();
                 clearRecoveryFlag();
             }
         });
@@ -332,6 +369,12 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 throw error;
             }
             setShowPasswordRecoveryModal(false);
+            setRecoveryRequired(false);
+            try {
+                localStorage.removeItem(RECOVERY_STORAGE_KEY);
+            } catch {
+                // ignore
+            }
             setRecoveryPassword('');
             setSync({ visible: true, message: 'Пароль обновлен. Войдите заново.', type: 'success' });
             setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
@@ -1173,16 +1216,63 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     const apiQuotaLeft = getAvailableQuota(DEFAULT_API_DAILY_LIMIT);
 
 
+    const passwordRecoveryModal = showPasswordRecoveryModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+            <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-2xl">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-text-primary">Новый пароль</h2>
+                    <button
+                        type="button"
+                        onClick={() => setShowPasswordRecoveryModal(false)}
+                        className="text-text-secondary hover:text-text-primary"
+                    >
+                        ×
+                    </button>
+                </div>
+                <div className="mt-4">
+                    <label className="block text-sm text-text-secondary">Новый пароль</label>
+                    <input
+                        type="password"
+                        value={recoveryPassword}
+                        onChange={(e) => setRecoveryPassword(e.target.value)}
+                        className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
+                        autoComplete="new-password"
+                    />
+                </div>
+                <div className="mt-6 flex gap-2">
+                    <button
+                        type="button"
+                        onClick={handleUpdatePassword}
+                        disabled={recoverySubmitting}
+                        className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                    >
+                        {recoverySubmitting ? 'Сохраняю…' : 'Сохранить'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setShowPasswordRecoveryModal(false)}
+                        className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
+                    >
+                        Отмена
+                    </button>
+                </div>
+            </div>
+        </div>
+    ) : null;
+
     if (!isAuthenticated) {
         return (
-            <Login
-                onLogin={handleLogin}
-                onGoogleLogin={handleGoogleLogin}
-                onEmailLogin={handleEmailLogin}
-                onEmailSignup={handleEmailSignup}
-                onResetPassword={handleResetPassword}
-                useSupabaseAuth={useSupabaseAuth}
-            />
+            <div className="min-h-screen bg-background text-text-primary">
+                <Login
+                    onLogin={handleLogin}
+                    onGoogleLogin={handleGoogleLogin}
+                    onEmailLogin={handleEmailLogin}
+                    onEmailSignup={handleEmailSignup}
+                    onResetPassword={handleResetPassword}
+                    useSupabaseAuth={useSupabaseAuth}
+                />
+                {passwordRecoveryModal}
+            </div>
         );
     }
 
@@ -1351,49 +1441,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                     defaultContractName={`КМ ${pendingExportEstimate.estimateNumber}`}
                 />
             )}
-            {showPasswordRecoveryModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-                    <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-2xl">
-                        <div className="flex items-center justify-between">
-                            <h2 className="text-lg font-semibold text-text-primary">Новый пароль</h2>
-                            <button
-                                type="button"
-                                onClick={() => setShowPasswordRecoveryModal(false)}
-                                className="text-text-secondary hover:text-text-primary"
-                            >
-                                ×
-                            </button>
-                        </div>
-                        <div className="mt-4">
-                            <label className="block text-sm text-text-secondary">Новый пароль</label>
-                            <input
-                                type="password"
-                                value={recoveryPassword}
-                                onChange={(e) => setRecoveryPassword(e.target.value)}
-                                className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
-                                autoComplete="new-password"
-                            />
-                        </div>
-                        <div className="mt-6 flex gap-2">
-                            <button
-                                type="button"
-                                onClick={handleUpdatePassword}
-                                disabled={recoverySubmitting}
-                                className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
-                            >
-                                {recoverySubmitting ? 'Сохраняю…' : 'Сохранить'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setShowPasswordRecoveryModal(false)}
-                                className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
-                            >
-                                Отмена
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            {passwordRecoveryModal}
             <SyncToast
                 visible={sync.visible}
                 message={sync.message}

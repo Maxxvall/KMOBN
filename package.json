@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint \"App.tsx\" \"index.tsx\" \"constants.ts\" \"types.ts\" \"components/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"services/**/*.ts\" \"vite.config.ts\"",
+    "test": "echo \"No tests\""
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.28.0",
@@ -20,10 +22,17 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@eslint/js": "^9.20.0",
     "@types/lodash.debounce": "^4.0.9",
     "@types/node": "^22.14.0",
     "@types/react": "^19.2.2",
     "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^9.20.1",
+    "eslint-plugin-react": "^7.37.4",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.16",
+    "globals": "^15.14.0",
+    "typescript-eslint": "^8.24.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }
