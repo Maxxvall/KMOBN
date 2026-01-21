@@ -1,23 +1,4 @@
--- Supabase SQL API: users table + RPC auth
--- Run this in Supabase SQL Editor (Project -> SQL Editor).
-
--- 1) Extensions (for password hashing)
-create extension if not exists pgcrypto;
-
--- 2) Users table
--- NOTE: store a HASH in the `password` column (bcrypt via pgcrypto's crypt())
-create table if not exists public.users (
-  id uuid primary key default gen_random_uuid(),
-  username text not null unique,
-  password text not null,
-  created_at timestamptz not null default now()
-);
-
--- 3) RLS hardening (optional but recommended)
-alter table public.users enable row level security;
-
--- Lock down direct access from anon/authenticated.
-revoke all on table public.users from anon, authenticated;
+-- Файл устарел. Локальная авторизация удалена, используйте Supabase Auth.
 
 -- 4) RPC: check credentials server-side (does not leak hashes)
 create or replace function public.check_user_credentials(p_username text, p_password text)

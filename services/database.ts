@@ -15,12 +15,6 @@ import supabase, {
   fetchSalaryCalculations,
 } from './supabase';
 
-export type DbUser = {
-  id: string;
-  username: string;
-  created_at: string;
-};
-
 const ensureSupabase = () => {
   if (!supabase) {
     throw new Error('Supabase is not configured');
@@ -49,7 +43,7 @@ const requireUserId = async (): Promise<string> => {
   return userId;
 };
 
-const readTable = async <T>(fetcher: (userId: string) => Promise<{ data: T[] | null; error: any }>): Promise<T[]> => {
+const readTable = async <T>(fetcher: (userId: string) => Promise<{ data: unknown[] | null; error: unknown }>): Promise<T[]> => {
   if (!isSupabaseConfigured()) {
     return [];
   }
@@ -62,7 +56,7 @@ const readTable = async <T>(fetcher: (userId: string) => Promise<{ data: T[] | n
     console.error('Supabase fetch error:', error);
     return [];
   }
-  return data ?? [];
+  return (data ?? []) as T[];
 };
 
 const deleteRecord = async (table: string, id: string) => {
@@ -94,7 +88,7 @@ export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
   await upsertRecords(upsertEstimates, estimates);
 };
 
-export const loadEstimates = async (): Promise<Estimate[]> => readTable(fetchEstimates);
+export const loadEstimates = async (): Promise<Estimate[]> => readTable<Estimate>(fetchEstimates);
 
 export const deleteEstimatesByNumber = async (estimateNumber: string | number): Promise<void> => {
   if (!isSupabaseConfigured()) return;
@@ -102,10 +96,13 @@ export const deleteEstimatesByNumber = async (estimateNumber: string | number): 
   try {
     const userId = await requireUserId();
     const key = String(estimateNumber);
-    const { error } = await client.from('estimates').delete().eq('user_id', userId).eq("payload->>estimateNumber", key);
-    if (error) {
-      console.error('Failed to delete estimates by estimateNumber:', error);
-      throw error;
+    const { error: primaryError } = await client.from('estimates').delete().eq('user_id', userId).eq('estimateNumber', key);
+    if (!primaryError) return;
+
+    const { error: legacyError } = await client.from('estimates').delete().eq('user_id', userId).eq("payload->>estimateNumber", key);
+    if (legacyError) {
+      console.error('Failed to delete estimates by estimateNumber:', legacyError);
+      throw legacyError;
     }
   } catch (err) {
     console.error('deleteEstimatesByNumber error:', err);
@@ -121,7 +118,7 @@ export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void>
   await upsertRecords(upsertTemplates, templates);
 };
 
-export const loadTemplates = async (): Promise<ProjectTemplate[]> => readTable(fetchTemplates);
+export const loadTemplates = async (): Promise<ProjectTemplate[]> => readTable<ProjectTemplate>(fetchTemplates);
 
 export const addTemplate = async (template: ProjectTemplate): Promise<void> => {
   await upsertRecords(upsertTemplates, [template]);
@@ -135,7 +132,7 @@ export const saveMaterials = async (materials: Material[]): Promise<void> => {
   await upsertRecords(upsertMaterials, materials);
 };
 
-export const loadMaterials = async (): Promise<Material[]> => readTable(fetchMaterials);
+export const loadMaterials = async (): Promise<Material[]> => readTable<Material>(fetchMaterials);
 
 export const addMaterial = async (material: Material): Promise<void> => {
   await upsertRecords(upsertMaterials, [material]);
@@ -153,7 +150,7 @@ export const saveWorks = async (works: Work[]): Promise<void> => {
   await upsertRecords(upsertWorks, works);
 };
 
-export const loadWorks = async (): Promise<Work[]> => readTable(fetchWorks);
+export const loadWorks = async (): Promise<Work[]> => readTable<Work>(fetchWorks);
 
 export const addWork = async (work: Work): Promise<void> => {
   await upsertRecords(upsertWorks, [work]);
@@ -171,7 +168,7 @@ export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
   await upsertRecords(upsertBundles, bundles);
 };
 
-export const loadBundles = async (): Promise<WorkBundle[]> => readTable(fetchBundles);
+export const loadBundles = async (): Promise<WorkBundle[]> => readTable<WorkBundle>(fetchBundles);
 
 export const addBundle = async (bundle: WorkBundle): Promise<void> => {
   await upsertRecords(upsertBundles, [bundle]);
@@ -190,45 +187,16 @@ export const saveSalaryCalculation = async (calculation: SalaryCalculation): Pro
 };
 
 export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
-  const calculations = await readTable(fetchSalaryCalculations);
+  const calculations = await readTable<SalaryCalculation>(fetchSalaryCalculations);
   return calculations.find(calc => calc.estimateId === estimateId);
 };
 
 export const loadAllSalaryCalculations = async (): Promise<SalaryCalculation[]> => {
-  return readTable(fetchSalaryCalculations);
+  return readTable<SalaryCalculation>(fetchSalaryCalculations);
 };
 
 export const deleteSalaryCalculation = async (calculationId: string): Promise<void> => {
   await deleteRecord('salary_calculations', calculationId);
-};
-
-export const checkUserCredentials = async (username: string, password: string): Promise<boolean> => {
-  if (!isSupabaseConfigured()) {
-    return false;
-  }
-  const client = ensureSupabase();
-  const { data, error } = await client.rpc('check_user_credentials', {
-    p_username: username,
-    p_password: password,
-  });
-  if (error) {
-    console.error('checkUserCredentials error:', error);
-    return false;
-  }
-  return Boolean(data);
-};
-
-export const fetchUsers = async (): Promise<DbUser[]> => {
-  if (!isSupabaseConfigured()) {
-    return [];
-  }
-  const client = ensureSupabase();
-  const { data, error } = await client.rpc('fetch_users');
-  if (error) {
-    console.error('fetchUsers error:', error);
-    return [];
-  }
-  return (data ?? []) as DbUser[];
 };
 
 export const exportData = async (): Promise<string> => {

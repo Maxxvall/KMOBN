@@ -12,8 +12,14 @@ export interface ApiUsageEntry {
     date: string; // YYYY-MM-DD
 }
 
-const PRICE_CACHE_PREFIX = 'price_cache_';
-const API_USAGE_PREFIX = 'price_api_usage_';
+let currentUserId: string | null = null;
+
+export function setCurrentUserId(userId: string | null): void {
+    currentUserId = userId;
+}
+
+const getPriceCachePrefix = (): string => `price_cache_${currentUserId ?? 'anon'}_`;
+const getApiUsagePrefix = (): string => `price_api_usage_${currentUserId ?? 'anon'}_`;
 
 // Freshness: если цена моложе этого времени — считаем актуальной и не дёргаем API.
 export const PRICE_FRESH_MS = 1000 * 60 * 60 * 24; // 24 часа
@@ -87,14 +93,15 @@ export function getPriceCacheKey(params: {
     minPrice?: number;
     maxPrice?: number;
 }): string {
-    if (params.materialId) return `${PRICE_CACHE_PREFIX}${params.materialId}`;
+    const prefix = getPriceCachePrefix();
+    if (params.materialId) return `${prefix}${params.materialId}`;
 
     const name = (params.materialName || '').trim().toLowerCase();
     const src = params.source || 'any';
     const min = params.minPrice == null ? '' : String(params.minPrice);
     const max = params.maxPrice == null ? '' : String(params.maxPrice);
     const raw = `${name}|${src}|${min}|${max}`;
-    return `${PRICE_CACHE_PREFIX}q_${fnv1aHash(raw)}`;
+    return `${prefix}q_${fnv1aHash(raw)}`;
 }
 
 export function getCachedPriceEntry(cacheKey: string): PriceCacheEntry | null {
@@ -141,7 +148,7 @@ export function setCachedPriceEntry(cacheKey: string, entry: Omit<PriceCacheEntr
 }
 
 export function getApiUsageKeyForDate(dateKey: string): string {
-    return `${API_USAGE_PREFIX}${dateKey}`;
+    return `${getApiUsagePrefix()}${dateKey}`;
 }
 
 export function getApiUsageToday(): ApiUsageEntry {

@@ -24,9 +24,8 @@ export const upsertTable = async (table: string, records: any[], userId?: string
   if (!supabase) return { error: new Error('Supabase not configured') };
   if (!userId) return { error: new Error('User is not authenticated') };
 
-  // Store each record under `payload` jsonb column to avoid strict schema requirements.
-  const payloads = records.map(r => ({ id: r.id, user_id: userId, payload: r }));
-  const { data, error } = await supabase.from(table).upsert(payloads).select();
+  const recordsWithUserId = records.map(record => ({ ...record, user_id: userId }));
+  const { data, error } = await supabase.from(table).upsert(recordsWithUserId).select();
   return { data, error };
 };
 
@@ -39,13 +38,14 @@ export const fetchTable = async (table: string, userId?: string) => {
   const { data, error } = await supabase.from(table).select('*').eq('user_id', userId);
   if (error) return { data: null, error };
 
-  const parsed = (data as any[]).map(row => {
-    // If row has payload column, prefer it
+  const parsed = ((data ?? []) as Record<string, unknown>[]).map(row => {
     if (row && Object.prototype.hasOwnProperty.call(row, 'payload') && row.payload != null) {
-      return row.payload;
+      return row.payload as Record<string, unknown>;
     }
-    // Otherwise return the row as-is (remove any metadata if needed)
-    return row;
+    const { user_id: _userId, payload: _payload, ...rest } = row;
+    void _userId;
+    void _payload;
+    return rest;
   });
 
   return { data: parsed, error: null };

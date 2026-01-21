@@ -117,7 +117,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+    <>
       <div className="w-full max-w-md bg-surface border border-border rounded-lg p-6">
         <h1 className="text-xl font-semibold text-text-primary">Вход</h1>
         <p className="mt-1 text-sm text-text-secondary">
@@ -125,70 +125,70 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-            <div>
-              <label className="block text-sm text-text-secondary">{useSupabaseAuth ? 'Email' : 'Логин'}</label>
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
-                autoComplete={useSupabaseAuth ? 'email' : 'username'}
-              />
-            </div>
+          <div>
+            <label className="block text-sm text-text-secondary">{useSupabaseAuth ? 'Email' : 'Логин'}</label>
+            <input
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              autoComplete={useSupabaseAuth ? 'email' : 'username'}
+            />
+          </div>
 
-            <div>
-              <label className="block text-sm text-text-secondary">Пароль</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
-                autoComplete="current-password"
-              />
-            </div>
+          <div>
+            <label className="block text-sm text-text-secondary">Пароль</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              autoComplete="current-password"
+            />
+          </div>
 
-            {error && (
-              <div className="text-sm text-primary">{error}</div>
-            )}
-            {infoMessage && (
-              <div className="text-sm text-text-secondary">{infoMessage}</div>
-            )}
+          {error && (
+            <div className="text-sm text-primary">{error}</div>
+          )}
+          {infoMessage && (
+            <div className="text-sm text-text-secondary">{infoMessage}</div>
+          )}
 
-            {useSupabaseAuth ? (
-              <div className="flex flex-col gap-3">
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    disabled={!canSubmit}
-                    className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
-                  >
-                    {isSubmitting ? 'Проверка…' : 'Войти'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowSignupModal(true)}
-                    className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
-                  >
-                    Зарегистрироваться
-                  </button>
-                </div>
+          {useSupabaseAuth ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={!canSubmit}
+                  className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                >
+                  {isSubmitting ? 'Проверка…' : 'Войти'}
+                </button>
                 <button
                   type="button"
-                  onClick={() => setShowResetModal(true)}
-                  className="text-sm text-text-secondary hover:text-text-primary"
+                  onClick={() => setShowSignupModal(true)}
+                  className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
                 >
-                  Забыли пароль?
+                  Зарегистрироваться
                 </button>
               </div>
-            ) : (
               <button
-                type="submit"
-                disabled={!canSubmit}
-                className="w-full rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                type="button"
+                onClick={() => setShowResetModal(true)}
+                className="text-sm text-text-secondary hover:text-text-primary"
               >
-                {isSubmitting ? 'Проверка…' : 'Войти'}
+                Забыли пароль?
               </button>
-            )}
-          </form>
+            </div>
+          ) : (
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="w-full rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+            >
+              {isSubmitting ? 'Проверка…' : 'Войти'}
+            </button>
+          )}
+        </form>
 
         {useSupabaseAuth && (
           <div className="mt-4">
@@ -259,26 +259,25 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
                   value={signupPhone}
                   onChange={(e) => setSignupPhone(e.target.value)}
                   className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
-                  autoComplete="tel"
                 />
               </div>
-            </div>
-            <div className="mt-6 flex gap-2">
-              <button
-                type="button"
-                onClick={handleSignup}
-                disabled={isSignupSubmitting}
-                className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
-              >
-                {isSignupSubmitting ? 'Создаю…' : 'Сохранить'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSignupModal(false)}
-                className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
-              >
-                Отмена
-              </button>
+              <div className="mt-6 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleSignup}
+                  disabled={isSignupSubmitting}
+                  className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                >
+                  {isSignupSubmitting ? 'Сохраняю…' : 'Зарегистрироваться'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowSignupModal(false)}
+                  className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
+                >
+                  Отмена
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -329,7 +328,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 

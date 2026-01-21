@@ -14,26 +14,21 @@ import ContractNameModal from './components/ContractNameModal';
 import Analytics from './components/Analytics';
 import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
+import LandingPage from './components/LandingPage.tsx';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate } from './services/estimateValidation';
 import { searchPrice } from './services/priceService';
 import { aiPriceSearch } from './services/aiPriceSearch';
-import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, shouldUpdatePrice } from './services/priceCache';
-import { checkUserCredentials, loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, setCurrentUserId, shouldUpdatePrice } from './services/priceCache';
+import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 
 
 type SaveMode = 'overwrite' | 'new';
 
-type AppProps = {
-    initialAuthenticated?: boolean;
-};
-
-const AUTH_STORAGE_KEY = 'kmobn:isAuthenticated';
-const LOCAL_USER_STORAGE_KEY = 'kmobn:username';
 const RECOVERY_STORAGE_KEY = 'kmobn:recoveryRequired';
 const hasRecoveryFlagInUrl = (): boolean => {
     if (typeof window === 'undefined') return false;
@@ -92,15 +87,7 @@ const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; cha
     return { normalized, changed };
 };
 
-const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
-    const [localAuthenticated, setLocalAuthenticated] = useState(Boolean(initialAuthenticated));
-    const [localUserName, setLocalUserName] = useState<string | null>(() => {
-        try {
-            return localStorage.getItem(LOCAL_USER_STORAGE_KEY);
-        } catch {
-            return null;
-        }
-    });
+const App: React.FC = () => {
     const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
     const useSupabaseAuth = isSupabaseConfigured();
     const [recoveryRequired, setRecoveryRequired] = useState(() => {
@@ -112,8 +99,8 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     });
     const recoveryIntent = recoveryRequired || hasRecoveryFlagInUrl();
     const isAuthenticated = useMemo(() => {
-        return useSupabaseAuth ? Boolean(supabaseUser) && !recoveryIntent : localAuthenticated;
-    }, [localAuthenticated, supabaseUser, useSupabaseAuth, recoveryIntent]);
+        return Boolean(supabaseUser) && !recoveryIntent;
+    }, [supabaseUser, recoveryIntent]);
     const displayName = useMemo(() => {
         if (supabaseUser) {
             const meta = supabaseUser.user_metadata as Record<string, string | undefined> | undefined;
@@ -125,8 +112,8 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
                 'Пользователь'
             );
         }
-        return localUserName || null;
-    }, [localUserName, supabaseUser]);
+        return null;
+    }, [supabaseUser]);
     const [view, setView] = useState<View>(View.HISTORY);
     const [estimates, setEstimates] = useState<Estimate[]>([]);
     const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
@@ -144,6 +131,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     });
     const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
     const [showPasswordRecoveryModal, setShowPasswordRecoveryModal] = useState(false);
+    const [showLoginModal, setShowLoginModal] = useState(false);
     const [recoveryPassword, setRecoveryPassword] = useState('');
     const [recoverySubmitting, setRecoverySubmitting] = useState(false);
     const [showPdfStyleModal, setShowPdfStyleModal] = useState(false);
@@ -170,22 +158,11 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     const saveQueuedRef = useRef(false);
     const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const handleLogin = useCallback(async (username: string, password: string) => {
-        if (useSupabaseAuth) {
-            throw new Error('Используйте вход через email или Google');
+    const handleLogin = useCallback(async (_username: string, _password: string) => {
+        if (!useSupabaseAuth) {
+            throw new Error('Supabase не настроен');
         }
-        const ok = await checkUserCredentials(username, password);
-        if (!ok) {
-            throw new Error('Неверный логин или пароль');
-        }
-        setLocalAuthenticated(true);
-        setLocalUserName(username);
-        try {
-            localStorage.setItem(AUTH_STORAGE_KEY, 'true');
-            localStorage.setItem(LOCAL_USER_STORAGE_KEY, username);
-        } catch {
-            // ignore
-        }
+        throw new Error('Локальный вход отключен');
     }, [useSupabaseAuth]);
 
     const handleGoogleLogin = useCallback(async () => {
@@ -273,16 +250,12 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         } catch (error) {
             console.error('Supabase signOut error:', error);
         }
-        setLocalAuthenticated(false);
-        setLocalUserName(null);
         setSupabaseUser(null);
+        setCurrentUserId(null);
         setRecoveryRequired(false);
         try {
-            localStorage.removeItem(AUTH_STORAGE_KEY);
-            localStorage.removeItem(LOCAL_USER_STORAGE_KEY);
             localStorage.removeItem(RECOVERY_STORAGE_KEY);
         } catch {
-            // ignore
         }
     }, []);
 
@@ -331,6 +304,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             }
             if (!isMounted) return;
             setSupabaseUser(data.session?.user ?? null);
+            setCurrentUserId(data.session?.user?.id ?? null);
             if (!data.session?.user) {
                 clearRecoveryRequired();
             }
@@ -345,6 +319,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
 
         const { data } = supabase.auth.onAuthStateChange((event, session) => {
             setSupabaseUser(session?.user ?? null);
+            setCurrentUserId(session?.user?.id ?? null);
             if (!session?.user) {
                 clearRecoveryRequired();
             }
@@ -374,6 +349,21 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             setShowPasswordRecoveryModal(true);
         }
     }, [recoveryIntent]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        try {
+            const cleared = localStorage.getItem('kmobn:cache_cleared_v2');
+            if (cleared) return;
+            Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('price_cache_') || key.startsWith('price_api_usage_')) {
+                    localStorage.removeItem(key);
+                }
+            });
+            localStorage.setItem('kmobn:cache_cleared_v2', 'true');
+        } catch {
+        }
+    }, []);
 
     const handleUpdatePassword = useCallback(async () => {
         if (!supabase) return;
@@ -1283,14 +1273,29 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     if (!isAuthenticated) {
         return (
             <div className="min-h-screen bg-background text-text-primary">
-                <Login
-                    onLogin={handleLogin}
-                    onGoogleLogin={handleGoogleLogin}
-                    onEmailLogin={handleEmailLogin}
-                    onEmailSignup={handleEmailSignup}
-                    onResetPassword={handleResetPassword}
-                    useSupabaseAuth={useSupabaseAuth}
-                />
+                <LandingPage onOpenLogin={() => setShowLoginModal(true)} />
+                {showLoginModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" role="dialog" aria-modal="true">
+                        <div className="relative w-full max-w-md">
+                            <button
+                                type="button"
+                                onClick={() => setShowLoginModal(false)}
+                                aria-label="Закрыть окно входа"
+                                className="absolute -top-4 -right-4 bg-surface rounded-full w-8 h-8 flex items-center justify-center text-text-secondary hover:text-text-primary border border-border"
+                            >
+                                ×
+                            </button>
+                            <Login
+                                onLogin={handleLogin}
+                                onGoogleLogin={handleGoogleLogin}
+                                onEmailLogin={handleEmailLogin}
+                                onEmailSignup={handleEmailSignup}
+                                onResetPassword={handleResetPassword}
+                                useSupabaseAuth={useSupabaseAuth}
+                            />
+                        </div>
+                    </div>
+                )}
                 {passwordRecoveryModal}
             </div>
         );
