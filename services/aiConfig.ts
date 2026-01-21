@@ -16,7 +16,7 @@ const getEnv = (key: string): string | undefined => {
 };
 
 export const AI_CONFIG: OpenRouterConfig = {
-  apiKey: getEnv('VITE_OPENROUTER_API_KEY') || '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',
+  apiKey: getEnv('VITE_OPENROUTER_API_KEY') || '',
   baseUrl: getEnv('VITE_OPENROUTER_BASE_URL') || 'https://openrouter.ai/api/v1/chat/completions',
   model: getEnv('VITE_OPENROUTER_MODEL') || 'xiaomi/mimo-v2-flash:free',
   siteUrl: getEnv('VITE_OPENROUTER_SITE_URL'),

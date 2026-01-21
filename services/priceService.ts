@@ -11,9 +11,17 @@ import {
     setCachedPriceEntry,
 } from './priceCache';
 
+const getEnv = (key: string): string | undefined => {
+    try {
+        return (import.meta as any)?.env?.[key] as string | undefined;
+    } catch {
+        return undefined;
+    }
+};
+
 // Google Custom Search API constants
-const GOOGLE_API_KEY = 'AIzaSyBkTLQk7oZLfTuLo6AyjqunfrBGb4Au3yQ'; // Your API key
-const SEARCH_ENGINE_ID = '6509e897dabc947f9'; // Your Custom Search Engine ID
+const GOOGLE_API_KEY = getEnv('VITE_GOOGLE_API_KEY') || '';
+const SEARCH_ENGINE_ID = getEnv('VITE_GOOGLE_CSE_ID') || '';
 
 export interface SearchPriceOptions {
     source?: MaterialSearchSource;
@@ -92,6 +100,14 @@ export async function searchPrice(materialName: string, options: SearchPriceOpti
             throw new Error('API quota exceeded');
         }
 
+        if (!GOOGLE_API_KEY || !SEARCH_ENGINE_ID) {
+            const cachedAny = allowStaleCacheOnQuotaExceeded ? getCachedPriceEntryAllowExpired(cacheKey) : null;
+            const fallback = typeof options.fallbackPrice === 'number' && isFinite(options.fallbackPrice) ? options.fallbackPrice : null;
+            if (cachedAny) return cachedAny.price;
+            if (fallback != null) return fallback;
+            throw new Error('Google Custom Search is not configured (VITE_GOOGLE_API_KEY, VITE_GOOGLE_CSE_ID)');
+        }
+
         // Query for price search, focusing on Russian sites
         const override = typeof options.queryOverride === 'string' ? options.queryOverride.trim() : '';
         let query = override ? override : `цена ${materialName}`;
@@ -154,7 +170,6 @@ export async function searchPrice(materialName: string, options: SearchPriceOpti
         console.info('[priceService] searchPrice start', {
             materialName,
             query,
-            apiSearchUrl,
             apiSearchUrlMasked,
             filters: { source: options.source, minPrice: minAllowed, maxPrice: maxAllowed },
         });
