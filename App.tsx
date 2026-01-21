@@ -172,6 +172,7 @@ const App: React.FC = () => {
     const [wikiLoaded, setWikiLoaded] = useState(false);
     const [dataHashes, setDataHashes] = useState<Record<string, string>>({});
     const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
+    const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [showPasswordRecoveryModal, setShowPasswordRecoveryModal] = useState(false);
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [recoveryPassword, setRecoveryPassword] = useState('');
@@ -766,6 +767,26 @@ const App: React.FC = () => {
         goToView(View.SUBSCRIPTIONS);
     }, [goToView]);
 
+    const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info', duration = 3200) => {
+        setSync({ visible: true, message, type });
+        if (toastTimerRef.current) {
+            clearTimeout(toastTimerRef.current);
+        }
+        if (duration > 0) {
+            toastTimerRef.current = setTimeout(() => {
+                setSync(s => ({ ...s, visible: false }));
+            }, duration);
+        }
+    }, [setSync]);
+
+    useEffect(() => {
+        return () => {
+            if (toastTimerRef.current) {
+                clearTimeout(toastTimerRef.current);
+            }
+        };
+    }, []);
+
     const handleNavigationAttempt = useCallback((target: View) => {
         if (view === View.EDITOR && editorDirty && target !== View.EDITOR) {
             setPendingView(target);
@@ -784,7 +805,7 @@ const App: React.FC = () => {
             return;
         }
         if (target === View.WIKI && !canUseWiki(subscriptionLimits)) {
-            alert('Wiki доступна на Basic и Premium.');
+            showToast('Wiki доступна на Basic и Premium.', 'info');
             goToView(View.SUBSCRIPTIONS);
             return;
         }
@@ -1361,7 +1382,7 @@ const App: React.FC = () => {
 
     const handleStartPayment = useCallback(async (tier: SubscriptionTier) => {
         if (!supabaseUser) {
-            alert('Для оплаты нужна авторизация.');
+            showToast('Для оплаты нужна авторизация.', 'info');
             return;
         }
         if (tier === 'free') return;
@@ -1378,7 +1399,17 @@ const App: React.FC = () => {
             window.location.href = paymentUrl;
         } catch (error) {
             console.error('Failed to start payment:', error);
-            alert('Не удалось создать платёж. Попробуйте позже.');
+            const errorMessage = error instanceof Error ? error.message : '';
+            const errorCode = error instanceof Error ? (error as Error & { code?: string }).code : undefined;
+            const isInvalidKey = errorCode === 'INVALID_API_KEY' || /invalid api key/i.test(errorMessage);
+            const isMissingKey = /NOWPAYMENTS_API_KEY is missing/i.test(errorMessage);
+            if (isInvalidKey) {
+                showToast('Платёжный ключ недействителен. Проверьте NOWPAYMENTS_API_KEY.', 'error', 6000);
+            } else if (isMissingKey) {
+                showToast('Платёжный сервис не настроен: отсутствует NOWPAYMENTS_API_KEY.', 'error', 6000);
+            } else {
+                showToast('Не удалось создать платёж. Попробуйте позже.', 'error');
+            }
         } finally {
             setPaymentLoading(false);
         }

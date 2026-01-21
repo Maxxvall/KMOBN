@@ -71,7 +71,7 @@ export const getUserSubscription = async (userId: string): Promise<UserSubscript
         .from('user_subscriptions')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
     if (error) {
         console.warn('Failed to load user subscription:', error);

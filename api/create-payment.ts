@@ -104,8 +104,35 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     });
 
     if (!response.ok) {
-        const text = await response.text();
-        res.status(502).send(text || 'NowPayments error');
+        const contentType = response.headers.get('content-type') || '';
+        let errorMessage = 'NowPayments error';
+        let errorCode: string | undefined;
+
+        if (contentType.includes('application/json')) {
+            const payload = (await response.json()) as Record<string, unknown>;
+            if (typeof payload.message === 'string') {
+                errorMessage = payload.message;
+            }
+            if (typeof payload.code === 'string') {
+                errorCode = payload.code;
+            }
+        } else {
+            const text = await response.text();
+            if (text) {
+                errorMessage = text;
+            }
+        }
+
+        if ((response.status === 401 || response.status === 403) && !errorCode) {
+            errorCode = 'INVALID_API_KEY';
+        }
+
+        res.status(response.status).json({
+            error: {
+                message: errorMessage,
+                code: errorCode,
+            },
+        });
         return;
     }
 

@@ -15,27 +15,38 @@ type Props = {
   saveError?: string | null;
 };
 
-const bgFor = (t?: Props['type']) => {
+const accentFor = (t?: Props['type']) => {
   switch (t) {
     case 'success':
-      return 'bg-green-600';
+      return 'bg-emerald-500 text-emerald-200';
     case 'error':
-      return 'bg-red-600';
+      return 'bg-rose-500 text-rose-200';
     default:
-      return 'bg-slate-700';
+      return 'bg-sky-500 text-sky-200';
   }
 };
 
-const autosaveBgFor = (s: SaveStatus) => {
+const autosaveAccentFor = (s: SaveStatus) => {
   switch (s) {
     case 'saving':
-      return 'bg-slate-700';
+      return 'bg-sky-500 text-sky-200';
     case 'saved':
-      return 'bg-green-600';
+      return 'bg-emerald-500 text-emerald-200';
     case 'error':
-      return 'bg-red-600';
+      return 'bg-rose-500 text-rose-200';
     default:
-      return 'bg-slate-700';
+      return 'bg-slate-500 text-slate-200';
+  }
+};
+
+const iconFor = (t?: Props['type']) => {
+  switch (t) {
+    case 'success':
+      return '✓';
+    case 'error':
+      return '!';
+    default:
+      return 'i';
   }
 };
 
@@ -55,23 +66,26 @@ const SyncToast: React.FC<Props> = ({
   if (visible) {
     return (
       <div
-        className={`fixed right-3 bottom-3 z-50 max-w-xs ${bgFor(type)} text-white rounded-md shadow-lg`}
+        className="fixed right-4 bottom-4 z-50 w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-border bg-surface/95 text-text-primary shadow-2xl backdrop-blur"
         role="status"
+        aria-live="polite"
       >
-        <div className="px-3 py-2">
-          <div className="flex items-start gap-2">
-            <span className="mt-1 inline-block w-2 h-2 rounded-full bg-white/90" aria-hidden="true" />
-            <div className="flex-1 text-xs leading-snug">{message}</div>
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="ml-1 text-white/90 hover:text-white text-xs"
-                aria-label="Закрыть"
-              >
-                ✕
-              </button>
-            )}
+        <div className="flex items-start gap-3 px-4 py-3">
+          <div className={`flex h-8 w-8 items-center justify-center rounded-full ${accentFor(type)}`} aria-hidden="true">
+            <span className="text-sm font-semibold">{iconFor(type)}</span>
           </div>
+          <div className="flex-1 text-sm leading-snug">
+            {message}
+          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="-mr-1 -mt-1 rounded-full border border-border px-2 py-1 text-xs text-text-secondary transition hover:text-text-primary"
+              aria-label="Закрыть"
+            >
+              ✕
+            </button>
+          )}
         </div>
       </div>
     );
@@ -97,16 +111,15 @@ const SyncToast: React.FC<Props> = ({
 
   return (
     <div
-      className={`fixed right-3 bottom-3 z-40 ${autosaveBgFor(saveStatus)} text-white rounded-md shadow-lg`}
+      className="fixed right-4 bottom-4 z-40 rounded-xl border border-border bg-surface/90 text-text-primary shadow-xl backdrop-blur"
       role="status"
+      aria-live="polite"
     >
-      <div className="px-3 py-2">
-        <div className="flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-white/90" aria-hidden="true" />
-          <div className="text-xs leading-snug whitespace-nowrap">
-            {label}
-            {details ? <span className="ml-1 text-white/90">{details}</span> : null}
-          </div>
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className={`inline-flex h-2.5 w-2.5 rounded-full ${autosaveAccentFor(saveStatus)}`} aria-hidden="true" />
+        <div className="text-xs leading-snug whitespace-nowrap">
+          {label}
+          {details ? <span className="ml-1 text-text-secondary">{details}</span> : null}
         </div>
       </div>
     </div>

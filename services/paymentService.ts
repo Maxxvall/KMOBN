@@ -13,6 +13,15 @@ export type CreatePaymentResponse = {
     paymentId?: string | null;
 };
 
+type PaymentErrorResponse = {
+    error?: {
+        message?: string;
+        code?: string;
+    };
+    message?: string;
+    code?: string;
+};
+
 export const createPayment = async (payload: CreatePaymentRequest): Promise<CreatePaymentResponse> => {
     const response = await fetch('/api/create-payment', {
         method: 'POST',
@@ -23,8 +32,26 @@ export const createPayment = async (payload: CreatePaymentRequest): Promise<Crea
     });
 
     if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || 'Failed to create payment');
+        const contentType = response.headers.get('content-type') || '';
+        let errorMessage = 'Failed to create payment';
+        let errorCode: string | undefined;
+
+        if (contentType.includes('application/json')) {
+            const payload = (await response.json()) as PaymentErrorResponse;
+            errorMessage = payload.error?.message || payload.message || errorMessage;
+            errorCode = payload.error?.code || payload.code;
+        } else {
+            const text = await response.text();
+            if (text) {
+                errorMessage = text;
+            }
+        }
+
+        const err = new Error(errorMessage) as Error & { code?: string };
+        if (errorCode) {
+            err.code = errorCode;
+        }
+        throw err;
     }
 
     const data = (await response.json()) as CreatePaymentResponse;
