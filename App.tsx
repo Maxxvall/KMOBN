@@ -35,6 +35,11 @@ type AppProps = {
 const AUTH_STORAGE_KEY = 'kmobn:isAuthenticated';
 const LOCAL_USER_STORAGE_KEY = 'kmobn:username';
 const RECOVERY_STORAGE_KEY = 'kmobn:recoveryRequired';
+const hasRecoveryFlagInUrl = (): boolean => {
+    if (typeof window === 'undefined') return false;
+    const combined = `${window.location.search}${window.location.hash}`.toLowerCase();
+    return combined.includes('type=recovery');
+};
 
 const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; changed: boolean } => {
     const byNumber = new Map<string, Estimate[]>();
@@ -100,9 +105,9 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
     const useSupabaseAuth = isSupabaseConfigured();
     const [recoveryRequired, setRecoveryRequired] = useState(() => {
         try {
-            return localStorage.getItem(RECOVERY_STORAGE_KEY) === 'true';
+            return localStorage.getItem(RECOVERY_STORAGE_KEY) === 'true' || hasRecoveryFlagInUrl();
         } catch {
-            return false;
+            return hasRecoveryFlagInUrl();
         }
     });
     const isAuthenticated = useMemo(() => {
@@ -266,9 +271,11 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         setLocalAuthenticated(false);
         setLocalUserName(null);
         setSupabaseUser(null);
+        setRecoveryRequired(false);
         try {
             localStorage.removeItem(AUTH_STORAGE_KEY);
             localStorage.removeItem(LOCAL_USER_STORAGE_KEY);
+            localStorage.removeItem(RECOVERY_STORAGE_KEY);
         } catch {
             // ignore
         }
@@ -278,12 +285,6 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
         if (!supabase || !useSupabaseAuth) return;
 
         let isMounted = true;
-
-        const hasRecoveryFlag = () => {
-            if (typeof window === 'undefined') return false;
-            const { hash, search } = window.location;
-            return /type=recovery/i.test(hash) || /type=recovery/i.test(search);
-        };
 
         const markRecoveryRequired = () => {
             setRecoveryRequired(true);
@@ -328,7 +329,7 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             if (!data.session?.user) {
                 clearRecoveryRequired();
             }
-            if (data.session?.user && hasRecoveryFlag()) {
+            if (data.session?.user && hasRecoveryFlagInUrl()) {
                 setShowPasswordRecoveryModal(true);
                 markRecoveryRequired();
                 clearRecoveryFlag();
@@ -342,7 +343,15 @@ const App: React.FC<AppProps> = ({ initialAuthenticated }) => {
             if (!session?.user) {
                 clearRecoveryRequired();
             }
-            if (event === 'PASSWORD_RECOVERY' || (event === 'INITIAL_SESSION' && hasRecoveryFlag())) {
+            const shouldRecover = hasRecoveryFlagInUrl();
+            if (
+                event === 'PASSWORD_RECOVERY' ||
+                event === 'SIGNED_IN' ||
+                (event === 'INITIAL_SESSION' && shouldRecover)
+            ) {
+                if (!shouldRecover && event === 'SIGNED_IN') {
+                    return;
+                }
                 setShowPasswordRecoveryModal(true);
                 markRecoveryRequired();
                 clearRecoveryFlag();
