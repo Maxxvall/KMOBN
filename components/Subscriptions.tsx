@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { SubscriptionLimits, SubscriptionTier, SubscriptionUsage, UserSubscription } from '../types';
-import { getSubscriptionLabel } from '../services/subscriptionService';
+import { getSubscriptionLabel } from '../services/subscriptionConfig';
 
 type PlanCard = {
     tier: SubscriptionTier;

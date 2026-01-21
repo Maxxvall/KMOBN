@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SubscriptionLimits, SubscriptionTier, SubscriptionUsage, View } from '../types';
-import { getSubscriptionLabel } from '../services/subscriptionService';
+import { getSubscriptionLabel } from '../services/subscriptionConfig';
 
 type SubscriptionSummary = {
     tier: SubscriptionTier;
