@@ -82,20 +82,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                             Управляйте проектами, версиями и документами в одном интерфейсе. Встроенная Wiki помогает
                             стандартизировать решения и ускорять согласования без потери качества.
                         </p>
-                        <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                        <div className="mt-8 flex items-center justify-center">
                             <button
                                 type="button"
                                 onClick={onOpenLogin}
                                 className="rounded-md bg-primary px-8 py-3 text-base font-semibold text-text-primary hover:bg-primary-hover"
                             >
                                 Начать работу
-                            </button>
-                            <button
-                                type="button"
-                                onClick={onOpenLogin}
-                                className="rounded-md border border-border bg-surface px-8 py-3 text-base font-semibold text-text-primary transition hover:border-primary"
-                            >
-                                Запросить демо
                             </button>
                         </div>
                         <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-sm text-text-secondary">
