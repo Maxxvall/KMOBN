@@ -18,6 +18,17 @@ export default defineConfig(({ mode }) => {
         alias: {
           '@': path.resolve(__dirname, '.'),
         }
-      }
+      },
+      build: {
+        rollupOptions: {
+          output: {
+            manualChunks: {
+              wiki: ['./components/Wiki/index.tsx'],
+              vendor: ['react', 'react-dom'],
+              charts: ['recharts'],
+            },
+          },
+        },
+      },
     };
 });

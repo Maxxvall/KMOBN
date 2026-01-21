@@ -52,6 +52,7 @@ export enum View {
     BUNDLES,
     SALARY_CALCULATOR,
     ANALYTICS,
+    WIKI,
 }
 
 export interface ProjectTemplate {
@@ -81,9 +82,7 @@ export interface Material {
     lastUpdated: string;
     category: EstimateCategory;
     isManualPrice?: boolean;
-    searchSource?: MaterialSearchSource;
-    searchMinPrice?: number;
-    searchMaxPrice?: number;
+    link?: string;
 }
 
 export interface Work {
@@ -99,6 +98,21 @@ export interface WorkBundle {
     mainWorkId?: string; // ID основной работы, если есть
     items: EstimateItem[]; // Работы и материалы в комплекте
     category: EstimateCategory; // Категория блока, куда добавлять
+}
+
+export interface WikiCategory {
+    id: string;
+    name: string;
+    icon: string;
+    description: string;
+}
+
+export interface WikiArticle {
+    id: string;
+    categoryId: string;
+    title: string;
+    content: string;
+    tags: string[];
 }
 
 export interface GenerationParams {

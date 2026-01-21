@@ -5,8 +5,6 @@ import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, f
 import { checkNormAnomalies, computeNormExpectations } from './constructionNorms';
 import { getLearningHints, isCacheKeyBad } from './aiLearning';
 import { buildSp31_105_2002SystemMessage, containsSp31Reference } from './sp31_105_2002';
-import { aiPriceSearch } from './aiPriceSearch';
-import { addMaterial, updateMaterial } from './database';
 
 export interface AIEstimateRequest {
   area: number;
@@ -21,8 +19,7 @@ export interface AIEstimateRequest {
   materials: Material[];
   works: Work[];
 
-  // Если true — для материалов с price=0 или отсутствующих в каталоге
-  // будет выполнен AI-ассистированный поиск цены через searchPrice.
+  // Если true — поиск цены через AI отключён (оставлено для обратной совместимости).
   enableAiPriceSearch?: boolean;
 }
 
@@ -957,16 +954,6 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
   return { items: priced, warnings };
 };
 
-const upsertMaterialInDb = async (material: Material): Promise<void> => {
-  try {
-    // updateMaterial работает как upsert
-    await updateMaterial(material);
-  } catch {
-    // fallback: если update по каким-то причинам не прошёл
-    await addMaterial(material);
-  }
-};
-
 const applyAiPriceSearchForMissingMaterials = async (opts: {
   items: EstimateItem[];
   materials: Material[];
@@ -974,113 +961,6 @@ const applyAiPriceSearchForMissingMaterials = async (opts: {
 }): Promise<{ items: EstimateItem[]; warnings: string[] } > => {
   const warnings: string[] = [];
   const items = [...(opts.items || [])];
-
-  const materialByName = new Map<string, Material>();
-  for (const m of (opts.materials || [])) {
-    materialByName.set(normalizeKey(m.name), m);
-  }
-
-  const targets: Array<{ idx: number; it: EstimateItem; existing?: Material }> = [];
-  for (let i = 0; i < items.length; i++) {
-    const it = items[i];
-    if (!it) continue;
-    const subgroup = it.subgroup || classifySubgroup(it.name, it.unit);
-    if (subgroup !== EstimateSubgroup.MATERIALS) continue;
-    if ((it.price || 0) > 0) continue;
-    const existing = materialByName.get(normalizeKey(it.name));
-    if (existing?.isManualPrice) continue;
-    targets.push({ idx: i, it, existing });
-  }
-
-  if (targets.length === 0) return { items, warnings };
-
-  console.info('[AI price] starting AI-assisted price search for missing materials', {
-    count: targets.length,
-    region: opts.region,
-  });
-
-  let updatedCount = 0;
-  for (const t of targets) {
-    const name = String(t.it.name || '').trim();
-    if (!name) continue;
-
-    try {
-      const result = await aiPriceSearch({
-        materialName: name,
-        context: {
-          region: opts.region,
-          category: t.it.category,
-          unit: t.it.unit,
-          quantity: t.it.quantity,
-        },
-        preferredSource: t.existing?.searchSource,
-        minPriceHint: t.existing?.searchMinPrice,
-        maxPriceHint: t.existing?.searchMaxPrice,
-        materialId: t.existing?.id,
-        lastUpdated: t.existing?.lastUpdated,
-        fallbackPrice: t.existing?.price,
-      });
-
-      console.groupCollapsed(`[AI price] ${name} → ${result.price} ₽`);
-      for (const line of result.logs) console.info(line);
-      console.groupEnd();
-
-      const price = result.price;
-      if (!Number.isFinite(price) || price <= 0) continue;
-
-      const updatedItem: EstimateItem = {
-        ...t.it,
-        price,
-        total: (t.it.quantity || 0) * price,
-        subgroup: t.it.subgroup || EstimateSubgroup.MATERIALS,
-      };
-      items[t.idx] = updatedItem;
-      updatedCount++;
-
-      // Этап 5: обновляем справочник материалов (БД) и метаданные поиска
-      const nowIso = new Date().toISOString();
-      const upsert: Material = t.existing
-        ? {
-            ...t.existing,
-            name: t.existing.name || name,
-            price,
-            lastUpdated: nowIso,
-            category: t.existing.category || t.it.category,
-            isManualPrice: false,
-            searchSource: result.decision?.source ?? t.existing.searchSource,
-            searchMinPrice: result.decision?.minPrice ?? t.existing.searchMinPrice,
-            searchMaxPrice: result.decision?.maxPrice ?? t.existing.searchMaxPrice,
-          }
-        : {
-            id: `material-ai-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            name,
-            price,
-            lastUpdated: nowIso,
-            category: t.it.category,
-            isManualPrice: false,
-            searchSource: result.decision?.source,
-            searchMinPrice: result.decision?.minPrice,
-            searchMaxPrice: result.decision?.maxPrice,
-          };
-
-      await upsertMaterialInDb(upsert);
-      // пробуем уведомить App, чтобы обновился state без перезагрузки
-      try {
-        if (typeof window !== 'undefined' && typeof (window as any).dispatchEvent === 'function') {
-          (window as any).dispatchEvent(new CustomEvent('kmobn:materials-upsert', { detail: [upsert] }));
-        }
-      } catch {
-        // ignore
-      }
-    } catch (e) {
-      console.warn('[AI price] failed for material', { name, error: e });
-    }
-  }
-
-  if (updatedCount > 0) {
-    warnings.push(`AI-цены: обновлены цены для материалов: ${updatedCount} шт. (подробности см. в консоли).`);
-  }
-
   return { items, warnings };
 };
 

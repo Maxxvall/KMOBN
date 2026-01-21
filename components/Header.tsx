@@ -112,6 +112,14 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                             >
                                 Аналитика
                             </button>
+                            <button
+                                onClick={() => onViewChange(View.WIKI)}
+                                className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
+                                    currentView === View.WIKI ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
+                                }`}
+                            >
+                                Wiki
+                            </button>
                         </nav>
                         <div className="flex items-center gap-2">
                             {userName && (

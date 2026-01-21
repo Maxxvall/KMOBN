@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Material, EstimateCategory, MaterialSearchSource } from '../types';
+import { Material, EstimateCategory } from '../types';
 
 interface PricesProps {
     materials: Material[];
@@ -7,57 +7,26 @@ interface PricesProps {
         name: string,
         category: EstimateCategory,
         price?: number,
-        isManualPrice?: boolean,
-        searchSource?: MaterialSearchSource,
-        searchMinPrice?: number,
-        searchMaxPrice?: number
+        link?: string
     ) => void;
-    onUpdatePrice: (materialId: string, opts?: { useAi?: boolean; onLogs?: (lines: string[]) => void }) => Promise<void> | void;
-    onUpdateAllPrices: (opts?: { useAi?: boolean; onLogs?: (lines: string[]) => void }) => Promise<void> | void;
     onDeleteMaterial: (materialId: string) => void;
     onEditMaterialPrice: (materialId: string, newPrice: number) => void;
-
-    apiDailyLimit: number;
-    apiUsageCount: number;
-    apiQuotaLeft: number;
-    isUpdatingAllPrices: boolean;
-    updateAllPricesProgress: { done: number; total: number } | null;
+    onEditMaterialLink: (materialId: string, link?: string) => void;
 }
-
-const MATERIAL_SOURCES: Array<{ value: MaterialSearchSource; label: string }> = [
-    { value: 'JUKOV_LES', label: 'Жуков лес' },
-    { value: 'PETROVICH', label: 'Петрович' },
-    { value: 'LEMANO_PRO', label: 'ЛеманоПро' },
-    { value: 'VSEINSTRUMENTI', label: 'Все инструменты' },
-    { value: 'GRANDLINE', label: 'Грандлайн' },
-];
 
 const Prices: React.FC<PricesProps> = ({
     materials,
     onAddMaterial,
-    onUpdatePrice,
-    onUpdateAllPrices,
     onDeleteMaterial,
     onEditMaterialPrice,
-    apiDailyLimit,
-    apiUsageCount,
-    apiQuotaLeft,
-    isUpdatingAllPrices,
-    updateAllPricesProgress,
+    onEditMaterialLink,
 }) => {
     const [newMaterialName, setNewMaterialName] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [newMaterialPrice, setNewMaterialPrice] = useState('');
-    const [isManualPrice, setIsManualPrice] = useState(false);
-    const [newMaterialSource, setNewMaterialSource] = useState<MaterialSearchSource | 'any'>('any');
-    const [newMaterialMinPrice, setNewMaterialMinPrice] = useState('');
-    const [newMaterialMaxPrice, setNewMaterialMaxPrice] = useState('');
+    const [newMaterialLink, setNewMaterialLink] = useState('');
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
     const [editingPrice, setEditingPrice] = useState<{ id: string; price: string } | null>(null);
-
-    const [useAiForUpdates, setUseAiForUpdates] = useState(false);
-    const [aiLogs, setAiLogs] = useState<string[]>([]);
-    const [aiLogsOpen, setAiLogsOpen] = useState(true);
 
     const filteredMaterials = useMemo(() => {
         return filterCategory === 'all' ? materials : materials.filter(m => m.category === filterCategory);
@@ -83,43 +52,19 @@ const Prices: React.FC<PricesProps> = ({
 
     const handleAdd = () => {
         if (newMaterialName.trim()) {
-            const price = isManualPrice && newMaterialPrice ? parseFloat(newMaterialPrice) : undefined;
-            const minPrice = !isManualPrice && newMaterialMinPrice ? Number(newMaterialMinPrice) : undefined;
-            const maxPrice = !isManualPrice && newMaterialMaxPrice ? Number(newMaterialMaxPrice) : undefined;
-            const source = !isManualPrice && newMaterialSource !== 'any' ? newMaterialSource : undefined;
+            const price = newMaterialPrice ? parseFloat(newMaterialPrice) : undefined;
+            const link = newMaterialLink.trim() || undefined;
 
             onAddMaterial(
                 newMaterialName.trim(),
                 selectedCategory,
-                price,
-                isManualPrice,
-                source,
-                !isNaN(Number(minPrice)) ? minPrice : undefined,
-                !isNaN(Number(maxPrice)) ? maxPrice : undefined
+                !isNaN(Number(price)) ? price : undefined,
+                link
             );
             setNewMaterialName('');
             setNewMaterialPrice('');
-            setIsManualPrice(false);
-            setNewMaterialSource('any');
-            setNewMaterialMinPrice('');
-            setNewMaterialMaxPrice('');
+            setNewMaterialLink('');
         }
-    };
-
-    const runUpdatePrice = async (materialId: string) => {
-        setAiLogs([]);
-        await onUpdatePrice(materialId, {
-            useAi: useAiForUpdates,
-            onLogs: (lines) => setAiLogs(Array.isArray(lines) ? lines : []),
-        });
-    };
-
-    const runUpdateAllPrices = async () => {
-        setAiLogs([]);
-        await onUpdateAllPrices({
-            useAi: useAiForUpdates,
-            onLogs: (lines) => setAiLogs(Array.isArray(lines) ? lines : []),
-        });
     };
 
     return (
@@ -145,112 +90,29 @@ const Prices: React.FC<PricesProps> = ({
                         <option key={category} value={category}>{category}</option>
                     ))}
                 </select>
-                <div className="flex items-center gap-2">
-                    <label className="flex items-center gap-2 text-text-primary">
-                        <input
-                            type="checkbox"
-                            checked={isManualPrice}
-                            onChange={(e) => setIsManualPrice(e.target.checked)}
-                        />
-                        Ручная цена
-                    </label>
-                    {isManualPrice && (
-                        <input
-                            type="number"
-                            placeholder="Цена (₽)"
-                            className="w-24 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                            value={newMaterialPrice}
-                            onChange={(e) => setNewMaterialPrice(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
-                        />
-                    )}
-                </div>
-
-                {!isManualPrice && (
-                    <>
-                        <select
-                            className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                            value={newMaterialSource}
-                            onChange={(e) => setNewMaterialSource(e.target.value as MaterialSearchSource | 'any')}
-                        >
-                            <option value="any">Любой сайт</option>
-                            {MATERIAL_SOURCES.map(s => (
-                                <option key={s.value} value={s.value}>{s.label}</option>
-                            ))}
-                        </select>
-                        <input
-                            type="number"
-                            placeholder="Мин (₽)"
-                            className="w-24 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                            value={newMaterialMinPrice}
-                            onChange={(e) => setNewMaterialMinPrice(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
-                        />
-                        <input
-                            type="number"
-                            placeholder="Макс (₽)"
-                            className="w-24 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                            value={newMaterialMaxPrice}
-                            onChange={(e) => setNewMaterialMaxPrice(e.target.value)}
-                            onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
-                        />
-                    </>
-                )}
+                <input
+                    type="number"
+                    placeholder="Цена (₽)"
+                    className="w-28 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    value={newMaterialPrice}
+                    onChange={(e) => setNewMaterialPrice(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                />
+                <input
+                    type="url"
+                    placeholder="Ссылка (опционально)"
+                    className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    value={newMaterialLink}
+                    onChange={(e) => setNewMaterialLink(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                />
                 <button
                     onClick={handleAdd}
                     className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
                 >
                     Добавить
                 </button>
-                <button
-                    onClick={runUpdateAllPrices}
-                    disabled={isUpdatingAllPrices}
-                    className="bg-green-600 hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
-                >
-                    {isUpdatingAllPrices
-                        ? `Обновление... (${updateAllPricesProgress?.done ?? 0}/${updateAllPricesProgress?.total ?? 0})`
-                        : 'Обновить все цены'}
-                </button>
             </div>
-
-            <div className="flex items-center justify-between mb-6">
-                <div className="text-sm text-text-secondary">
-                    Квота Google API: <span className="text-text-primary font-semibold">{apiUsageCount}/{apiDailyLimit}</span>
-                    {' '}• Осталось сегодня: <span className="text-text-primary font-semibold">{apiQuotaLeft}</span>
-                </div>
-                {isUpdatingAllPrices && (
-                    <div className="text-sm text-text-secondary">
-                        Идёт обновление цен, подождите...
-                    </div>
-                )}
-            </div>
-
-            <div className="flex items-center justify-between mb-4">
-                <label className="flex items-center gap-2 text-text-primary">
-                    <input
-                        type="checkbox"
-                        checked={useAiForUpdates}
-                        onChange={(e) => setUseAiForUpdates(e.target.checked)}
-                    />
-                    Обновлять цены через AI (точнее запрос)
-                </label>
-                {aiLogs.length > 0 && (
-                    <button
-                        type="button"
-                        onClick={() => setAiLogsOpen(v => !v)}
-                        className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-1 px-3 rounded transition-colors"
-                    >
-                        {aiLogsOpen ? 'Скрыть логи' : 'Показать логи'}
-                    </button>
-                )}
-            </div>
-
-            {aiLogs.length > 0 && aiLogsOpen && (
-                <div className="p-3 border border-border rounded-md bg-background/30 mb-6">
-                    <div className="font-semibold text-text-primary mb-2">Логи AI (последнее обновление)</div>
-                    <pre className="text-xs text-text-secondary whitespace-pre-wrap">{aiLogs.join('\n')}</pre>
-                </div>
-            )}
 
             {/* Фильтр по категориям */}
             <div className="flex gap-4 mb-6">
@@ -274,27 +136,47 @@ const Prices: React.FC<PricesProps> = ({
                             <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Категория</th>
                             <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Наименование</th>
                             <th className="text-right py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Цена (₽)</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Последнее обновление</th>
+                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Ссылка</th>
+                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Дата добавления</th>
                             <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Действия</th>
                         </tr>
                     </thead>
                     <tbody className="text-text-primary">
                         {filteredMaterials.map(material => (
                             (() => {
-                                const lastMs = Date.parse(material.lastUpdated);
-                                const daysOld = Number.isFinite(lastMs) ? (Date.now() - lastMs) / (1000 * 60 * 60 * 24) : Infinity;
-                                const isStale3d = !material.isManualPrice && daysOld > 3;
                                 const lastUpdatedLabel = new Date(material.lastUpdated).toLocaleDateString('ru-RU');
                                 return (
                             <tr key={material.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
                                 <td className="text-left py-3 px-4">{material.category}</td>
                                 <td className="text-left py-3 px-4">{material.name}</td>
                                 <td className="text-right py-3 px-4">{material.price.toLocaleString('ru-RU')} ₽</td>
+                                <td className="text-left py-3 px-4">
+                                    <input
+                                        key={`${material.id}-${material.link ?? ''}`}
+                                        type="url"
+                                        placeholder="https://"
+                                        defaultValue={material.link ?? ''}
+                                        onBlur={(e) => onEditMaterialLink(material.id, e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                                (e.currentTarget as HTMLInputElement).blur();
+                                            }
+                                        }}
+                                        className="w-full p-1 bg-background border border-border rounded text-text-primary"
+                                    />
+                                    {material.link && (
+                                        <a
+                                            href={material.link}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="text-xs text-primary hover:underline inline-block mt-1"
+                                        >
+                                            Открыть ссылку
+                                        </a>
+                                    )}
+                                </td>
                                 <td className="text-center py-3 px-4">
                                     <div>{lastUpdatedLabel}</div>
-                                    {isStale3d && (
-                                        <div className="text-xs text-primary font-semibold mt-1">Цена старше 3 дней</div>
-                                    )}
                                 </td>
                                 <td className="text-center py-3 px-4">
                                     {editingPrice && editingPrice.id === material.id ? (
@@ -321,25 +203,14 @@ const Prices: React.FC<PricesProps> = ({
                                         </div>
                                     ) : (
                                         <div className="flex item-center justify-center gap-3">
-                                            {material.isManualPrice ? (
-                                                <button
-                                                    onClick={() => handleEditPrice(material.id, material.price)}
-                                                    className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
-                                                >
-                                                    Изменить
-                                                </button>
-                                            ) : (
-                                                <button
-                                                    onClick={() => runUpdatePrice(material.id)}
-                                                    disabled={isUpdatingAllPrices}
-                                                    className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
-                                                >
-                                                    Обновить
-                                                </button>
-                                            )}
+                                            <button
+                                                onClick={() => handleEditPrice(material.id, material.price)}
+                                                className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
+                                            >
+                                                Изменить
+                                            </button>
                                             <button
                                                 onClick={() => onDeleteMaterial(material.id)}
-                                                disabled={isUpdatingAllPrices}
                                                 className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
                                             >
                                                 Удалить
@@ -353,7 +224,7 @@ const Prices: React.FC<PricesProps> = ({
                         ))}
                         {filteredMaterials.length === 0 && (
                             <tr>
-                                <td colSpan={5} className="text-center py-8 text-text-secondary">
+                                <td colSpan={6} className="text-center py-8 text-text-secondary">
                                     Нет материалов. Добавьте первый материал выше.
                                 </td>
                             </tr>

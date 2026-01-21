@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
-import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, MaterialSearchSource } from './types';
+import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import EstimateHistory from './components/EstimateHistory';
@@ -15,16 +15,16 @@ import Analytics from './components/Analytics';
 import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
 import LandingPage from './components/LandingPage.tsx';
+import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate } from './services/estimateValidation';
-import { searchPrice } from './services/priceService';
-import { aiPriceSearch } from './services/aiPriceSearch';
-import { DEFAULT_API_DAILY_LIMIT, getApiUsageToday, getAvailableQuota, getPriceCacheKey, setCurrentUserId, shouldUpdatePrice } from './services/priceCache';
 import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
+
+const Wiki = lazy(() => import('./components/Wiki'));
 
 
 type SaveMode = 'overwrite' | 'new';
@@ -129,6 +129,8 @@ const App: React.FC = () => {
         works: false,
         bundles: false,
     });
+    const [wikiLoaded, setWikiLoaded] = useState(false);
+    const [dataHashes, setDataHashes] = useState<Record<string, string>>({});
     const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
     const [showPasswordRecoveryModal, setShowPasswordRecoveryModal] = useState(false);
     const [showLoginModal, setShowLoginModal] = useState(false);
@@ -145,10 +147,6 @@ const App: React.FC = () => {
     const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [pendingView, setPendingView] = useState<View | null>(null);
 
-    const [isUpdatingAllPrices, setIsUpdatingAllPrices] = useState(false);
-    const [updateAllPricesProgress, setUpdateAllPricesProgress] = useState<{ done: number; total: number } | null>(null);
-    const [apiUsageRefreshTick, setApiUsageRefreshTick] = useState(0);
-
     const [isSaving, setIsSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<Date | null>(null);
     const [saveError, setSaveError] = useState<string | null>(null);
@@ -157,6 +155,20 @@ const App: React.FC = () => {
     const saveInFlightRef = useRef(false);
     const saveQueuedRef = useRef(false);
     const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const hashData = useCallback((data: unknown): string => {
+        try {
+            return JSON.stringify(data ?? null).length.toString();
+        } catch {
+            return '0';
+        }
+    }, []);
+
+    const needsReload = useCallback((key: string, data: unknown): boolean => {
+        const currentHash = hashData(data);
+        const savedHash = dataHashes[key];
+        return savedHash !== currentHash;
+    }, [dataHashes, hashData]);
 
     const handleLogin = useCallback(async (_username: string, _password: string) => {
         if (!useSupabaseAuth) {
@@ -251,7 +263,6 @@ const App: React.FC = () => {
             console.error('Supabase signOut error:', error);
         }
         setSupabaseUser(null);
-        setCurrentUserId(null);
         setRecoveryRequired(false);
         try {
             localStorage.removeItem(RECOVERY_STORAGE_KEY);
@@ -304,7 +315,6 @@ const App: React.FC = () => {
             }
             if (!isMounted) return;
             setSupabaseUser(data.session?.user ?? null);
-            setCurrentUserId(data.session?.user?.id ?? null);
             if (!data.session?.user) {
                 clearRecoveryRequired();
             }
@@ -319,7 +329,6 @@ const App: React.FC = () => {
 
         const { data } = supabase.auth.onAuthStateChange((event, session) => {
             setSupabaseUser(session?.user ?? null);
-            setCurrentUserId(session?.user?.id ?? null);
             if (!session?.user) {
                 clearRecoveryRequired();
             }
@@ -349,21 +358,6 @@ const App: React.FC = () => {
             setShowPasswordRecoveryModal(true);
         }
     }, [recoveryIntent]);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        try {
-            const cleared = localStorage.getItem('kmobn:cache_cleared_v2');
-            if (cleared) return;
-            Object.keys(localStorage).forEach(key => {
-                if (key.startsWith('price_cache_') || key.startsWith('price_api_usage_')) {
-                    localStorage.removeItem(key);
-                }
-            });
-            localStorage.setItem('kmobn:cache_cleared_v2', 'true');
-        } catch {
-        }
-    }, []);
 
     const handleUpdatePassword = useCallback(async () => {
         if (!supabase) return;
@@ -417,6 +411,11 @@ const App: React.FC = () => {
             }
             setTemplates(loadedTemplates || []);
             setLoadedFlags(prev => ({ ...prev, estimates: true, templates: true }));
+            setDataHashes(prev => ({
+                ...prev,
+                estimates: hashData(loadedEstimates),
+                templates: hashData(loadedTemplates || []),
+            }));
             if (showToast) {
                 setSync({ visible: true, message: 'Данные загружены', type: 'success' });
                 setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
@@ -432,7 +431,7 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [estimates, loadedFlags.estimates, loadedFlags.templates, templates]);
+    }, [estimates, hashData, loadedFlags.estimates, loadedFlags.templates, templates]);
 
     const loadMaterialsData = useCallback(async () => {
         if (loadedFlags.materials) return;
@@ -440,11 +439,12 @@ const App: React.FC = () => {
             const loaded = await loadMaterials();
             setMaterials(loaded || []);
             setLoadedFlags(prev => ({ ...prev, materials: true }));
+            setDataHashes(prev => ({ ...prev, materials: hashData(loaded || []) }));
         } catch (error) {
             console.error('Failed to load materials:', error);
             setMaterials([]);
         }
-    }, [loadedFlags.materials]);
+    }, [hashData, loadedFlags.materials]);
 
     const loadWorksData = useCallback(async () => {
         if (loadedFlags.works) return;
@@ -452,11 +452,12 @@ const App: React.FC = () => {
             const loaded = await loadWorks();
             setWorks(loaded || []);
             setLoadedFlags(prev => ({ ...prev, works: true }));
+            setDataHashes(prev => ({ ...prev, works: hashData(loaded || []) }));
         } catch (error) {
             console.error('Failed to load works:', error);
             setWorks([]);
         }
-    }, [loadedFlags.works]);
+    }, [hashData, loadedFlags.works]);
 
     const loadBundlesData = useCallback(async () => {
         if (loadedFlags.bundles) return;
@@ -464,33 +465,93 @@ const App: React.FC = () => {
             const loaded = await loadBundles();
             setBundles(loaded || []);
             setLoadedFlags(prev => ({ ...prev, bundles: true }));
+            setDataHashes(prev => ({ ...prev, bundles: hashData(loaded || []) }));
         } catch (error) {
             console.error('Failed to load bundles:', error);
             setBundles([]);
         }
-    }, [loadedFlags.bundles]);
+    }, [hashData, loadedFlags.bundles]);
+
+    useEffect(() => {
+        if (loadedFlags.estimates) {
+            setDataHashes(prev => ({ ...prev, estimates: hashData(estimates) }));
+        }
+    }, [estimates, hashData, loadedFlags.estimates]);
+
+    useEffect(() => {
+        if (loadedFlags.templates) {
+            setDataHashes(prev => ({ ...prev, templates: hashData(templates) }));
+        }
+    }, [hashData, loadedFlags.templates, templates]);
+
+    useEffect(() => {
+        if (loadedFlags.materials) {
+            setDataHashes(prev => ({ ...prev, materials: hashData(materials) }));
+        }
+    }, [hashData, loadedFlags.materials, materials]);
+
+    useEffect(() => {
+        if (loadedFlags.works) {
+            setDataHashes(prev => ({ ...prev, works: hashData(works) }));
+        }
+    }, [hashData, loadedFlags.works, works]);
+
+    useEffect(() => {
+        if (loadedFlags.bundles) {
+            setDataHashes(prev => ({ ...prev, bundles: hashData(bundles) }));
+        }
+    }, [bundles, hashData, loadedFlags.bundles]);
 
     useEffect(() => {
         if (!isAuthenticated) return;
+        const historyChanged = needsReload('estimates', estimates) || needsReload('templates', templates);
+        const materialsChanged = needsReload('materials', materials);
+        const worksChanged = needsReload('works', works);
+        const bundlesChanged = needsReload('bundles', bundles);
         if (view === View.HISTORY) {
-            void loadHistoryData(true);
+            if (!loadedFlags.estimates || !loadedFlags.templates || historyChanged) {
+                void loadHistoryData(true);
+            }
         }
         if (view === View.ANALYTICS || view === View.SALARY_CALCULATOR) {
-            void loadHistoryData(false);
+            if (!loadedFlags.estimates || !loadedFlags.templates || historyChanged) {
+                void loadHistoryData(false);
+            }
         }
         if (view === View.PRICES) {
-            void loadMaterialsData();
+            if (!loadedFlags.materials || materialsChanged) {
+                void loadMaterialsData();
+            }
         }
         if (view === View.WORKS) {
-            void loadWorksData();
+            if (!loadedFlags.works || worksChanged) {
+                void loadWorksData();
+            }
         }
         if (view === View.BUNDLES) {
-            void Promise.all([loadMaterialsData(), loadWorksData(), loadBundlesData()]);
+            if (!loadedFlags.materials || !loadedFlags.works || !loadedFlags.bundles || materialsChanged || worksChanged || bundlesChanged) {
+                void Promise.all([loadMaterialsData(), loadWorksData(), loadBundlesData()]);
+            }
         }
         if (view === View.EDITOR) {
-            void Promise.all([loadHistoryData(false), loadMaterialsData(), loadWorksData(), loadBundlesData()]);
+            if (
+                !loadedFlags.estimates ||
+                !loadedFlags.templates ||
+                !loadedFlags.materials ||
+                !loadedFlags.works ||
+                !loadedFlags.bundles ||
+                historyChanged ||
+                materialsChanged ||
+                worksChanged ||
+                bundlesChanged
+            ) {
+                void Promise.all([loadHistoryData(false), loadMaterialsData(), loadWorksData(), loadBundlesData()]);
+            }
         }
-    }, [isAuthenticated, loadBundlesData, loadHistoryData, loadMaterialsData, loadWorksData, view]);
+        if (view === View.WIKI && !wikiLoaded) {
+            setWikiLoaded(true);
+        }
+    }, [bundles, estimates, isAuthenticated, loadBundlesData, loadHistoryData, loadMaterialsData, loadWorksData, loadedFlags.bundles, loadedFlags.estimates, loadedFlags.materials, loadedFlags.templates, loadedFlags.works, materials, needsReload, templates, view, wikiLoaded, works]);
 
     const saveAllToDatabase = useCallback(async () => {
         if (isLoading) return;
@@ -537,16 +598,6 @@ const App: React.FC = () => {
     }, [bundles, estimates, isLoading, loadedFlags.bundles, loadedFlags.estimates, loadedFlags.materials, loadedFlags.works, materials, works]);
 
     const debouncedSaveAll = useDebouncedSave(saveAllToDatabase, 2000);
-
-    const withAutosaveSuppressed = useCallback(async <T,>(fn: () => Promise<T>): Promise<T> => {
-        autosaveSuppressedRef.current = true;
-        try {
-            return await fn();
-        } finally {
-            autosaveSuppressedRef.current = false;
-            debouncedSaveAll();
-        }
-    }, [debouncedSaveAll]);
 
     useEffect(() => {
         if (isLoading) return;
@@ -954,10 +1005,7 @@ const App: React.FC = () => {
         name: string,
         category: EstimateCategory,
         price?: number,
-        isManualPrice?: boolean,
-        searchSource?: MaterialSearchSource,
-        searchMinPrice?: number,
-        searchMaxPrice?: number
+        link?: string
     ) => {
         const newMaterial: Material = {
             id: `material-${Date.now()}`,
@@ -965,10 +1013,8 @@ const App: React.FC = () => {
             price: price || 0,
             lastUpdated: new Date().toISOString(),
             category,
-            isManualPrice: isManualPrice || false,
-            searchSource,
-            searchMinPrice,
-            searchMaxPrice,
+            isManualPrice: true,
+            link,
         };
         try {
             await addMaterial(newMaterial);
@@ -979,152 +1025,11 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const handleUpdatePrice = useCallback(async (
-        materialId: string,
-        opts?: { useAi?: boolean; onLogs?: (lines: string[]) => void }
-    ) => {
-        const material = materials.find(m => m.id === materialId);
-        if (!material || material.isManualPrice) return;
-
-        const cacheKey = getPriceCacheKey({
-            materialId: material.id,
-            materialName: material.name,
-            source: material.searchSource,
-            minPrice: material.searchMinPrice,
-            maxPrice: material.searchMaxPrice,
-        });
-
-        // Не обновляем, если цена свежая (<24ч) или квота исчерпана
-        if (!shouldUpdatePrice({ lastUpdated: material.lastUpdated, cacheKey, limit: DEFAULT_API_DAILY_LIMIT })) {
-            return;
-        }
-
-        try {
-            const useAi = Boolean(opts?.useAi);
-            let newPrice = material.price;
-            let nextSearchSource = material.searchSource;
-            let nextMin = material.searchMinPrice;
-            let nextMax = material.searchMaxPrice;
-
-            if (useAi) {
-                const res = await aiPriceSearch({
-                    materialName: material.name,
-                    context: { category: material.category },
-                    preferredSource: material.searchSource,
-                    minPriceHint: material.searchMinPrice,
-                    maxPriceHint: material.searchMaxPrice,
-                    materialId: material.id,
-                    lastUpdated: material.lastUpdated,
-                    apiDailyLimit: DEFAULT_API_DAILY_LIMIT,
-                    fallbackPrice: material.price,
-                });
-                newPrice = res.price;
-                nextSearchSource = res.decision?.source ?? nextSearchSource;
-                nextMin = res.decision?.minPrice ?? nextMin;
-                nextMax = res.decision?.maxPrice ?? nextMax;
-                opts?.onLogs?.(res.logs);
-            } else {
-                newPrice = await searchPrice(material.name, {
-                    source: material.searchSource,
-                    minPrice: material.searchMinPrice,
-                    maxPrice: material.searchMaxPrice,
-                    materialId: material.id,
-                    lastUpdated: material.lastUpdated,
-                    apiDailyLimit: DEFAULT_API_DAILY_LIMIT,
-                    fallbackPrice: material.price,
-                });
-                opts?.onLogs?.([
-                    'AI выключен: использован обычный поиск.',
-                    `Итог: выбрана цена ${newPrice.toLocaleString('ru-RU')} ₽`,
-                ]);
-            }
-
-            const updatedMaterial = {
-                ...material,
-                price: newPrice,
-                lastUpdated: new Date().toISOString(),
-                isManualPrice: false,
-                searchSource: nextSearchSource,
-                searchMinPrice: nextMin,
-                searchMaxPrice: nextMax,
-            };
-            await updateMaterial(updatedMaterial);
-            setMaterials(prev => prev.map(m => m.id === materialId ? updatedMaterial : m));
-            // Update prices in draft estimates
-            updateDraftEstimatesWithNewMaterialPrice(material.name, newPrice);
-            setApiUsageRefreshTick(t => t + 1);
-        } catch (error) {
-            console.error('Failed to update price:', error);
-            setApiUsageRefreshTick(t => t + 1);
-        }
-    }, [materials]);
-
-    const handleUpdateAllPrices = useCallback(async (opts?: { useAi?: boolean; onLogs?: (lines: string[]) => void }) => {
-        if (isUpdatingAllPrices) return;
-
-        await withAutosaveSuppressed(async () => {
-            setIsUpdatingAllPrices(true);
-            try {
-                // 1) Фильтруем материалы, которые нужно обновить
-                let materialsToUpdate = materials
-                    .filter(m => !m.isManualPrice)
-                    .filter(m => {
-                        const last = Date.parse(m.lastUpdated);
-                        if (!Number.isFinite(last)) return true;
-                        const daysSinceUpdate = (Date.now() - last) / (1000 * 60 * 60 * 24);
-                        return daysSinceUpdate > 1;
-                    })
-                    // Сначала самые старые
-                    .sort((a, b) => {
-                        const aT = Date.parse(a.lastUpdated);
-                        const bT = Date.parse(b.lastUpdated);
-                        return (Number.isFinite(aT) ? aT : 0) - (Number.isFinite(bT) ? bT : 0);
-                    });
-
-                // 2) Проверяем лимит API
-                const availableQuota = getAvailableQuota(DEFAULT_API_DAILY_LIMIT);
-                if (availableQuota < materialsToUpdate.length) {
-                    alert(
-                        `Недостаточно квоты API. Доступно: ${availableQuota} из ${DEFAULT_API_DAILY_LIMIT}. ` +
-                        `Нужно обновить: ${materialsToUpdate.length}. Обновлю только самые старые цены.`
-                    );
-                    materialsToUpdate = materialsToUpdate.slice(0, availableQuota);
-                }
-
-                setUpdateAllPricesProgress({ done: 0, total: materialsToUpdate.length });
-                if (materialsToUpdate.length === 0) {
-                    setApiUsageRefreshTick(t => t + 1);
-                    return;
-                }
-
-                // 3) Батчинг
-                const BATCH_SIZE = 5;
-                const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-                let done = 0;
-                for (let i = 0; i < materialsToUpdate.length; i += BATCH_SIZE) {
-                    const batch = materialsToUpdate.slice(i, i + BATCH_SIZE);
-                    await Promise.allSettled(batch.map(m => handleUpdatePrice(m.id, { useAi: opts?.useAi })));
-                    done += batch.length;
-                    setUpdateAllPricesProgress({ done, total: materialsToUpdate.length });
-                    setApiUsageRefreshTick(t => t + 1);
-
-                    if (i + BATCH_SIZE < materialsToUpdate.length) {
-                        await sleep(2000);
-                    }
-                }
-            } finally {
-                setIsUpdatingAllPrices(false);
-                setUpdateAllPricesProgress(null);
-            }
-        });
-    }, [handleUpdatePrice, isUpdatingAllPrices, materials, withAutosaveSuppressed]);
-
     const handleEditMaterialPrice = useCallback(async (materialId: string, newPrice: number) => {
         const material = materials.find(m => m.id === materialId);
         if (!material) return;
 
-        const updatedMaterial = { ...material, price: newPrice, lastUpdated: new Date().toISOString(), isManualPrice: true };
+        const updatedMaterial = { ...material, price: newPrice, isManualPrice: true };
         try {
             await updateMaterial(updatedMaterial);
             setMaterials(prev => prev.map(m => m.id === materialId ? updatedMaterial : m));
@@ -1133,6 +1038,21 @@ const App: React.FC = () => {
         } catch (error) {
             console.error('Failed to update material price:', error);
             alert('Не удалось обновить цену материала.');
+        }
+    }, [materials]);
+
+    const handleEditMaterialLink = useCallback(async (materialId: string, link?: string) => {
+        const material = materials.find(m => m.id === materialId);
+        if (!material) return;
+
+        const nextLink = link ? link.trim() : '';
+        const updatedMaterial = { ...material, link: nextLink || undefined };
+        try {
+            await updateMaterial(updatedMaterial);
+            setMaterials(prev => prev.map(m => m.id === materialId ? updatedMaterial : m));
+        } catch (error) {
+            console.error('Failed to update material link:', error);
+            alert('Не удалось обновить ссылку материала.');
         }
     }, [materials]);
 
@@ -1217,14 +1137,6 @@ const App: React.FC = () => {
             }
         }
     }, []);
-
-    // Snapshot для UI (квота API). apiUsageRefreshTick нужен, чтобы гарантированно триггерить перерендер
-    // даже если обновление цены завершилось ошибкой и не поменяло materials.
-    void apiUsageRefreshTick;
-    const apiUsageToday = getApiUsageToday();
-    const apiUsageCount = apiUsageToday.count;
-    const apiQuotaLeft = getAvailableQuota(DEFAULT_API_DAILY_LIMIT);
-
 
     const passwordRecoveryModal = showPasswordRecoveryModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -1349,15 +1261,9 @@ const App: React.FC = () => {
                             <Prices
                                 materials={materials}
                                 onAddMaterial={handleAddMaterial}
-                                onUpdatePrice={handleUpdatePrice}
-                                onUpdateAllPrices={handleUpdateAllPrices}
                                 onDeleteMaterial={handleDeleteMaterial}
                                 onEditMaterialPrice={handleEditMaterialPrice}
-                                apiDailyLimit={DEFAULT_API_DAILY_LIMIT}
-                                apiUsageCount={apiUsageCount}
-                                apiQuotaLeft={apiQuotaLeft}
-                                isUpdatingAllPrices={isUpdatingAllPrices}
-                                updateAllPricesProgress={updateAllPricesProgress}
+                                onEditMaterialLink={handleEditMaterialLink}
                             />
                         )}
                         {view === View.WORKS && (
@@ -1388,6 +1294,11 @@ const App: React.FC = () => {
                                 estimates={estimates}
                                 isLoading={isLoading}
                             />
+                        )}
+                        {view === View.WIKI && (
+                            <Suspense fallback={<WikiSkeleton />}>
+                                <Wiki />
+                            </Suspense>
                         )}
                     </>
                 )}
