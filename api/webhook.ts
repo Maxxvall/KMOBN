@@ -20,6 +20,8 @@ type NowPaymentsPayload = {
     status?: string;
     order_id?: string;
     payment_id?: string;
+    invoice_id?: string;
+    purchase_id?: string;
     price_amount?: number;
     price_currency?: string;
     pay_currency?: string;
@@ -135,7 +137,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const paymentId = payload.payment_id || null;
+    const paymentId = payload.payment_id || payload.invoice_id || payload.purchase_id || null;
     const amount = typeof payload.price_amount === 'number'
         ? payload.price_amount
         : typeof payload.actually_paid === 'number'
@@ -158,7 +160,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         }, { onConflict: 'payment_id' });
     }
 
-    if (status !== 'finished') {
+    const successStatuses = new Set(['finished', 'paid', 'confirmed']);
+    if (!successStatuses.has(status)) {
         res.status(200).json({ ok: true, status });
         return;
     }
