@@ -65,6 +65,37 @@ export const normalizeSubscriptionUsage = (subscription: UserSubscription, now =
     return { subscription: next, updates };
 };
 
+const createDefaultSubscription = async (userId: string): Promise<UserSubscription | null> => {
+    if (!supabase) return null;
+    const nowIso = new Date().toISOString();
+    const todayKey = formatDateKey(new Date());
+    const payload = {
+        user_id: userId,
+        subscription_tier: 'free' as SubscriptionTier,
+        status: 'active',
+        started_at: nowIso,
+        expires_at: null as string | null,
+        ai_requests_today: 0,
+        last_ai_request_date: todayKey,
+        estimates_deleted_this_month: 0,
+        limits_reset_date: todayKey,
+        updated_at: nowIso,
+    };
+
+    const { data, error } = await supabase
+        .from('user_subscriptions')
+        .insert(payload)
+        .select('*')
+        .single();
+
+    if (error) {
+        console.warn('Failed to create default subscription:', error);
+        return null;
+    }
+
+    return data as UserSubscription;
+};
+
 export const getUserSubscription = async (userId: string): Promise<UserSubscription | null> => {
     if (!supabase) return null;
     const { data, error } = await supabase
@@ -78,7 +109,9 @@ export const getUserSubscription = async (userId: string): Promise<UserSubscript
         return null;
     }
 
-    return data as UserSubscription;
+    if (data) return data as UserSubscription;
+
+    return createDefaultSubscription(userId);
 };
 
 export const updateUserSubscription = async (
