@@ -148,7 +148,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     const currency = payload.price_currency || payload.pay_currency || payload.outcome_currency || null;
 
     if (paymentId) {
-        await supabase.from('payment_history').upsert({
+        const historyPayload = {
             user_id: orderInfo.userId,
             payment_id: paymentId,
             order_id: payload.order_id || '',
@@ -157,7 +157,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
             status: status || 'unknown',
             subscription_tier: orderInfo.tier,
             nowpayments_data: payload,
-        }, { onConflict: 'payment_id' });
+        };
+        const { error: historyError } = await supabase
+            .from('payment_history')
+            .upsert(historyPayload, { onConflict: 'payment_id' });
+
+        if (historyError?.code === '42P10') {
+            await supabase.from('payment_history').insert(historyPayload);
+        }
     }
 
     const successStatuses = new Set(['finished', 'paid', 'confirmed']);
@@ -168,20 +175,39 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
     const expiresAt = orderInfo.tier === 'free' ? null : addDays(30);
 
-    const { error } = await supabase
+    const { data: existingSubscription, error: loadError } = await supabase
         .from('user_subscriptions')
-        .update({
-            subscription_tier: orderInfo.tier,
-            status: 'active',
-            started_at: new Date().toISOString(),
-            expires_at: expiresAt,
-            last_payment_id: paymentId,
-            last_payment_amount: amount,
-            last_payment_currency: currency,
-            last_payment_date: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-        })
-        .eq('user_id', orderInfo.userId);
+        .select('id')
+        .eq('user_id', orderInfo.userId)
+        .maybeSingle();
+
+    if (loadError) {
+        res.status(500).send('Failed to load subscription');
+        return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const subscriptionPayload = {
+        user_id: orderInfo.userId,
+        subscription_tier: orderInfo.tier,
+        status: 'active',
+        started_at: nowIso,
+        expires_at: expiresAt,
+        last_payment_id: paymentId,
+        last_payment_amount: amount,
+        last_payment_currency: currency,
+        last_payment_date: nowIso,
+        updated_at: nowIso,
+    };
+
+    const { error } = existingSubscription
+        ? await supabase
+            .from('user_subscriptions')
+            .update(subscriptionPayload)
+            .eq('user_id', orderInfo.userId)
+        : await supabase
+            .from('user_subscriptions')
+            .insert(subscriptionPayload);
 
     if (error) {
         res.status(500).send('Failed to update subscription');
