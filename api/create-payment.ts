@@ -235,13 +235,31 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
             return;
         }
 
-        const data = (await response.json()) as Record<string, unknown>;
-        const paymentUrl = typeof data.payment_url === 'string' ? data.payment_url : '';
+        let data: Record<string, unknown> | null = null;
+        try {
+            data = (await response.json()) as Record<string, unknown>;
+        } catch (err) {
+            lastErrorMessage = 'Failed to parse NowPayments JSON response';
+            lastStatus = 502;
+            continue;
+        }
+
+        const paymentUrl =
+            (typeof data.payment_url === 'string' && data.payment_url) ||
+            (typeof data.invoice_url === 'string' && data.invoice_url) ||
+            (typeof (data as any).invoiceUrl === 'string' && (data as any).invoiceUrl) ||
+            (typeof data.url === 'string' && data.url) ||
+            (typeof data.redirect_url === 'string' && data.redirect_url) ||
+            (typeof (data as any).redirectUrl === 'string' && (data as any).redirectUrl) ||
+            '';
+
         const paymentId = typeof data.payment_id === 'string' ? data.payment_id : null;
 
         if (!paymentUrl) {
-            res.status(502).send('NowPayments response missing payment_url');
-            return;
+            // keep body for diagnostics and try next currency
+            lastErrorMessage = `NowPayments response missing payment_url; body=${JSON.stringify(data)}`;
+            lastStatus = 502;
+            continue;
         }
 
         res.status(200).json({
