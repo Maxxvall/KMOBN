@@ -27,6 +27,7 @@ const PRICE_BY_TIER: Record<SubscriptionTier, number> = {
 };
 
 const DEFAULT_PRICE_CURRENCY = 'usdttrc20';
+const DEFAULT_INVOICE_PRICE_CURRENCY = 'usd';
 const DEFAULT_PAY_CURRENCIES = ['usdttrc20', 'usdt', 'btc', 'eth'];
 
 const resolveHeader = (headers: Record<string, string | string[] | undefined>, key: string): string | undefined => {
@@ -71,6 +72,11 @@ const resolvePriceCurrency = (): string => {
 const resolvePayCurrencies = (): string[] => {
     const fromEnv = parsePayCurrencies(process.env.NOWPAYMENTS_PAY_CURRENCIES);
     return fromEnv.length > 0 ? fromEnv : DEFAULT_PAY_CURRENCIES;
+};
+
+const resolveInvoicePriceCurrency = (): string => {
+    const raw = process.env.NOWPAYMENTS_INVOICE_PRICE_CURRENCY;
+    return raw ? raw.trim().toLowerCase() : DEFAULT_INVOICE_PRICE_CURRENCY;
 };
 
 const normalizeAmount = (value: number, decimals = 2): number => {
@@ -157,11 +163,102 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
     const priceCurrency = resolvePriceCurrency();
     const payCurrencies = resolvePayCurrencies();
+    const invoicePriceCurrency = resolveInvoicePriceCurrency();
 
     const apiBase = sandboxMode ? 'https://api-sandbox.nowpayments.io' : 'https://api.nowpayments.io';
     let lastErrorMessage = 'NowPayments error';
     let lastErrorCode: string | undefined;
     let lastStatus = 502;
+
+    // 1) Try invoice flow first to obtain redirect URL
+    try {
+        const invoicePayload = {
+            price_amount: price,
+            price_currency: invoicePriceCurrency,
+            pay_currency: payCurrencies[0],
+            order_id: orderId,
+            order_description: `Subscription ${payload.tier}`,
+            ipn_callback_url: `${baseUrl}/api/webhook`,
+            success_url: payload.successUrl || baseUrl,
+            cancel_url: payload.cancelUrl || baseUrl,
+            partially_paid_url: payload.successUrl || baseUrl,
+        };
+
+        const invoiceResponse = await fetch(`${apiBase}/v1/invoice`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+            },
+            body: JSON.stringify(invoicePayload),
+        });
+
+        if (invoiceResponse.ok) {
+            const invoiceData = (await invoiceResponse.json()) as Record<string, unknown>;
+            const invoiceUrl =
+                (typeof invoiceData.invoice_url === 'string' && invoiceData.invoice_url) ||
+                (typeof (invoiceData as any).invoiceUrl === 'string' && (invoiceData as any).invoiceUrl) ||
+                (typeof invoiceData.payment_url === 'string' && invoiceData.payment_url) ||
+                (typeof invoiceData.url === 'string' && invoiceData.url) ||
+                '';
+            const invoiceId = typeof invoiceData.id === 'string' ? invoiceData.id : null;
+
+            if (invoiceUrl) {
+                res.status(200).json({
+                    paymentUrl: invoiceUrl,
+                    orderId,
+                    paymentId: invoiceId,
+                });
+                return;
+            }
+
+            lastErrorMessage = `NowPayments invoice response missing invoice_url; body=${JSON.stringify(invoiceData)}`;
+            lastErrorCode = 'INTERNAL_ERROR';
+            lastStatus = 502;
+        } else {
+            const contentType = invoiceResponse.headers.get('content-type') || '';
+            let errorMessage = 'NowPayments invoice error';
+            let errorCode: string | undefined;
+
+            if (contentType.includes('application/json')) {
+                const payload = (await invoiceResponse.json()) as Record<string, unknown>;
+                if (typeof payload.message === 'string') {
+                    errorMessage = payload.message;
+                }
+                if (typeof payload.code === 'string') {
+                    errorCode = payload.code;
+                }
+            } else {
+                const text = await invoiceResponse.text();
+                if (text) {
+                    errorMessage = text;
+                }
+            }
+
+            lastErrorMessage = errorMessage;
+            lastErrorCode = errorCode;
+            lastStatus = invoiceResponse.status;
+
+            if (!(
+                errorCode === 'CURRENCY_UNAVAILABLE' ||
+                errorCode === 'AMOUNT_MINIMAL_ERROR' ||
+                errorCode === 'INTERNAL_ERROR' ||
+                /Can not get estimate/i.test(errorMessage)
+            )) {
+                res.status(invoiceResponse.status).json({
+                    error: {
+                        message: errorMessage,
+                        code: errorCode,
+                    },
+                });
+                return;
+            }
+        }
+    } catch (error) {
+        lastErrorMessage = 'Failed to call NowPayments invoice API';
+        lastErrorCode = 'INTERNAL_ERROR';
+        lastStatus = 502;
+    }
 
     for (const payCurrency of payCurrencies) {
         const minAmount = await fetchMinimumAmount(apiBase, apiKey, priceCurrency, payCurrency, price);
