@@ -1411,10 +1411,16 @@ const App: React.FC = () => {
             const errorCode = error instanceof Error ? (error as Error & { code?: string }).code : undefined;
             const isInvalidKey = errorCode === 'INVALID_API_KEY' || /invalid api key/i.test(errorMessage);
             const isMissingKey = /NOWPAYMENTS_API_KEY is missing/i.test(errorMessage);
+            const isCurrencyUnavailable = errorCode === 'CURRENCY_UNAVAILABLE' || /currency.*unavailable/i.test(errorMessage);
+            const isAmountMinimal = errorCode === 'AMOUNT_MINIMAL_ERROR' || /less than minimal|minimal/i.test(errorMessage);
             if (isInvalidKey) {
                 showToast('Платёжный ключ недействителен. Проверьте NOWPAYMENTS_API_KEY.', 'error', 6000);
             } else if (isMissingKey) {
                 showToast('Платёжный сервис не настроен: отсутствует NOWPAYMENTS_API_KEY.', 'error', 6000);
+            } else if (isCurrencyUnavailable) {
+                showToast('USDT временно недоступен. Попробуйте ещё раз чуть позже.', 'error', 6000);
+            } else if (isAmountMinimal) {
+                showToast('Сумма меньше минимальной для выбранной сети. Попробуйте ещё раз.', 'error', 6000);
             } else {
                 showToast('Не удалось создать платёж. Попробуйте позже.', 'error');
             }

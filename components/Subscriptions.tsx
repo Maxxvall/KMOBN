@@ -15,7 +15,7 @@ const PLANS: PlanCard[] = [
     {
         tier: 'free',
         title: 'Free',
-        price: '$0',
+        price: '0 USDT',
         priceNote: 'Навсегда бесплатно',
         features: [
             '1 смета (без удаления)',
@@ -28,8 +28,8 @@ const PLANS: PlanCard[] = [
     {
         tier: 'basic',
         title: 'Basic',
-        price: '$3',
-        priceNote: 'в месяц',
+        price: '3 USDT',
+        priceNote: 'в месяц (оплата в USDT)',
         features: [
             'До 5 смет',
             'Удаление смет (2 в месяц)',
@@ -43,8 +43,8 @@ const PLANS: PlanCard[] = [
     {
         tier: 'premium',
         title: 'Premium',
-        price: '$10',
-        priceNote: 'в месяц',
+        price: '10 USDT',
+        priceNote: 'в месяц (оплата в USDT)',
         features: [
             'Безлимитные сметы и материалы',
             'Удаление без ограничений',

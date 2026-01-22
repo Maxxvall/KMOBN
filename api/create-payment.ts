@@ -26,7 +26,7 @@ const PRICE_BY_TIER: Record<SubscriptionTier, number> = {
     premium: 10,
 };
 
-const DEFAULT_PRICE_CURRENCY = 'usd';
+const DEFAULT_PRICE_CURRENCY = 'usdt';
 const DEFAULT_PAY_CURRENCIES = ['usdttrc20', 'usdt', 'btc', 'eth'];
 
 const resolveHeader = (headers: Record<string, string | string[] | undefined>, key: string): string | undefined => {
@@ -71,6 +71,37 @@ const resolvePriceCurrency = (): string => {
 const resolvePayCurrencies = (): string[] => {
     const fromEnv = parsePayCurrencies(process.env.NOWPAYMENTS_PAY_CURRENCIES);
     return fromEnv.length > 0 ? fromEnv : DEFAULT_PAY_CURRENCIES;
+};
+
+const normalizeAmount = (value: number, decimals = 2): number => {
+    if (!Number.isFinite(value)) return value;
+    const factor = Math.pow(10, decimals);
+    return Math.ceil(value * factor) / factor;
+};
+
+const fetchMinimumAmount = async (
+    apiBase: string,
+    apiKey: string,
+    currencyFrom: string,
+    currencyTo: string,
+    amount: number,
+): Promise<number | null> => {
+    const url = `${apiBase}/v1/min-amount?currency_from=${encodeURIComponent(currencyFrom)}&currency_to=${encodeURIComponent(currencyTo)}&amount=${encodeURIComponent(amount)}`;
+    const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+        },
+    });
+
+    if (!response.ok) return null;
+    const payload = (await response.json()) as Record<string, unknown>;
+    const minAmount = payload.min_amount;
+    if (typeof minAmount === 'number' && Number.isFinite(minAmount) && minAmount > 0) {
+        return minAmount;
+    }
+    return null;
 };
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
@@ -124,8 +155,12 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     let lastStatus = 502;
 
     for (const payCurrency of payCurrencies) {
+        const minAmount = await fetchMinimumAmount(apiBase, apiKey, priceCurrency, payCurrency, price);
+        const adjustedAmount = minAmount && minAmount > price ? minAmount : price;
+        const priceAmount = normalizeAmount(adjustedAmount, 2);
+
         const nowPaymentsPayload = {
-            price_amount: price,
+            price_amount: priceAmount,
             price_currency: priceCurrency,
             pay_currency: payCurrency,
             order_id: orderId,
@@ -172,7 +207,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
             lastErrorCode = errorCode;
             lastStatus = response.status;
 
-            if (errorCode === 'CURRENCY_UNAVAILABLE') {
+            if (errorCode === 'CURRENCY_UNAVAILABLE' || errorCode === 'AMOUNT_MINIMAL_ERROR') {
                 continue;
             }
 
