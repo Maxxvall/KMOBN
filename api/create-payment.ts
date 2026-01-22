@@ -96,7 +96,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
     const nowPaymentsPayload = {
         price_amount: price,
-        price_currency: 'USD',
+        price_currency: 'USDT',
         pay_currency: 'USDT',
         order_id: orderId,
         order_description: `Subscription ${payload.tier}`,

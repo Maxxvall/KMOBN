@@ -17,6 +17,7 @@ import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
 import LandingPage from './components/LandingPage.tsx';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
+import SubscriptionGateModal from './components/SubscriptionGateModal';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
@@ -187,6 +188,7 @@ const App: React.FC = () => {
     const [viewAfterSave, setViewAfterSave] = useState<View>(View.HISTORY);
     const [showUnsavedModal, setShowUnsavedModal] = useState(false);
     const [pendingView, setPendingView] = useState<View | null>(null);
+    const [accessModal, setAccessModal] = useState<{ title: string; description: string } | null>(null);
 
     const [isSaving, setIsSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState<Date | null>(null);
@@ -763,6 +765,19 @@ const App: React.FC = () => {
         }
     }, [setView, setCurrentEstimate]);
 
+    const openAccessModal = useCallback((title: string, description: string) => {
+        setAccessModal({ title, description });
+    }, []);
+
+    const closeAccessModal = useCallback(() => {
+        setAccessModal(null);
+    }, []);
+
+    const confirmAccessModal = useCallback(() => {
+        setAccessModal(null);
+        goToView(View.SUBSCRIPTIONS);
+    }, [goToView]);
+
     const handleUpgradeClick = useCallback(() => {
         goToView(View.SUBSCRIPTIONS);
     }, [goToView]);
@@ -795,28 +810,24 @@ const App: React.FC = () => {
         }
 
         if (target === View.ANALYTICS && !canUseAnalytics(subscriptionLimits)) {
-            alert('Аналитика доступна только на Premium.');
-            goToView(View.SUBSCRIPTIONS);
+            openAccessModal('Аналитика доступна на Premium', 'Откройте Premium, чтобы сравнивать сметы и получать расширенную аналитику.');
             return;
         }
         if (target === View.SALARY_CALCULATOR && !canUseSalaryCalculator(subscriptionLimits)) {
-            alert('Калькулятор зарплаты доступен на Basic и Premium.');
-            goToView(View.SUBSCRIPTIONS);
+            openAccessModal('Калькулятор зарплаты доступен на Basic и Premium', 'Оформите подписку, чтобы считать зарплаты и загрузку бригад.');
             return;
         }
         if (target === View.WIKI && !canUseWiki(subscriptionLimits)) {
-            showToast('Wiki доступна на Basic и Premium.', 'info');
-            goToView(View.SUBSCRIPTIONS);
+            openAccessModal('Wiki доступна на Basic и Premium', 'Подключите подписку, чтобы использовать базу знаний и AI‑помощника.');
             return;
         }
 
         goToView(target);
-    }, [view, editorDirty, goToView, subscriptionLimits]);
+    }, [view, editorDirty, goToView, subscriptionLimits, openAccessModal]);
 
     const handleCreateNew = () => {
         if (!canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
-            alert('Лимит смет исчерпан. Перейдите на платный план для продолжения.');
-            goToView(View.SUBSCRIPTIONS);
+            openAccessModal('Лимит смет исчерпан', 'Перейдите на платный план, чтобы создавать больше смет.');
             return;
         }
         setCurrentEstimate(null);
@@ -1235,8 +1246,7 @@ const App: React.FC = () => {
         link?: string
     ) => {
         if (!canCreateMaterial(subscriptionUsage, subscriptionLimits)) {
-            alert('Лимит материалов исчерпан. Перейдите на платный план для продолжения.');
-            goToView(View.SUBSCRIPTIONS);
+            openAccessModal('Лимит материалов исчерпан', 'Перейдите на платный план, чтобы добавлять больше материалов.');
             return;
         }
         const newMaterial: Material = {
@@ -1255,7 +1265,7 @@ const App: React.FC = () => {
             console.error('Failed to add material:', error);
             alert('Не удалось добавить материал.');
         }
-    }, [subscriptionUsage, subscriptionLimits, goToView]);
+    }, [subscriptionUsage, subscriptionLimits, openAccessModal]);
 
     const handleEditMaterialPrice = useCallback(async (materialId: string, newPrice: number) => {
         const material = materials.find(m => m.id === materialId);
@@ -1302,8 +1312,7 @@ const App: React.FC = () => {
 
     const handleAddWork = useCallback(async (name: string, category: EstimateCategory, price: number) => {
         if (!canCreateWork(subscriptionUsage, subscriptionLimits)) {
-            alert('Лимит работ исчерпан. Перейдите на платный план для продолжения.');
-            goToView(View.SUBSCRIPTIONS);
+            openAccessModal('Лимит работ исчерпан', 'Перейдите на платный план, чтобы добавлять больше работ.');
             return;
         }
         const newWork: Work = {
@@ -1319,7 +1328,7 @@ const App: React.FC = () => {
             console.error('Failed to add work:', error);
             alert('Не удалось добавить работу.');
         }
-    }, [subscriptionUsage, subscriptionLimits, goToView]);
+    }, [subscriptionUsage, subscriptionLimits, openAccessModal]);
 
     const handleUpdateWork = useCallback(async (work: Work) => {
         try {
@@ -1345,8 +1354,7 @@ const App: React.FC = () => {
 
     const handleAddBundle = useCallback(async (bundle: WorkBundle) => {
         if (!canCreateBundle(subscriptionUsage, subscriptionLimits)) {
-            alert('Лимит комплектов исчерпан. Перейдите на платный план для продолжения.');
-            goToView(View.SUBSCRIPTIONS);
+            openAccessModal('Лимит комплектов исчерпан', 'Перейдите на платный план, чтобы создавать больше комплектов.');
             return;
         }
         try {
@@ -1356,7 +1364,7 @@ const App: React.FC = () => {
             console.error('Failed to add bundle:', error);
             alert('Не удалось добавить комплект.');
         }
-    }, [subscriptionUsage, subscriptionLimits, goToView]);
+    }, [subscriptionUsage, subscriptionLimits, openAccessModal]);
 
     const handleUpdateBundle = useCallback(async (bundle: WorkBundle) => {
         try {
@@ -1666,6 +1674,15 @@ const App: React.FC = () => {
                     }}
                     onConfirm={handleContractNameConfirm}
                     defaultContractName={`КМ ${pendingExportEstimate.estimateNumber}`}
+                />
+            )}
+            {accessModal && (
+                <SubscriptionGateModal
+                    isOpen={Boolean(accessModal)}
+                    title={accessModal.title}
+                    description={accessModal.description}
+                    onClose={closeAccessModal}
+                    onConfirm={confirmAccessModal}
                 />
             )}
             {passwordRecoveryModal}
