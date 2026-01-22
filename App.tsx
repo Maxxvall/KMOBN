@@ -1404,8 +1404,16 @@ const App: React.FC = () => {
                 successUrl: redirectBase,
                 cancelUrl: redirectBase,
             });
-            const opened = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
-            if (!opened) {
+            try {
+                const a = document.createElement('a');
+                a.href = paymentUrl;
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+                // some browsers require the element to be in DOM
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            } catch (e) {
                 window.location.href = paymentUrl;
             }
         } catch (error) {

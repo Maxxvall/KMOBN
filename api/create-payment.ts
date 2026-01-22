@@ -119,6 +119,35 @@ const fetchMinimumAmount = async (
     }
 };
 
+const fetchInvoiceMinimumFiat = async (
+    apiBase: string,
+    apiKey: string,
+    payCurrency: string,
+    fiatCurrency: string,
+): Promise<{ minCrypto?: number; fiatEquivalent?: number } | null> => {
+    try {
+        const url = `${apiBase}/v1/min-amount?currency_from=${encodeURIComponent(payCurrency)}&fiat_equivalent=${encodeURIComponent(fiatCurrency)}`;
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+            },
+        });
+
+        if (!response.ok) return null;
+        const payload = (await response.json()) as Record<string, unknown>;
+        const minAmount = payload.min_amount;
+        const fiatEquivalent = payload.fiat_equivalent;
+        return {
+            minCrypto: typeof minAmount === 'number' && Number.isFinite(minAmount) ? minAmount : undefined,
+            fiatEquivalent: typeof fiatEquivalent === 'number' && Number.isFinite(fiatEquivalent) ? fiatEquivalent : undefined,
+        };
+    } catch (err) {
+        return null;
+    }
+};
+
 export default async function handler(req: ApiRequest, res: ApiResponse) {
     if (req.method !== 'POST') {
         res.setHeader('Allow', 'POST');
@@ -173,16 +202,11 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     // 1) Try invoice flow first to obtain redirect URL
     try {
         const invoicePayCurrency = payCurrencies[0];
-        const invoiceMinAmount = await fetchMinimumAmount(
-            apiBase,
-            apiKey,
-            invoicePriceCurrency,
-            invoicePayCurrency,
-            price,
-        );
-        const invoiceBaseAmount = invoiceMinAmount && invoiceMinAmount > price ? invoiceMinAmount : price;
+        const invoiceMin = await fetchInvoiceMinimumFiat(apiBase, apiKey, invoicePayCurrency, invoicePriceCurrency);
+        const minFiat = invoiceMin?.fiatEquivalent;
+        const invoiceBaseAmount = minFiat && minFiat > price ? minFiat : price;
         const invoicePriceAmount = normalizeAmount(
-            sandboxMode ? invoiceBaseAmount * 1.02 : invoiceBaseAmount,
+            sandboxMode ? invoiceBaseAmount * 1.05 : invoiceBaseAmount,
             2,
         );
 
