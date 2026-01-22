@@ -32,6 +32,12 @@ const resolveHeader = (headers: Record<string, string | string[] | undefined>, k
     return value;
 };
 
+const isSandboxMode = (): boolean => {
+    const raw = process.env.NOWPAYMENTS_SANDBOX_MODE;
+    if (!raw) return false;
+    return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
+};
+
 const parsePayload = (body: ApiRequest['body']): CreatePaymentPayload | null => {
     if (!body) return null;
     const parsed = typeof body === 'string' ? JSON.parse(body) : body;
@@ -53,9 +59,14 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         return;
     }
 
-    const apiKey = process.env.NOWPAYMENTS_API_KEY;
+    const sandboxMode = isSandboxMode();
+    const apiKey = sandboxMode
+        ? process.env.NOWPAYMENTS_SANDBOX_API_KEY
+        : process.env.NOWPAYMENTS_API_KEY;
     if (!apiKey) {
-        res.status(500).send('NOWPAYMENTS_API_KEY is missing');
+        res.status(500).send(sandboxMode
+            ? 'NOWPAYMENTS_SANDBOX_API_KEY is missing'
+            : 'NOWPAYMENTS_API_KEY is missing');
         return;
     }
 
@@ -94,7 +105,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         cancel_url: payload.cancelUrl || baseUrl,
     };
 
-    const response = await fetch('https://api.nowpayments.io/v1/payment', {
+    const apiBase = sandboxMode ? 'https://api-sandbox.nowpayments.io' : 'https://api.nowpayments.io';
+    const response = await fetch(`${apiBase}/v1/payment`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',

@@ -35,6 +35,12 @@ const resolveHeader = (headers: Record<string, string | string[] | undefined>, k
     return value;
 };
 
+const isSandboxMode = (): boolean => {
+    const raw = process.env.NOWPAYMENTS_SANDBOX_MODE;
+    if (!raw) return false;
+    return ['1', 'true', 'yes', 'on'].includes(String(raw).trim().toLowerCase());
+};
+
 const readRawBody = (req: ApiRequest): Promise<Buffer> => {
     return new Promise((resolve, reject) => {
         if (req.on) {
@@ -74,7 +80,10 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         return;
     }
 
-    const ipnSecret = process.env.NOWPAYMENTS_IPN_SECRET;
+    const sandboxMode = isSandboxMode();
+    const ipnSecret = sandboxMode
+        ? process.env.NOWPAYMENTS_SANDBOX_IPN_SECRET
+        : process.env.NOWPAYMENTS_IPN_SECRET;
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
