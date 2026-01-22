@@ -172,10 +172,24 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
     // 1) Try invoice flow first to obtain redirect URL
     try {
+        const invoicePayCurrency = payCurrencies[0];
+        const invoiceMinAmount = await fetchMinimumAmount(
+            apiBase,
+            apiKey,
+            invoicePriceCurrency,
+            invoicePayCurrency,
+            price,
+        );
+        const invoiceBaseAmount = invoiceMinAmount && invoiceMinAmount > price ? invoiceMinAmount : price;
+        const invoicePriceAmount = normalizeAmount(
+            sandboxMode ? invoiceBaseAmount * 1.02 : invoiceBaseAmount,
+            2,
+        );
+
         const invoicePayload = {
-            price_amount: price,
+            price_amount: invoicePriceAmount,
             price_currency: invoicePriceCurrency,
-            pay_currency: payCurrencies[0],
+            pay_currency: invoicePayCurrency,
             order_id: orderId,
             order_description: `Subscription ${payload.tier}`,
             ipn_callback_url: `${baseUrl}/api/webhook`,

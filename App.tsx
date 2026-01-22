@@ -1404,7 +1404,10 @@ const App: React.FC = () => {
                 successUrl: redirectBase,
                 cancelUrl: redirectBase,
             });
-            window.location.href = paymentUrl;
+            const opened = window.open(paymentUrl, '_blank', 'noopener,noreferrer');
+            if (!opened) {
+                window.location.href = paymentUrl;
+            }
         } catch (error) {
             console.error('Failed to start payment:', error);
             const errorMessage = error instanceof Error ? error.message : '';
