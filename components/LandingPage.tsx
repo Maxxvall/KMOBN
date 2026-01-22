@@ -16,7 +16,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                         rel="noreferrer"
                     >
                         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/15 text-primary font-semibold">
-                            K
+                            KM
                         </div>
                         <span className="text-lg font-semibold text-text-primary group-hover:text-primary">
                             Сделано командой Каркас Мастер
@@ -25,7 +25,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                     <div className="flex items-center gap-3">
                         <nav className="hidden items-center gap-2 sm:flex" aria-label="Социальные сети">
                             <a
-                                href="#"
+                                href="https://vk.ru/kmobn"
+                                target="_blank"
+                                rel="noreferrer"
                                 className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
                                 aria-label="ВКонтакте"
                             >
@@ -34,7 +36,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                                 </svg>
                             </a>
                             <a
-                                href="#"
+                                href="https://t.me/karkasmaster40"
+                                target="_blank"
+                                rel="noreferrer"
                                 className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
                                 aria-label="Telegram"
                             >
@@ -43,7 +47,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                                 </svg>
                             </a>
                             <a
-                                href="#"
+                                href="https://www.youtube.com/@KarkasMasterObninsk/videos"
+                                target="_blank"
+                                rel="noreferrer"
                                 className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
                                 aria-label="YouTube"
                             >
@@ -203,7 +209,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                     <div>© 2026 Каркас Мастер. Премиальная платформа смет.</div>
                     <div className="flex items-center gap-3" aria-label="Социальные сети">
                         <a
-                            href="#"
+                            href="https://vk.ru/kmobn"
+                            target="_blank"
+                            rel="noreferrer"
                             className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
                             aria-label="ВКонтакте"
                         >
@@ -212,7 +220,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                             </svg>
                         </a>
                         <a
-                            href="#"
+                            href="https://t.me/karkasmaster40"
+                            target="_blank"
+                            rel="noreferrer"
                             className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
                             aria-label="Telegram"
                         >
@@ -221,7 +231,9 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                             </svg>
                         </a>
                         <a
-                            href="#"
+                            href="https://www.youtube.com/@KarkasMasterObninsk/videos"
+                            target="_blank"
+                            rel="noreferrer"
                             className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
                             aria-label="YouTube"
                         >
