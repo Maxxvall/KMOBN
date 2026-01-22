@@ -26,7 +26,7 @@ const PRICE_BY_TIER: Record<SubscriptionTier, number> = {
     premium: 10,
 };
 
-const DEFAULT_PRICE_CURRENCY = 'usdt';
+const DEFAULT_PRICE_CURRENCY = 'usdttrc20';
 const DEFAULT_PAY_CURRENCIES = ['usdttrc20', 'usdt', 'btc', 'eth'];
 
 const resolveHeader = (headers: Record<string, string | string[] | undefined>, key: string): string | undefined => {
@@ -86,22 +86,31 @@ const fetchMinimumAmount = async (
     currencyTo: string,
     amount: number,
 ): Promise<number | null> => {
-    const url = `${apiBase}/v1/min-amount?currency_from=${encodeURIComponent(currencyFrom)}&currency_to=${encodeURIComponent(currencyTo)}&amount=${encodeURIComponent(amount)}`;
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-        },
-    });
-
-    if (!response.ok) return null;
-    const payload = (await response.json()) as Record<string, unknown>;
-    const minAmount = payload.min_amount;
-    if (typeof minAmount === 'number' && Number.isFinite(minAmount) && minAmount > 0) {
-        return minAmount;
+    // If currencies are identical, no conversion/estimate is needed
+    if (currencyFrom.trim().toLowerCase() === currencyTo.trim().toLowerCase()) {
+        return amount;
     }
-    return null;
+
+    try {
+        const url = `${apiBase}/v1/min-amount?currency_from=${encodeURIComponent(currencyFrom)}&currency_to=${encodeURIComponent(currencyTo)}&amount=${encodeURIComponent(amount)}`;
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+            },
+        });
+
+        if (!response.ok) return null;
+        const payload = (await response.json()) as Record<string, unknown>;
+        const minAmount = (payload && (payload.min_amount || payload.minAmount || payload.min)) as unknown;
+        if (typeof minAmount === 'number' && Number.isFinite(minAmount) && minAmount > 0) {
+            return minAmount;
+        }
+        return null;
+    } catch (err) {
+        return null;
+    }
 };
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
@@ -207,7 +216,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
             lastErrorCode = errorCode;
             lastStatus = response.status;
 
-            if (errorCode === 'CURRENCY_UNAVAILABLE' || errorCode === 'AMOUNT_MINIMAL_ERROR') {
+            // treat some errors as recoverable: try next currency
+            if (
+                errorCode === 'CURRENCY_UNAVAILABLE' ||
+                errorCode === 'AMOUNT_MINIMAL_ERROR' ||
+                errorCode === 'INTERNAL_ERROR' ||
+                /Can not get estimate/i.test(errorMessage)
+            ) {
                 continue;
             }
 
