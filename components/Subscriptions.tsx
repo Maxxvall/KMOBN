@@ -142,15 +142,19 @@ const Subscriptions: React.FC<{
                     return (
                         <div
                             key={plan.tier}
-                            className={`rounded-xl border border-border bg-surface p-5 flex flex-col justify-between ${
-                                plan.highlight ? 'ring-2 ring-primary/50' : ''
+                            className={`rounded-xl border bg-surface p-5 flex flex-col justify-between items-center text-center ${
+                                isCurrent
+                                    ? 'border-red-500 ring-2 ring-red-500/20'
+                                    : plan.highlight
+                                        ? 'border-border ring-2 ring-primary/50'
+                                        : 'border-border'
                             }`}
                         >
                             <div>
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-col items-center">
                                     <h3 className="text-lg font-semibold text-text-primary">{plan.title}</h3>
                                     {isCurrent && (
-                                        <span className="text-xs text-primary border border-primary px-2 py-1 rounded-full">
+                                        <span className="mt-2 text-xs text-primary border border-primary px-2 py-1 rounded-full">
                                             Текущий
                                         </span>
                                     )}
@@ -159,7 +163,7 @@ const Subscriptions: React.FC<{
                                 <div className="text-sm text-text-secondary">{plan.priceNote}</div>
                                 <ul className="mt-4 space-y-2 text-sm text-text-primary">
                                     {plan.features.map(feature => (
-                                        <li key={feature} className="flex items-start gap-2">
+                                        <li key={feature} className="flex items-start gap-2 justify-center">
                                             <span aria-hidden>✅</span>
                                             <span>{feature}</span>
                                         </li>
