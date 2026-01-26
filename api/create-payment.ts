@@ -29,8 +29,8 @@ type UserSubscriptionRow = {
 
 const PRICE_BY_TIER: Record<SubscriptionTier, number> = {
     free: 0,
-    basic: 3,
-    premium: 10,
+    basic: 20,
+    premium: 50,
 };
 
 const DEFAULT_PRICE_CURRENCY = 'usdttrc20';
