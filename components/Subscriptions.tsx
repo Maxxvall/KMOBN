@@ -143,11 +143,7 @@ const Subscriptions: React.FC<{
                         <div
                             key={plan.tier}
                             className={`rounded-xl border bg-surface p-5 flex flex-col justify-between items-center text-center ${
-                                isCurrent
-                                    ? 'border-red-500 ring-2 ring-red-500/20'
-                                    : plan.highlight
-                                        ? 'border-border ring-2 ring-primary/50'
-                                        : 'border-border'
+                                isCurrent ? 'border-red-500 ring-2 ring-red-500/20' : 'border-border'
                             }`}
                         >
                             <div>
