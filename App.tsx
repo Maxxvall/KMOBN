@@ -1102,6 +1102,30 @@ const App: React.FC = () => {
         }
     }, [view]);
 
+    const recalculateEstimatePrices = useCallback((estimate: Estimate): Estimate => {
+        const materialsMap = new Map(materials.map(material => [material.name, material.price]));
+        const worksMap = new Map(works.map(work => [work.name, work.price]));
+
+        const updatedItems = estimate.items.map(item => {
+            let newPrice = item.price;
+            if (item.subgroup === EstimateSubgroup.MATERIALS) {
+                const nextPrice = materialsMap.get(item.name);
+                if (typeof nextPrice === 'number') {
+                    newPrice = nextPrice;
+                }
+            } else if (item.subgroup === EstimateSubgroup.WORKS) {
+                const nextPrice = worksMap.get(item.name);
+                if (typeof nextPrice === 'number') {
+                    newPrice = nextPrice;
+                }
+            }
+            return { ...item, price: newPrice, total: item.quantity * newPrice };
+        });
+
+        const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
+        return { ...estimate, items: updatedItems, total: newTotal, needsPriceUpdate: false };
+    }, [materials, works]);
+
     const handleGeneratePdf = useCallback((estimate: Estimate) => {
         let exportEstimate = estimate;
         if (estimate.status === EstimateStatus.DRAFT && estimate.needsPriceUpdate) {
@@ -1204,30 +1228,6 @@ const App: React.FC = () => {
             }
         }
     }, []);
-
-    const recalculateEstimatePrices = useCallback((estimate: Estimate): Estimate => {
-        const materialsMap = new Map(materials.map(material => [material.name, material.price]));
-        const worksMap = new Map(works.map(work => [work.name, work.price]));
-
-        const updatedItems = estimate.items.map(item => {
-            let newPrice = item.price;
-            if (item.subgroup === EstimateSubgroup.MATERIALS) {
-                const nextPrice = materialsMap.get(item.name);
-                if (typeof nextPrice === 'number') {
-                    newPrice = nextPrice;
-                }
-            } else if (item.subgroup === EstimateSubgroup.WORKS) {
-                const nextPrice = worksMap.get(item.name);
-                if (typeof nextPrice === 'number') {
-                    newPrice = nextPrice;
-                }
-            }
-            return { ...item, price: newPrice, total: item.quantity * newPrice };
-        });
-
-        const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
-        return { ...estimate, items: updatedItems, total: newTotal, needsPriceUpdate: false };
-    }, [materials, works]);
 
     const markDraftEstimatesWithPriceChange = useCallback((params: { materialName?: string; workName?: string }) => {
         const { materialName, workName } = params;
