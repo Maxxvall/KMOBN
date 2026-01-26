@@ -28,7 +28,7 @@ const PLANS: PlanCard[] = [
     {
         tier: 'basic',
         title: 'Basic',
-        price: '3 USDT',
+        price: '20 USDT',
         priceNote: 'в месяц (оплата в USDT)',
         features: [
             'До 5 смет',
@@ -43,7 +43,7 @@ const PLANS: PlanCard[] = [
     {
         tier: 'premium',
         title: 'Premium',
-        price: '10 USDT',
+        price: '50 USDT',
         priceNote: 'в месяц (оплата в USDT)',
         features: [
             'Безлимитные сметы и материалы',
