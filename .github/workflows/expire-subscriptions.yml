@@ -10,4 +10,6 @@ jobs:
     steps:
       - name: Trigger expiration job
         run: |
-          curl -X POST "${{ secrets.EXPIRE_SUBSCRIPTIONS_URL }}"
+          curl -X POST "${{ secrets.EXPIRE_SUBSCRIPTIONS_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "x-cron-secret: ${{ secrets.EXPIRE_SUBSCRIPTIONS_TOKEN }}"

@@ -18,6 +18,19 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         return;
     }
 
+    const expectedToken = process.env.EXPIRE_SUBSCRIPTIONS_TOKEN;
+    if (!expectedToken) {
+        res.status(500).send('Server misconfiguration: EXPIRE_SUBSCRIPTIONS_TOKEN is not set');
+        return;
+    }
+
+    const headers = (req as any).headers ?? {};
+    const provided = headers['x-cron-secret'] ?? headers['X-Cron-Secret'] ?? headers['x-cron-secret'.toLowerCase()];
+    if (!provided || String(provided) !== String(expectedToken)) {
+        res.status(403).send('Forbidden');
+        return;
+    }
+
     const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !supabaseKey) {
