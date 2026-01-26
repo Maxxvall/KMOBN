@@ -2,7 +2,7 @@ name: Expire subscriptions
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    - cron: '0 21 * * *'
 
 jobs:
   expire:
