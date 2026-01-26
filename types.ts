@@ -35,6 +35,7 @@ export interface Estimate {
     isArchived?: boolean;
     buildingType: string;
     area: number;
+    needsPriceUpdate?: boolean;
 }
 
 export enum EstimateStatus {

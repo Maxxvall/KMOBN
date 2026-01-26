@@ -47,6 +47,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         total: 0,
         buildingType: '',
         area: 0,
+        needsPriceUpdate: false,
     }), []);
     const baselineEstimate = useMemo(() => initialEstimate ?? createEmptyEstimate(), [initialEstimate, createEmptyEstimate]);
     const [estimate, setEstimate] = useState<Estimate>(baselineEstimate);

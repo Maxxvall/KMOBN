@@ -80,6 +80,12 @@ const formatStatus = (status?: string | null): string => {
     }
 };
 
+const TIER_ORDER: Record<SubscriptionTier, number> = {
+    free: 0,
+    basic: 1,
+    premium: 2,
+};
+
 const Subscriptions: React.FC<{
     subscription: UserSubscription | null;
     limits: SubscriptionLimits;
@@ -90,6 +96,12 @@ const Subscriptions: React.FC<{
     const currentTier: SubscriptionTier = subscription?.subscription_tier ?? 'free';
     const statusLabel = formatStatus(subscription?.status);
     const remainingLabel = formatRemainingDays(subscription?.expires_at ?? null);
+    const isActive = Boolean(
+        subscription?.status === 'active' &&
+        subscription?.expires_at &&
+        Date.parse(subscription.expires_at) > Date.now(),
+    );
+    const currentTierIndex = TIER_ORDER[currentTier];
 
     const usageSummary = useMemo(() => {
         return [
@@ -124,6 +136,9 @@ const Subscriptions: React.FC<{
             <div className="grid gap-4 md:grid-cols-3">
                 {PLANS.map(plan => {
                     const isCurrent = plan.tier === currentTier;
+                    const targetTierIndex = TIER_ORDER[plan.tier];
+                    const isDowngrade = isActive && targetTierIndex < currentTierIndex;
+                    const isDisabled = isCurrent || isLoading || plan.tier === 'free' || isDowngrade;
                     return (
                         <div
                             key={plan.tier}
@@ -154,9 +169,9 @@ const Subscriptions: React.FC<{
                             <button
                                 type="button"
                                 onClick={() => onStartPayment(plan.tier)}
-                                disabled={isCurrent || isLoading || plan.tier === 'free'}
+                                disabled={isDisabled}
                                 className={`mt-6 w-full rounded-md px-4 py-2 font-semibold transition-colors ${
-                                    isCurrent || plan.tier === 'free'
+                                    isDisabled
                                         ? 'bg-gray-700 text-text-secondary cursor-not-allowed'
                                         : 'bg-primary text-white hover:bg-primary-hover'
                                 }`}
@@ -165,6 +180,8 @@ const Subscriptions: React.FC<{
                                     ? 'Бесплатно'
                                     : isCurrent
                                         ? 'Текущий план'
+                                        : isDowngrade
+                                            ? 'Доступно после окончания'
                                         : isLoading
                                             ? 'Создаём платёж…'
                                             : 'Оплатить'}

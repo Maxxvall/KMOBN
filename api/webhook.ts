@@ -70,8 +70,8 @@ const parseOrder = (orderId?: string): { tier: SubscriptionTier; userId: string 
     return { tier: match[1] as SubscriptionTier, userId: match[2] };
 };
 
-const addDays = (days: number): string => {
-    const date = new Date();
+const addDaysFrom = (base: Date, days: number): string => {
+    const date = new Date(base);
     date.setUTCDate(date.getUTCDate() + days);
     return date.toISOString();
 };
@@ -173,7 +173,8 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         return;
     }
 
-    const expiresAt = orderInfo.tier === 'free' ? null : addDays(30);
+    const now = new Date();
+    const expiresAt = orderInfo.tier === 'free' ? null : addDaysFrom(now, 31);
 
     const { data: existingSubscription, error: loadError } = await supabase
         .from('user_subscriptions')
@@ -186,7 +187,7 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         return;
     }
 
-    const nowIso = new Date().toISOString();
+    const nowIso = now.toISOString();
     const subscriptionPayload = {
         user_id: orderInfo.userId,
         subscription_tier: orderInfo.tier,

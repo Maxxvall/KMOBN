@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import type { SubscriptionTier } from '../types';
 
 type ApiRequest = {
@@ -20,6 +21,12 @@ type CreatePaymentPayload = {
     cancelUrl?: string;
 };
 
+type UserSubscriptionRow = {
+    subscription_tier: SubscriptionTier;
+    expires_at: string | null;
+    status: string | null;
+};
+
 const PRICE_BY_TIER: Record<SubscriptionTier, number> = {
     free: 0,
     basic: 3,
@@ -29,6 +36,12 @@ const PRICE_BY_TIER: Record<SubscriptionTier, number> = {
 const DEFAULT_PRICE_CURRENCY = 'usdttrc20';
 const DEFAULT_INVOICE_PRICE_CURRENCY = 'usd';
 const DEFAULT_PAY_CURRENCIES = ['usdttrc20', 'usdt', 'btc', 'eth'];
+
+const TIER_ORDER: Record<SubscriptionTier, number> = {
+    free: 0,
+    basic: 1,
+    premium: 2,
+};
 
 const resolveHeader = (headers: Record<string, string | string[] | undefined>, key: string): string | undefined => {
     const value = headers[key] ?? headers[key.toLowerCase()];
@@ -83,6 +96,15 @@ const normalizeAmount = (value: number, decimals = 2): number => {
     if (!Number.isFinite(value)) return value;
     const factor = Math.pow(10, decimals);
     return Math.ceil(value * factor) / factor;
+};
+
+const isActiveSubscription = (subscription: UserSubscriptionRow | null): boolean => {
+    if (!subscription) return false;
+    if (subscription.status !== 'active') return false;
+    if (!subscription.expires_at) return false;
+    const expiresMs = Date.parse(subscription.expires_at);
+    if (!Number.isFinite(expiresMs)) return false;
+    return expiresMs > Date.now();
 };
 
 const fetchMinimumAmount = async (
@@ -182,6 +204,41 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
     if (payload.tier === 'free') {
         res.status(400).send('Free tier does not require payment');
         return;
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !supabaseKey) {
+        res.status(500).send('Missing server configuration');
+        return;
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    const { data: existingSubscription, error: subError } = await supabase
+        .from('user_subscriptions')
+        .select('subscription_tier, expires_at, status')
+        .eq('user_id', payload.userId)
+        .maybeSingle();
+
+    if (subError) {
+        res.status(500).send('Failed to load subscription');
+        return;
+    }
+
+    const activeSubscription = isActiveSubscription(existingSubscription as UserSubscriptionRow | null)
+        ? (existingSubscription as UserSubscriptionRow)
+        : null;
+
+    if (activeSubscription) {
+        const currentIndex = TIER_ORDER[activeSubscription.subscription_tier];
+        const nextIndex = TIER_ORDER[payload.tier];
+        if (nextIndex < currentIndex) {
+            res.status(400).send('Downgrade is not allowed while subscription is active');
+            return;
+        }
     }
 
     const price = PRICE_BY_TIER[payload.tier];

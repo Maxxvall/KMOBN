@@ -841,7 +841,12 @@ const App: React.FC = () => {
     };
 
     const handleEdit = (estimate: Estimate) => {
-        setCurrentEstimate(estimate);
+        let nextEstimate = estimate;
+        if (estimate.status === EstimateStatus.DRAFT && estimate.needsPriceUpdate) {
+            nextEstimate = recalculateEstimatePrices(estimate);
+            setEstimates(prev => prev.map(item => item.id === estimate.id ? nextEstimate : item));
+        }
+        setCurrentEstimate(nextEstimate);
         setEditorValidationResult(null);
         setEditorDirty(false);
         setEditorDraft(null);
@@ -1098,10 +1103,19 @@ const App: React.FC = () => {
     }, [view]);
 
     const handleGeneratePdf = useCallback((estimate: Estimate) => {
-        const validation = validateEstimate(estimate);
+        let exportEstimate = estimate;
+        if (estimate.status === EstimateStatus.DRAFT && estimate.needsPriceUpdate) {
+            exportEstimate = recalculateEstimatePrices(estimate);
+            setEstimates(prev => prev.map(item => item.id === estimate.id ? exportEstimate : item));
+            if (currentEstimate?.id === estimate.id) {
+                setCurrentEstimate(exportEstimate);
+            }
+        }
+
+        const validation = validateEstimate(exportEstimate);
         if (validation.issues.length > 0) {
             setEditorValidationResult(validation);
-            setCurrentEstimate(estimate);
+            setCurrentEstimate(exportEstimate);
             setEditorDirty(false);
             setEditorDraft(null);
             setPendingView(null);
@@ -1117,9 +1131,9 @@ const App: React.FC = () => {
             return;
         }
 
-        setPendingExportEstimate(estimate);
+        setPendingExportEstimate(exportEstimate);
         setShowPdfStyleModal(true);
-    }, [goToView]);
+    }, [goToView, recalculateEstimatePrices, currentEstimate, setEstimates]);
 
     const handlePdfStyleSelect = useCallback((style: 'simple' | 'colored' | 'word-contract') => {
         if (!pendingExportEstimate) return;
@@ -1191,19 +1205,48 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const updateDraftEstimatesWithNewMaterialPrice = useCallback((materialName: string, newPrice: number) => {
+    const recalculateEstimatePrices = useCallback((estimate: Estimate): Estimate => {
+        const materialsMap = new Map(materials.map(material => [material.name, material.price]));
+        const worksMap = new Map(works.map(work => [work.name, work.price]));
+
+        const updatedItems = estimate.items.map(item => {
+            let newPrice = item.price;
+            if (item.subgroup === EstimateSubgroup.MATERIALS) {
+                const nextPrice = materialsMap.get(item.name);
+                if (typeof nextPrice === 'number') {
+                    newPrice = nextPrice;
+                }
+            } else if (item.subgroup === EstimateSubgroup.WORKS) {
+                const nextPrice = worksMap.get(item.name);
+                if (typeof nextPrice === 'number') {
+                    newPrice = nextPrice;
+                }
+            }
+            return { ...item, price: newPrice, total: item.quantity * newPrice };
+        });
+
+        const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
+        return { ...estimate, items: updatedItems, total: newTotal, needsPriceUpdate: false };
+    }, [materials, works]);
+
+    const markDraftEstimatesWithPriceChange = useCallback((params: { materialName?: string; workName?: string }) => {
+        const { materialName, workName } = params;
+        if (!materialName && !workName) return;
+
         setEstimates(prevEstimates => {
             return prevEstimates.map(estimate => {
                 if (estimate.status !== EstimateStatus.DRAFT) return estimate;
-                const updatedItems = estimate.items.map(item => {
-                    if (item.name === materialName && item.subgroup === EstimateSubgroup.MATERIALS) {
-                        const updatedItem = { ...item, price: newPrice, total: item.quantity * newPrice };
-                        return updatedItem;
+                const hasMatch = estimate.items.some(item => {
+                    if (materialName && item.subgroup === EstimateSubgroup.MATERIALS && item.name === materialName) {
+                        return true;
                     }
-                    return item;
+                    if (workName && item.subgroup === EstimateSubgroup.WORKS && item.name === workName) {
+                        return true;
+                    }
+                    return false;
                 });
-                const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
-                return { ...estimate, items: updatedItems, total: newTotal };
+                if (!hasMatch || estimate.needsPriceUpdate) return estimate;
+                return { ...estimate, needsPriceUpdate: true };
             });
         });
     }, []);
@@ -1230,14 +1273,14 @@ const App: React.FC = () => {
 
             for (const up of upserts) {
                 if (up?.name && typeof up.price === 'number' && Number.isFinite(up.price)) {
-                    updateDraftEstimatesWithNewMaterialPrice(up.name, up.price);
+                    markDraftEstimatesWithPriceChange({ materialName: up.name });
                 }
             }
         };
 
         window.addEventListener('kmobn:materials-upsert', handler as any);
         return () => window.removeEventListener('kmobn:materials-upsert', handler as any);
-    }, [updateDraftEstimatesWithNewMaterialPrice]);
+    }, [markDraftEstimatesWithPriceChange]);
 
     const handleAddMaterial = useCallback(async (
         name: string,
@@ -1275,13 +1318,13 @@ const App: React.FC = () => {
         try {
             await updateMaterial(updatedMaterial);
             setMaterials(prev => prev.map(m => m.id === materialId ? updatedMaterial : m));
-            // Update prices in draft estimates
-            updateDraftEstimatesWithNewMaterialPrice(material.name, newPrice);
+            // Mark draft estimates for price refresh
+            markDraftEstimatesWithPriceChange({ materialName: material.name });
         } catch (error) {
             console.error('Failed to update material price:', error);
             alert('Не удалось обновить цену материала.');
         }
-    }, [materials]);
+    }, [materials, markDraftEstimatesWithPriceChange]);
 
     const handleEditMaterialLink = useCallback(async (materialId: string, link?: string) => {
         const material = materials.find(m => m.id === materialId);
@@ -1334,11 +1377,12 @@ const App: React.FC = () => {
         try {
             await updateWork(work);
             setWorks(prev => prev.map(w => w.id === work.id ? work : w));
+            markDraftEstimatesWithPriceChange({ workName: work.name });
         } catch (error) {
             console.error('Failed to update work:', error);
             alert('Не удалось обновить работу.');
         }
-    }, []);
+    }, [markDraftEstimatesWithPriceChange]);
 
     const handleDeleteWork = useCallback(async (workId: string) => {
         if (window.confirm('Вы уверены, что хотите удалить эту работу?')) {
