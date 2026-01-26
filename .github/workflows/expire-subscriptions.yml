@@ -1,0 +1,13 @@
+name: Expire subscriptions
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+
+jobs:
+  expire:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger expiration job
+        run: |
+          curl -X POST "${{ secrets.EXPIRE_SUBSCRIPTIONS_URL }}"

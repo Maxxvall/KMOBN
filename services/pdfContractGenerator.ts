@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 import { Estimate, EstimateItem, EstimateSubgroup } from '../types';
 import { ESTIMATE_CATEGORIES } from '../constants';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
@@ -106,7 +108,6 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     const totalRounded = Math.round(total);
     const totalWords = numberToWordsRu(totalRounded);
 
-    const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
     const FONT_NAME = 'LiberationSans';

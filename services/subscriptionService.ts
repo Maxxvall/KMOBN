@@ -17,6 +17,33 @@ export const formatMonthKey = (date = new Date()): string => {
     return `${y}-${m}`;
 };
 
+const normalizeExpiredSubscription = (subscription: UserSubscription, now = new Date()): {
+    subscription: UserSubscription;
+    updates: Partial<UserSubscription>;
+} => {
+    if (!subscription.expires_at) return { subscription, updates: {} };
+    const expiresMs = Date.parse(subscription.expires_at);
+    if (!Number.isFinite(expiresMs)) return { subscription, updates: {} };
+    if (expiresMs > now.getTime()) return { subscription, updates: {} };
+    if (subscription.status !== 'active') return { subscription, updates: {} };
+
+    const nowIso = now.toISOString();
+    const next: UserSubscription = {
+        ...subscription,
+        status: 'expired',
+        subscription_tier: 'free',
+        updated_at: nowIso,
+    };
+    return {
+        subscription: next,
+        updates: {
+            status: 'expired',
+            subscription_tier: 'free',
+            updated_at: nowIso,
+        },
+    };
+};
+
 const safeDateKey = (value?: string | null): string | null => {
     if (!value) return null;
     const parsed = new Date(value);
@@ -109,7 +136,14 @@ export const getUserSubscription = async (userId: string): Promise<UserSubscript
         return null;
     }
 
-    if (data) return data as UserSubscription;
+    if (data) {
+        const { subscription: normalized, updates } = normalizeExpiredSubscription(data as UserSubscription);
+        if (Object.keys(updates).length > 0) {
+            const updated = await updateUserSubscription(userId, updates);
+            return updated ?? normalized;
+        }
+        return normalized;
+    }
 
     return createDefaultSubscription(userId);
 };

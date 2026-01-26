@@ -1,4 +1,5 @@
 import React from 'react';
+import FocusLock from 'react-focus-lock';
 
 interface PdfStyleModalProps {
     onClose: () => void;
@@ -6,45 +7,59 @@ interface PdfStyleModalProps {
 }
 
 const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle }) => {
+    const handleKeyDown = (event: React.KeyboardEvent) => {
+        if (event.key === 'Escape') {
+            onClose();
+        }
+    };
+
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4" onClick={onClose}>
-            <div className="bg-surface rounded-lg shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-                <h2 className="text-2xl font-bold text-text-primary mb-4">Выберите формат экспорта</h2>
-                <p className="text-text-secondary mb-6">Выберите, в каком стиле вы хотите скачать смету:</p>
-                
-                <div className="space-y-4">
-                    <button
-                        onClick={() => onSelectStyle('simple')}
-                        className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-md shadow-md transition duration-300 text-left"
-                    >
-                        <div className="font-bold text-lg mb-1">Простой стиль</div>
-                        <div className="text-sm text-gray-300">Классическая черно-белая смета с минимальным оформлением</div>
-                    </button>
+        <div
+            className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+            onClick={onClose}
+            role="dialog"
+            aria-modal="true"
+            onKeyDown={handleKeyDown}
+        >
+            <FocusLock returnFocus>
+                <div className="bg-surface rounded-lg shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+                    <h2 className="text-2xl font-bold text-text-primary mb-4">Выберите формат экспорта</h2>
+                    <p className="text-text-secondary mb-6">Выберите, в каком стиле вы хотите скачать смету:</p>
+                    
+                    <div className="space-y-4">
+                        <button
+                            onClick={() => onSelectStyle('simple')}
+                            className="w-full bg-gray-700 hover:bg-gray-600 text-white font-bold py-4 px-6 rounded-md shadow-md transition duration-300 text-left"
+                        >
+                            <div className="font-bold text-lg mb-1">Простой стиль</div>
+                            <div className="text-sm text-gray-300">Классическая черно-белая смета с минимальным оформлением</div>
+                        </button>
+                        
+                        <button
+                            onClick={() => onSelectStyle('colored')}
+                            className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-4 px-6 rounded-md shadow-md transition duration-300 text-left"
+                        >
+                            <div className="font-bold text-lg mb-1">Цветной стиль</div>
+                            <div className="text-sm text-green-100">Современная смета с фирменными цветами и логотипом</div>
+                        </button>
+
+                        <button
+                            onClick={() => onSelectStyle('word-contract')}
+                            className="w-full bg-blue-700 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-md shadow-md transition duration-300 text-left"
+                        >
+                            <div className="font-bold text-lg mb-1">PDF - Приложение к договору</div>
+                            <div className="text-sm text-blue-100">Официальный PDF документ для подписания договора</div>
+                        </button>
+                    </div>
                     
                     <button
-                        onClick={() => onSelectStyle('colored')}
-                        className="w-full bg-green-700 hover:bg-green-600 text-white font-bold py-4 px-6 rounded-md shadow-md transition duration-300 text-left"
+                        onClick={onClose}
+                        className="w-full mt-6 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition duration-300"
                     >
-                        <div className="font-bold text-lg mb-1">Цветной стиль</div>
-                        <div className="text-sm text-green-100">Современная смета с фирменными цветами и логотипом</div>
-                    </button>
-
-                    <button
-                        onClick={() => onSelectStyle('word-contract')}
-                        className="w-full bg-blue-700 hover:bg-blue-600 text-white font-bold py-4 px-6 rounded-md shadow-md transition duration-300 text-left"
-                    >
-                        <div className="font-bold text-lg mb-1">PDF - Приложение к договору</div>
-                        <div className="text-sm text-blue-100">Официальный PDF документ для подписания договора</div>
+                        Отмена
                     </button>
                 </div>
-                
-                <button
-                    onClick={onClose}
-                    className="w-full mt-6 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition duration-300"
-                >
-                    Отмена
-                </button>
-            </div>
+            </FocusLock>
         </div>
     );
 };

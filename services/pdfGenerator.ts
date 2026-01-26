@@ -1,4 +1,6 @@
 // @ts-nocheck
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
 import { ESTIMATE_CATEGORIES } from '../constants';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
@@ -15,7 +17,6 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
 }
 
 export const generatePdf = async (estimate: Estimate) => {
-    const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
 
     const FONT_NAME = 'LiberationSans';

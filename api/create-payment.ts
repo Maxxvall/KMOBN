@@ -27,6 +27,11 @@ type UserSubscriptionRow = {
     status: string | null;
 };
 
+type RateLimitEntry = {
+    count: number;
+    resetAt: number;
+};
+
 const PRICE_BY_TIER: Record<SubscriptionTier, number> = {
     free: 0,
     basic: 20,
@@ -105,6 +110,33 @@ const isActiveSubscription = (subscription: UserSubscriptionRow | null): boolean
     const expiresMs = Date.parse(subscription.expires_at);
     if (!Number.isFinite(expiresMs)) return false;
     return expiresMs > Date.now();
+};
+
+const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const RATE_LIMIT_MAX = 3;
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+const resolveRateLimitKey = (payload: CreatePaymentPayload, headers: ApiRequest['headers']): string => {
+    const userId = payload.userId.trim();
+    const forwardedFor = resolveHeader(headers, 'x-forwarded-for');
+    const ip = forwardedFor ? forwardedFor.split(',')[0]?.trim() : '';
+    return `${userId}:${ip || 'unknown'}`;
+};
+
+const isRateLimited = (key: string, now = Date.now()): { limited: boolean; retryAfterSeconds: number } => {
+    const entry = rateLimitStore.get(key);
+    if (!entry || entry.resetAt <= now) {
+        rateLimitStore.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+        return { limited: false, retryAfterSeconds: 0 };
+    }
+
+    if (entry.count >= RATE_LIMIT_MAX) {
+        return { limited: true, retryAfterSeconds: Math.ceil((entry.resetAt - now) / 1000) };
+    }
+
+    entry.count += 1;
+    rateLimitStore.set(key, entry);
+    return { limited: false, retryAfterSeconds: 0 };
 };
 
 const fetchMinimumAmount = async (
@@ -203,6 +235,13 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
 
     if (payload.tier === 'free') {
         res.status(400).send('Free tier does not require payment');
+        return;
+    }
+
+    const rateKey = resolveRateLimitKey(payload, req.headers);
+    const limitResult = isRateLimited(rateKey);
+    if (limitResult.limited) {
+        res.status(429).send(`Rate limit exceeded. Retry after ${limitResult.retryAfterSeconds} seconds.`);
         return;
     }
 

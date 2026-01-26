@@ -1,23 +1,17 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
+import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
 import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
-import EstimateHistory from './components/EstimateHistory';
-import EstimateEditor from './components/EstimateEditor';
-import Prices from './components/Prices';
-import Works from './components/Works';
-import Bundles from './components/Bundles';
-import SalaryCalculator from './components/SalaryCalculator';
 import PdfStyleModal from './components/PdfStyleModal';
 import ContractNameModal from './components/ContractNameModal';
-import Analytics from './components/Analytics';
-import Subscriptions from './components/Subscriptions';
 import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
 import LandingPage from './components/LandingPage.tsx';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import SubscriptionGateModal from './components/SubscriptionGateModal';
+import AppLoadingSkeleton from './components/AppLoadingSkeleton';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
@@ -46,7 +40,17 @@ import {
 } from './services/subscriptionService';
 import { createPayment } from './services/paymentService';
 
+const EstimateHistory = lazy(() => import('./components/EstimateHistory'));
+const EstimateEditor = lazy(() => import('./components/EstimateEditor'));
+const Prices = lazy(() => import('./components/Prices'));
+const Works = lazy(() => import('./components/Works'));
+const Bundles = lazy(() => import('./components/Bundles'));
+const SalaryCalculator = lazy(() => import('./components/SalaryCalculator'));
+const Analytics = lazy(() => import('./components/Analytics'));
+const Subscriptions = lazy(() => import('./components/Subscriptions'));
 const Wiki = lazy(() => import('./components/Wiki'));
+
+const AUTOSAVE_DELAY_MS = 8000;
 
 
 type SaveMode = 'overwrite' | 'new';
@@ -735,7 +739,7 @@ const App: React.FC = () => {
         }
     }, [bundles, estimates, isLoading, loadedFlags.bundles, loadedFlags.estimates, loadedFlags.materials, loadedFlags.works, materials, works]);
 
-    const debouncedSaveAll = useDebouncedSave(saveAllToDatabase, 2000);
+    const debouncedSaveAll = useDebouncedSave(saveAllToDatabase, AUTOSAVE_DELAY_MS);
 
     useEffect(() => {
         if (isLoading) return;
@@ -756,6 +760,25 @@ const App: React.FC = () => {
             }
         };
     }, [debouncedSaveAll]);
+
+    useEffect(() => {
+        const handleBlur = () => {
+            if (!isLoading) {
+                debouncedSaveAll.flush();
+            }
+        };
+        const handleVisibility = () => {
+            if (document.visibilityState === 'hidden' && !isLoading) {
+                debouncedSaveAll.flush();
+            }
+        };
+        window.addEventListener('blur', handleBlur);
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => {
+            window.removeEventListener('blur', handleBlur);
+            document.removeEventListener('visibilitychange', handleVisibility);
+        };
+    }, [debouncedSaveAll, isLoading]);
 
 
     const goToView = useCallback((target: View) => {
@@ -793,6 +816,17 @@ const App: React.FC = () => {
             }, duration);
         }
     }, [setSync]);
+
+    useEffect(() => {
+        const handleOnline = () => showToast('Соединение восстановлено', 'success');
+        const handleOffline = () => showToast('Нет соединения. Данные будут синхронизированы позже', 'info', 0);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, [showToast]);
 
     useEffect(() => {
         return () => {
@@ -1091,6 +1125,18 @@ const App: React.FC = () => {
         setEditorDraft(null);
         goToView(target);
     }, [pendingView, goToView]);
+
+    const handleSaveOptionsKeyDown = useCallback((event: React.KeyboardEvent) => {
+        if (event.key === 'Escape') {
+            setShowSaveOptions(false);
+        }
+    }, []);
+
+    const handleUnsavedKeyDown = useCallback((event: React.KeyboardEvent) => {
+        if (event.key === 'Escape') {
+            setShowUnsavedModal(false);
+        }
+    }, []);
 
     useEffect(() => {
         if (view !== View.EDITOR) {
@@ -1572,11 +1618,9 @@ const App: React.FC = () => {
             />
             <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto">
                 {isLoading ? (
-                    <div className="flex justify-center items-center h-64">
-                        <div className="text-xl text-text-secondary">Загрузка смет...</div>
-                    </div>
+                    <AppLoadingSkeleton />
                 ) : (
-                    <>
+                    <Suspense fallback={<AppLoadingSkeleton />}>
                         {view === View.HISTORY && (
                             <EstimateHistory
                                 estimates={estimates}
@@ -1659,63 +1703,77 @@ const App: React.FC = () => {
                                 <Wiki />
                             </Suspense>
                         )}
-                    </>
+                    </Suspense>
                 )}
             </main>
             {showSaveOptions && (
-                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-                    <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-md">
-                        <h3 className="text-xl font-semibold mb-3">Сохранить изменения</h3>
-                        <p className="text-sm text-text-secondary mb-5">Выберите, хотите ли вы обновить текущую версию сметы или создать новую.</p>
-                        <div className="flex flex-col gap-3">
-                            <button
-                                onClick={() => handleConfirmSave('overwrite')}
-                                className="w-full bg-primary text-white py-2 rounded-md font-semibold"
-                            >
-                                Сохранить в текущую версию
-                            </button>
-                            <button
-                                onClick={() => handleConfirmSave('new')}
-                                className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-2 rounded-md font-semibold"
-                            >
-                                Создать новую версию
-                            </button>
-                            <button
-                                onClick={() => setShowSaveOptions(false)}
-                                className="w-full border border-border rounded-md py-2 font-semibold"
-                            >
-                                Отменить
-                            </button>
+                <div
+                    className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+                    role="dialog"
+                    aria-modal="true"
+                    onKeyDown={handleSaveOptionsKeyDown}
+                >
+                    <FocusLock returnFocus>
+                        <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-md">
+                            <h3 className="text-xl font-semibold mb-3">Сохранить изменения</h3>
+                            <p className="text-sm text-text-secondary mb-5">Выберите, хотите ли вы обновить текущую версию сметы или создать новую.</p>
+                            <div className="flex flex-col gap-3">
+                                <button
+                                    onClick={() => handleConfirmSave('overwrite')}
+                                    className="w-full bg-primary text-white py-2 rounded-md font-semibold"
+                                >
+                                    Сохранить в текущую версию
+                                </button>
+                                <button
+                                    onClick={() => handleConfirmSave('new')}
+                                    className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-2 rounded-md font-semibold"
+                                >
+                                    Создать новую версию
+                                </button>
+                                <button
+                                    onClick={() => setShowSaveOptions(false)}
+                                    className="w-full border border-border rounded-md py-2 font-semibold"
+                                >
+                                    Отменить
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    </FocusLock>
                 </div>
             )}
             {showUnsavedModal && (
-                <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-40">
-                    <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-sm">
-                        <h3 className="text-lg font-semibold mb-2">Несохранённые изменения</h3>
-                        <p className="text-sm text-text-secondary mb-4">Вы внесли изменения в смету. Перейти к другой вкладке без сохранения приведёт к потере правок.</p>
-                        <div className="flex flex-col gap-3">
-                            <button
-                                onClick={handleUnsavedSave}
-                                className="w-full bg-primary text-white py-2 rounded-md font-semibold"
-                            >
-                                Сохранить изменения и продолжить
-                            </button>
-                            <button
-                                onClick={handleUnsavedDiscard}
-                                className="w-full bg-red-600 text-white py-2 rounded-md font-semibold"
-                            >
-                                Не сохранять и продолжить
-                            </button>
-                            <button
-                                onClick={() => setShowUnsavedModal(false)}
-                                className="w-full border border-border rounded-md py-2 font-semibold"
-                            >
-                                Отмена
-                            </button>
+                <div
+                    className="fixed inset-0 bg-black/30 flex items-center justify-center z-40"
+                    role="dialog"
+                    aria-modal="true"
+                    onKeyDown={handleUnsavedKeyDown}
+                >
+                    <FocusLock returnFocus>
+                        <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-sm">
+                            <h3 className="text-lg font-semibold mb-2">Несохранённые изменения</h3>
+                            <p className="text-sm text-text-secondary mb-4">Вы внесли изменения в смету. Перейти к другой вкладке без сохранения приведёт к потере правок.</p>
+                            <div className="flex flex-col gap-3">
+                                <button
+                                    onClick={handleUnsavedSave}
+                                    className="w-full bg-primary text-white py-2 rounded-md font-semibold"
+                                >
+                                    Сохранить изменения и продолжить
+                                </button>
+                                <button
+                                    onClick={handleUnsavedDiscard}
+                                    className="w-full bg-red-600 text-white py-2 rounded-md font-semibold"
+                                >
+                                    Не сохранять и продолжить
+                                </button>
+                                <button
+                                    onClick={() => setShowUnsavedModal(false)}
+                                    className="w-full border border-border rounded-md py-2 font-semibold"
+                                >
+                                    Отмена
+                                </button>
+                            </div>
                         </div>
-                    </div>
+                    </FocusLock>
                 </div>
             )}
             {showPdfStyleModal && (

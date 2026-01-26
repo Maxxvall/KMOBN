@@ -22,6 +22,9 @@ type NowPaymentsPayload = {
     payment_id?: string;
     invoice_id?: string;
     purchase_id?: string;
+    payment_created_at?: string | number;
+    created_at?: string | number;
+    updated_at?: string | number;
     price_amount?: number;
     price_currency?: string;
     pay_currency?: string;
@@ -74,6 +77,25 @@ const addDaysFrom = (base: Date, days: number): string => {
     const date = new Date(base);
     date.setUTCDate(date.getUTCDate() + days);
     return date.toISOString();
+};
+
+const REPLAY_WINDOW_SECONDS = 300;
+
+const parsePayloadTimestamp = (payload: NowPaymentsPayload): number | null => {
+    const raw = payload.payment_created_at ?? payload.created_at ?? payload.updated_at;
+    if (raw == null) return null;
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+        return raw > 1_000_000_000_000 ? raw : raw * 1000;
+    }
+    if (typeof raw === 'string') {
+        const parsed = Date.parse(raw);
+        if (Number.isFinite(parsed)) return parsed;
+        const asNumber = Number(raw);
+        if (Number.isFinite(asNumber)) {
+            return asNumber > 1_000_000_000_000 ? asNumber : asNumber * 1000;
+        }
+    }
+    return null;
 };
 
 export default async function handler(req: ApiRequest, res: ApiResponse) {
@@ -133,6 +155,16 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         return;
     }
 
+    const payloadTimestamp = parsePayloadTimestamp(payload);
+    if (payloadTimestamp) {
+        const nowMs = Date.now();
+        const diffMs = Math.abs(nowMs - payloadTimestamp);
+        if (diffMs > REPLAY_WINDOW_SECONDS * 1000) {
+            res.status(403).send('Stale webhook payload');
+            return;
+        }
+    }
+
     const supabase = createClient(supabaseUrl, supabaseKey, {
         auth: { persistSession: false, autoRefreshToken: false },
     });
@@ -146,6 +178,21 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
                 ? payload.outcome_amount
                 : null;
     const currency = payload.price_currency || payload.pay_currency || payload.outcome_currency || null;
+
+    const successStatuses = new Set(['finished', 'paid', 'confirmed']);
+    if (paymentId) {
+        const { data: existingHistory } = await supabase
+            .from('payment_history')
+            .select('status')
+            .eq('payment_id', paymentId)
+            .maybeSingle();
+
+        const existingStatus = existingHistory?.status ? String(existingHistory.status).toLowerCase() : '';
+        if (existingStatus && successStatuses.has(existingStatus)) {
+            res.status(200).json({ ok: true, replay: true });
+            return;
+        }
+    }
 
     if (paymentId) {
         const historyPayload = {
@@ -167,7 +214,6 @@ export default async function handler(req: ApiRequest, res: ApiResponse) {
         }
     }
 
-    const successStatuses = new Set(['finished', 'paid', 'confirmed']);
     if (!successStatuses.has(status)) {
         res.status(200).json({ ok: true, status });
         return;
