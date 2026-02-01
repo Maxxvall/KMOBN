@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateItem, EstimateSubgroup } from '../types';
 import { ESTIMATE_CATEGORIES } from '../constants';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
@@ -211,7 +211,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
         sum: availableWidth * 0.12,
     };
 
-    doc.autoTable({
+    autoTable(doc, {
         startY: 34,
         head: [['Наименование', 'Ед.изм', 'Кол-во', 'Цена', 'Сумма']],
         body: tableBody,

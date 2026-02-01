@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
 import { ESTIMATE_CATEGORIES } from '../constants';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
@@ -33,6 +33,7 @@ export const generatePdf = async (estimate: Estimate) => {
             const b64 = arrayBufferToBase64(fontResult.value);
             doc.addFileToVFS('LiberationSans-Regular.ttf', b64);
             doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'normal');
+            doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'bold');
             doc.setFont(FONT_NAME, 'normal');
         } catch (e) {
             console.error('Failed to setup LiberationSans font for PDF generation:', e);
@@ -269,7 +270,7 @@ export const generatePdf = async (estimate: Estimate) => {
 
     doc.setDrawColor(100, 100, 100); // gray for table lines
 
-    doc.autoTable({
+    autoTable(doc, {
         // Сделаем общий верхний отступ, чтобы таблица на всех страницах
         // начиналась ниже шапки/логотипа и не заходила на логотип на 2-й странице
         startY: 55,
@@ -361,7 +362,7 @@ export const generatePdf = async (estimate: Estimate) => {
     });
 
     // --- Final Breakdown Block ---
-    const tableEndY = doc.autoTable.previous ? doc.autoTable.previous.finalY : 0;
+    const tableEndY = doc.lastAutoTable?.finalY ?? 0;
     const breakdownBlockHeight = 44;
     let blockStartY = tableEndY + 15;
     if (blockStartY + breakdownBlockHeight > pageHeight - margin) {

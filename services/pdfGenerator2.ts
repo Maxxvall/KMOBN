@@ -1,6 +1,6 @@
 // @ts-nocheck
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
 import { ESTIMATE_CATEGORIES } from '../constants';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
@@ -33,6 +33,7 @@ export const generatePdf = async (estimate: Estimate) => {
             const b64 = arrayBufferToBase64(fontResult.value);
             doc.addFileToVFS('LiberationSans-Regular.ttf', b64);
             doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'normal');
+            doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'bold');
             doc.setFont(FONT_NAME, 'normal');
         } catch (e) {
             console.error('Failed to setup LiberationSans font for PDF generation:', e);
@@ -221,7 +222,7 @@ export const generatePdf = async (estimate: Estimate) => {
     const fixedSum = colWidthsFixed.reduce((s, v) => s + v, 0);
     const firstColWidth = Math.max(availablePageWidth - fixedSum - 2, 40);
 
-    doc.autoTable({
+    autoTable(doc, {
         startY: 85, // Adjusted for new header height
         margin: { top: 45, left: margin, right: margin, bottom: 15 }, // Увеличен top margin для второй страницы
         head: [['Наименование работ/материалов', 'Ед. изм.', 'Кол-во', 'Цена за ед.', 'Сумма']],
@@ -313,7 +314,7 @@ export const generatePdf = async (estimate: Estimate) => {
     });
 
     // --- Final Breakdown Block ---
-    const tableEndY = doc.autoTable.previous ? doc.autoTable.previous.finalY : 0;
+    const tableEndY = doc.lastAutoTable?.finalY ?? 0;
     const breakdownBlockHeight = 44;
     let blockStartY = tableEndY + 15;
     if (blockStartY + breakdownBlockHeight > pageHeight - margin) {
