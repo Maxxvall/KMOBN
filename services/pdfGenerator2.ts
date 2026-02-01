@@ -83,7 +83,7 @@ export const generatePdf = async (estimate: Estimate) => {
         doc.setFontSize(9);
         doc.setFont(FONT_NAME, 'normal');
         doc.text('Строительство каркасных домов', margin, 22);
-        doc.text('kmobn.ru', margin, 29);
+        doc.text('karkasmaster.ru', margin, 29);
 
         // --- COMPANY LOGO (30x30mm - matching simple PDF) ---
         if (logoBase64) {

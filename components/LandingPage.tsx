@@ -10,7 +10,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
             <header className="fixed top-0 left-0 right-0 z-40 border-b border-border bg-background/80 backdrop-blur">
                 <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-4">
                     <a
-                        href="https://kmobn.ru"
+                        href="https://karkasmaster.ru"
                         className="group flex items-center gap-3"
                         target="_blank"
                         rel="noreferrer"

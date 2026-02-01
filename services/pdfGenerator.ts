@@ -94,7 +94,7 @@ export const generatePdf = async (estimate: Estimate) => {
     doc.setFontSize(10);
     doc.setFont(FONT_NAME, 'normal');
     doc.text('Строительство каркасных домов', margin, 26);
-    doc.text('kmobn.ru', margin, 32);
+    doc.text('karkasmaster.ru', margin, 32);
 
     doc.setLineWidth(1);
     doc.setDrawColor(100, 100, 100); // gray line
