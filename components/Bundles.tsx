@@ -1,17 +1,26 @@
 import React, { useState, useMemo } from 'react';
 import { WorkBundle, EstimateCategory, EstimateItem, EstimateSubgroup, Work, Material } from '../types';
 import TabDescription from './TabDescription';
+import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 
 interface BundlesProps {
-    bundles: WorkBundle[];
-    works: Work[];
-    materials: Material[];
-    onAddBundle: (bundle: WorkBundle) => void;
-    onUpdateBundle: (bundle: WorkBundle) => void;
-    onDeleteBundle: (bundleId: string) => void;
+    bundles?: WorkBundle[];
+    works?: Work[];
+    materials?: Material[];
+    onAddBundle?: (bundle: WorkBundle) => void | Promise<void>;
+    onUpdateBundle?: (bundle: WorkBundle) => void | Promise<void>;
+    onDeleteBundle?: (bundleId: string) => void | Promise<void>;
 }
 
 const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundle, onUpdateBundle, onDeleteBundle }) => {
+    const catalogContext = useOptionalCatalogContext();
+    const bundleList = bundles ?? catalogContext?.bundles ?? [];
+    const worksList = works ?? catalogContext?.works ?? [];
+    const materialList = materials ?? catalogContext?.materials ?? [];
+    const addBundleAction = onAddBundle ?? catalogContext?.onAddBundle;
+    const updateBundleAction = onUpdateBundle ?? catalogContext?.onUpdateBundle;
+    const deleteBundleAction = onDeleteBundle ?? catalogContext?.onDeleteBundle;
+
     const [newBundleName, setNewBundleName] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
@@ -24,8 +33,8 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
     const [newItemSubgroup, setNewItemSubgroup] = useState<EstimateSubgroup>(EstimateSubgroup.WORKS);
 
     const filteredBundles = useMemo(() => {
-        return filterCategory === 'all' ? bundles : bundles.filter(b => b.category === filterCategory);
-    }, [bundles, filterCategory]);
+        return filterCategory === 'all' ? bundleList : bundleList.filter(b => b.category === filterCategory);
+    }, [bundleList, filterCategory]);
 
     const handleAddBundle = () => {
         if (newBundleName.trim()) {
@@ -35,7 +44,9 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 items: [],
                 category: selectedCategory,
             };
-            onAddBundle(newBundle);
+            if (addBundleAction) {
+                void addBundleAction(newBundle);
+            }
             setNewBundleName('');
         }
     };
@@ -48,9 +59,11 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
 
     const handleSaveBundle = () => {
         if (editingBundleId) {
-            const bundle = bundles.find(b => b.id === editingBundleId);
+            const bundle = bundleList.find(b => b.id === editingBundleId);
             if (bundle) {
-                onUpdateBundle({ ...bundle, name: editingName, items: currentBundleItems });
+                if (updateBundleAction) {
+                    void updateBundleAction({ ...bundle, name: editingName, items: currentBundleItems });
+                }
             }
             setEditingBundleId(null);
             setEditingName('');
@@ -102,7 +115,7 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
     };
 
     const handleSelectWork = (workName: string) => {
-        const work = works.find(w => w.name === workName);
+        const work = worksList.find(w => w.name === workName);
         if (work) {
             setNewItemName(work.name);
             setNewItemSubgroup(EstimateSubgroup.WORKS);
@@ -110,7 +123,7 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
     };
 
     const handleSelectMaterial = (materialName: string) => {
-        const material = materials.find(m => m.name === materialName);
+        const material = materialList.find(m => m.name === materialName);
         if (material) {
             setNewItemName(material.name);
             setNewItemSubgroup(EstimateSubgroup.MATERIALS);
@@ -243,7 +256,12 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                                             Изменить
                                         </button>
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); onDeleteBundle(bundle.id); }}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (deleteBundleAction) {
+                                                    void deleteBundleAction(bundle.id);
+                                                }
+                                            }}
                                             className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
                                         >
                                             Удалить

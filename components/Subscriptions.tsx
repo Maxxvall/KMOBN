@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { SubscriptionLimits, SubscriptionTier, SubscriptionUsage, UserSubscription } from '../types';
 import { getSubscriptionLabel } from '../services/subscriptionConfig';
+import { useOptionalSubscriptionContext } from '../contexts/SubscriptionContext';
 
 type PlanCard = {
     tier: SubscriptionTier;
@@ -87,31 +88,42 @@ const TIER_ORDER: Record<SubscriptionTier, number> = {
 };
 
 const Subscriptions: React.FC<{
-    subscription: UserSubscription | null;
-    limits: SubscriptionLimits;
-    usage: SubscriptionUsage;
-    onStartPayment: (tier: SubscriptionTier) => void;
+    subscription?: UserSubscription | null;
+    limits?: SubscriptionLimits;
+    usage?: SubscriptionUsage;
+    onStartPayment?: (tier: SubscriptionTier) => void | Promise<void>;
     isLoading?: boolean;
 }> = ({ subscription, limits, usage, onStartPayment, isLoading }) => {
-    const currentTier: SubscriptionTier = subscription?.subscription_tier ?? 'free';
-    const statusLabel = formatStatus(subscription?.status);
-    const remainingLabel = formatRemainingDays(subscription?.expires_at ?? null);
+    const subscriptionContext = useOptionalSubscriptionContext();
+    const currentSubscription = subscription ?? subscriptionContext?.subscription ?? null;
+    const currentLimits = limits ?? subscriptionContext?.subscriptionLimits;
+    const currentUsage = usage ?? subscriptionContext?.subscriptionUsage;
+    const startPaymentAction = onStartPayment ?? subscriptionContext?.onStartPayment;
+    const loading = isLoading ?? subscriptionContext?.subscriptionLoading ?? false;
+
+    if (!currentLimits || !currentUsage) {
+        return null;
+    }
+
+    const currentTier: SubscriptionTier = currentSubscription?.subscription_tier ?? 'free';
+    const statusLabel = formatStatus(currentSubscription?.status);
+    const remainingLabel = formatRemainingDays(currentSubscription?.expires_at ?? null);
     const isActive = Boolean(
-        subscription?.status === 'active' &&
-        subscription?.expires_at &&
-        Date.parse(subscription.expires_at) > Date.now(),
+        currentSubscription?.status === 'active' &&
+        currentSubscription?.expires_at &&
+        Date.parse(currentSubscription.expires_at) > Date.now(),
     );
     const currentTierIndex = TIER_ORDER[currentTier];
 
     const usageSummary = useMemo(() => {
         return [
-            `Сметы: ${usage.estimatesCreated}/${formatLimit(limits.estimates.max)}`,
-            `Материалы: ${usage.materialsCreated}/${formatLimit(limits.materials.max)}`,
-            `Работы: ${usage.worksCreated}/${formatLimit(limits.works.max)}`,
-            `Комплекты: ${usage.bundlesCreated}/${formatLimit(limits.bundles.max)}`,
-            `AI сегодня: ${usage.aiRequestsToday}/${formatLimit(limits.aiRequestsPerDay)}`,
+            `Сметы: ${currentUsage.estimatesCreated}/${formatLimit(currentLimits.estimates.max)}`,
+            `Материалы: ${currentUsage.materialsCreated}/${formatLimit(currentLimits.materials.max)}`,
+            `Работы: ${currentUsage.worksCreated}/${formatLimit(currentLimits.works.max)}`,
+            `Комплекты: ${currentUsage.bundlesCreated}/${formatLimit(currentLimits.bundles.max)}`,
+            `AI сегодня: ${currentUsage.aiRequestsToday}/${formatLimit(currentLimits.aiRequestsPerDay)}`,
         ];
-    }, [limits, usage]);
+    }, [currentLimits, currentUsage]);
 
     return (
         <div className="space-y-6">
@@ -138,7 +150,7 @@ const Subscriptions: React.FC<{
                     const isCurrent = plan.tier === currentTier;
                     const targetTierIndex = TIER_ORDER[plan.tier];
                     const isDowngrade = isActive && targetTierIndex < currentTierIndex;
-                    const isDisabled = isCurrent || isLoading || plan.tier === 'free' || isDowngrade;
+                    const isDisabled = isCurrent || loading || plan.tier === 'free' || isDowngrade;
                     return (
                         <div
                             key={plan.tier}
@@ -168,7 +180,11 @@ const Subscriptions: React.FC<{
                             </div>
                             <button
                                 type="button"
-                                onClick={() => onStartPayment(plan.tier)}
+                                onClick={() => {
+                                    if (startPaymentAction) {
+                                        void startPaymentAction(plan.tier);
+                                    }
+                                }}
                                 disabled={isDisabled}
                                 className={`mt-6 w-full rounded-md px-4 py-2 font-semibold transition-colors ${
                                     isDisabled
@@ -182,7 +198,7 @@ const Subscriptions: React.FC<{
                                         ? 'Текущий план'
                                         : isDowngrade
                                             ? 'Доступно после окончания'
-                                        : isLoading
+                                        : loading
                                             ? 'Создаём платёж…'
                                             : 'Оплатить'}
                             </button>

@@ -1,15 +1,22 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Work, EstimateCategory } from '../types';
 import TabDescription from './TabDescription';
+import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 
 interface WorksProps {
-    works: Work[];
-    onAddWork: (name: string, category: EstimateCategory, price: number) => void;
-    onUpdateWork: (work: Work) => void;
-    onDeleteWork: (workId: string) => void;
+    works?: Work[];
+    onAddWork?: (name: string, category: EstimateCategory, price: number) => void | Promise<void>;
+    onUpdateWork?: (work: Work) => void | Promise<void>;
+    onDeleteWork?: (workId: string) => void | Promise<void>;
 }
 
 const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteWork }) => {
+    const catalogContext = useOptionalCatalogContext();
+    const worksList = works ?? catalogContext?.works ?? [];
+    const addWorkAction = onAddWork ?? catalogContext?.onAddWork;
+    const updateWorkAction = onUpdateWork ?? catalogContext?.onUpdateWork;
+    const deleteWorkAction = onDeleteWork ?? catalogContext?.onDeleteWork;
+
     const [newWorkName, setNewWorkName] = useState('');
     const [newWorkPrice, setNewWorkPrice] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
@@ -20,8 +27,8 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     const ITEMS_PER_PAGE = 25;
 
     const filteredWorks = useMemo(() => {
-        return filterCategory === 'all' ? works : works.filter(w => w.category === filterCategory);
-    }, [works, filterCategory]);
+        return filterCategory === 'all' ? worksList : worksList.filter(w => w.category === filterCategory);
+    }, [worksList, filterCategory]);
 
     const paginatedWorks = useMemo(() => {
         const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -38,7 +45,8 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     const handleAdd = () => {
         const price = parseFloat(newWorkPrice);
         if (newWorkName.trim() && !isNaN(price) && price > 0) {
-            onAddWork(newWorkName.trim(), selectedCategory, price);
+            if (!addWorkAction) return;
+            void addWorkAction(newWorkName.trim(), selectedCategory, price);
             setNewWorkName('');
             setNewWorkPrice('');
         }
@@ -51,11 +59,13 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
 
     const handleSave = () => {
         if (editingWorkId) {
-            const work = works.find(w => w.id === editingWorkId);
+            const work = worksList.find(w => w.id === editingWorkId);
             if (work) {
                 const newPrice = parseFloat(editingPrice);
                 if (!isNaN(newPrice) && newPrice > 0) {
-                    onUpdateWork({ ...work, price: newPrice });
+                    if (updateWorkAction) {
+                        void updateWorkAction({ ...work, price: newPrice });
+                    }
                 }
             }
             setEditingWorkId(null);
@@ -209,7 +219,11 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                                                 Изменить
                                             </button>
                                             <button
-                                                onClick={() => onDeleteWork(work.id)}
+                                                onClick={() => {
+                                                    if (deleteWorkAction) {
+                                                        void deleteWorkAction(work.id);
+                                                    }
+                                                }}
                                                 className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
                                             >
                                                 Удалить

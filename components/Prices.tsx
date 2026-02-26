@@ -1,18 +1,19 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Material, EstimateCategory } from '../types';
 import TabDescription from './TabDescription';
+import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 
 interface PricesProps {
-    materials: Material[];
-    onAddMaterial: (
+    materials?: Material[];
+    onAddMaterial?: (
         name: string,
         category: EstimateCategory,
         price?: number,
         link?: string
-    ) => void;
-    onDeleteMaterial: (materialId: string) => void;
-    onEditMaterialPrice: (materialId: string, newPrice: number) => void;
-    onEditMaterialLink: (materialId: string, link?: string) => void;
+    ) => void | Promise<void>;
+    onDeleteMaterial?: (materialId: string) => void | Promise<void>;
+    onEditMaterialPrice?: (materialId: string, newPrice: number) => void | Promise<void>;
+    onEditMaterialLink?: (materialId: string, link?: string) => void | Promise<void>;
 }
 
 const Prices: React.FC<PricesProps> = ({
@@ -22,6 +23,13 @@ const Prices: React.FC<PricesProps> = ({
     onEditMaterialPrice,
     onEditMaterialLink,
 }) => {
+    const catalogContext = useOptionalCatalogContext();
+    const materialList = materials ?? catalogContext?.materials ?? [];
+    const addMaterialAction = onAddMaterial ?? catalogContext?.onAddMaterial;
+    const deleteMaterialAction = onDeleteMaterial ?? catalogContext?.onDeleteMaterial;
+    const editMaterialPriceAction = onEditMaterialPrice ?? catalogContext?.onEditMaterialPrice;
+    const editMaterialLinkAction = onEditMaterialLink ?? catalogContext?.onEditMaterialLink;
+
     const [newMaterialName, setNewMaterialName] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [newMaterialPrice, setNewMaterialPrice] = useState('');
@@ -32,8 +40,8 @@ const Prices: React.FC<PricesProps> = ({
     const ITEMS_PER_PAGE = 25;
 
     const filteredMaterials = useMemo(() => {
-        return filterCategory === 'all' ? materials : materials.filter(m => m.category === filterCategory);
-    }, [materials, filterCategory]);
+        return filterCategory === 'all' ? materialList : materialList.filter(m => m.category === filterCategory);
+    }, [materialList, filterCategory]);
 
     const paginatedMaterials = useMemo(() => {
         const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -55,7 +63,9 @@ const Prices: React.FC<PricesProps> = ({
         if (editingPrice) {
             const newPrice = parseFloat(editingPrice.price);
             if (!isNaN(newPrice)) {
-                onEditMaterialPrice(editingPrice.id, newPrice);
+                if (editMaterialPriceAction) {
+                    void editMaterialPriceAction(editingPrice.id, newPrice);
+                }
             }
             setEditingPrice(null);
         }
@@ -67,10 +77,11 @@ const Prices: React.FC<PricesProps> = ({
 
     const handleAdd = () => {
         if (newMaterialName.trim()) {
+            if (!addMaterialAction) return;
             const price = newMaterialPrice ? parseFloat(newMaterialPrice) : undefined;
             const link = newMaterialLink.trim() || undefined;
 
-            onAddMaterial(
+            void addMaterialAction(
                 newMaterialName.trim(),
                 selectedCategory,
                 !isNaN(Number(price)) ? price : undefined,
@@ -211,7 +222,11 @@ const Prices: React.FC<PricesProps> = ({
                                         type="url"
                                         placeholder="https://"
                                         defaultValue={material.link ?? ''}
-                                        onBlur={(e) => onEditMaterialLink(material.id, e.target.value)}
+                                        onBlur={(e) => {
+                                            if (editMaterialLinkAction) {
+                                                void editMaterialLinkAction(material.id, e.target.value);
+                                            }
+                                        }}
                                         onKeyDown={(e) => {
                                             if (e.key === 'Enter') {
                                                 (e.currentTarget as HTMLInputElement).blur();
@@ -265,7 +280,11 @@ const Prices: React.FC<PricesProps> = ({
                                                 Изменить
                                             </button>
                                             <button
-                                                onClick={() => onDeleteMaterial(material.id)}
+                                                onClick={() => {
+                                                    if (deleteMaterialAction) {
+                                                        void deleteMaterialAction(material.id);
+                                                    }
+                                                }}
                                                 className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
                                             >
                                                 Удалить

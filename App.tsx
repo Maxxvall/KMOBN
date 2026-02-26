@@ -17,6 +17,10 @@ import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate } from './services/estimateValidation';
 import { hashData } from './services/hashing';
+import { EstimateProvider } from './contexts/EstimateContext';
+import { CatalogProvider } from './contexts/CatalogContext';
+import { SubscriptionProvider } from './contexts/SubscriptionContext';
+import { SyncProvider } from './contexts/SyncContext';
 import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
@@ -1523,6 +1527,78 @@ const App: React.FC = () => {
         }
     }, [supabaseUser]);
 
+    const estimateContextValue = useMemo(() => ({
+        view,
+        setView,
+        estimates,
+        setEstimates,
+        templates,
+        setTemplates,
+        currentEstimate,
+        setCurrentEstimate,
+    }), [view, estimates, templates, currentEstimate]);
+
+    const catalogContextValue = useMemo(() => ({
+        materials,
+        works,
+        bundles,
+        onAddMaterial: handleAddMaterial,
+        onEditMaterialPrice: handleEditMaterialPrice,
+        onEditMaterialLink: handleEditMaterialLink,
+        onDeleteMaterial: handleDeleteMaterial,
+        onAddWork: handleAddWork,
+        onUpdateWork: handleUpdateWork,
+        onDeleteWork: handleDeleteWork,
+        onAddBundle: handleAddBundle,
+        onUpdateBundle: handleUpdateBundle,
+        onDeleteBundle: handleDeleteBundle,
+    }), [
+        materials,
+        works,
+        bundles,
+        handleAddMaterial,
+        handleEditMaterialPrice,
+        handleEditMaterialLink,
+        handleDeleteMaterial,
+        handleAddWork,
+        handleUpdateWork,
+        handleDeleteWork,
+        handleAddBundle,
+        handleUpdateBundle,
+        handleDeleteBundle,
+    ]);
+
+    const subscriptionContextValue = useMemo(() => ({
+        subscription,
+        subscriptionLoading,
+        paymentLoading,
+        subscriptionTier,
+        subscriptionLimits,
+        subscriptionUsage,
+        headerSubscriptionSummary,
+        aiAccess,
+        onStartPayment: handleStartPayment,
+    }), [
+        subscription,
+        subscriptionLoading,
+        paymentLoading,
+        subscriptionTier,
+        subscriptionLimits,
+        subscriptionUsage,
+        headerSubscriptionSummary,
+        aiAccess,
+        handleStartPayment,
+    ]);
+
+    const syncContextValue = useMemo(() => ({
+        sync,
+        setSync,
+        isSaving,
+        lastSaved,
+        saveError,
+        showToast,
+    }), [sync, isSaving, lastSaved, saveError, showToast]);
+
     const passwordRecoveryModal = showPasswordRecoveryModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
             <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-2xl">
@@ -1599,7 +1675,11 @@ const App: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen bg-background text-text-primary">
+        <SubscriptionProvider value={subscriptionContextValue}>
+            <CatalogProvider value={catalogContextValue}>
+                <EstimateProvider value={estimateContextValue}>
+                    <SyncProvider value={syncContextValue}>
+                        <div className="min-h-screen bg-background text-text-primary">
             <Header
                 currentView={view}
                 onViewChange={handleNavigationAttempt}
@@ -1645,40 +1725,16 @@ const App: React.FC = () => {
                             />
                         )}
                         {view === View.PRICES && (
-                            <Prices
-                                materials={materials}
-                                onAddMaterial={handleAddMaterial}
-                                onDeleteMaterial={handleDeleteMaterial}
-                                onEditMaterialPrice={handleEditMaterialPrice}
-                                onEditMaterialLink={handleEditMaterialLink}
-                            />
+                            <Prices />
                         )}
                         {view === View.WORKS && (
-                            <Works
-                                works={works}
-                                onAddWork={handleAddWork}
-                                onUpdateWork={handleUpdateWork}
-                                onDeleteWork={handleDeleteWork}
-                            />
+                            <Works />
                         )}
                         {view === View.BUNDLES && (
-                            <Bundles
-                                bundles={bundles}
-                                works={works}
-                                materials={materials}
-                                onAddBundle={handleAddBundle}
-                                onUpdateBundle={handleUpdateBundle}
-                                onDeleteBundle={handleDeleteBundle}
-                            />
+                            <Bundles />
                         )}
                         {view === View.SUBSCRIPTIONS && (
-                            <Subscriptions
-                                subscription={subscription}
-                                limits={subscriptionLimits}
-                                usage={subscriptionUsage}
-                                onStartPayment={handleStartPayment}
-                                isLoading={subscriptionLoading || paymentLoading}
-                            />
+                            <Subscriptions />
                         )}
                         {view === View.SALARY_CALCULATOR && (
                             <SalaryCalculator
@@ -1808,7 +1864,11 @@ const App: React.FC = () => {
                 saveError={saveError}
             />
             <ScrollToTop />
-        </div>
+                        </div>
+                    </SyncProvider>
+                </EstimateProvider>
+            </CatalogProvider>
+        </SubscriptionProvider>
     );
 };
 
