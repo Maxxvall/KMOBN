@@ -333,7 +333,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         } catch {
             // ignore
         }
-    }, [periodPreset, selectedCategory, selectedEstimate1, selectedEstimate2, showOnlyDifferent, showOnlySignificant, significantThreshold]);
+    }, [periodPreset, selectedCategory, selectedEstimate1, selectedEstimate2, showOnlyDifferent, showOnlySignificant, showOnlySame, significantThreshold]);
 
     // Берем только актуальные версии смет
     const activeEstimates = useMemo(() => filterToLatestEstimateVersions(estimates), [estimates]);
@@ -729,12 +729,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         });
     };
 
-    const totalAbsDiffAllCats = useMemo(() => {
-        if (!detailedComparison) return 1;
-        return (
-            detailedComparison.categoriesComparison.reduce((s, c) => s + Math.abs(c.diff || 0), 0) || 1
-        );
-    }, [detailedComparison]);
+    const totalAbsDiffAllCats =
+        detailedComparison
+            ? (detailedComparison.categoriesComparison.reduce((s, c) => s + Math.abs(c.diff || 0), 0) || 1)
+            : 1;
 
     const onExportCategories = (type: 'csv' | 'xlsx') => {
         const rows = categoriesTable.map(r => ({
@@ -1014,7 +1012,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                     <YAxis />
                                     <Tooltip formatter={(value: any, name: string) => [formatRub(Number(value || 0)), name]} />
                                     <Legend />
-                                    {stackedCategoryMeta.stacked.map((category, idx) => (
+                                    {stackedCategoryMeta.stacked.map((category) => (
                                         <Bar
                                             key={category}
                                             dataKey={category}
@@ -1200,7 +1198,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                             {/* Аккордеоны категорий */}
                             <div className="space-y-4">
                                 {(selectedCategory ? categoriesTable.map((c: any) => ({ category: c.category })) : detailedComparison.categoriesComparison)
-                                    .map((catCmp: any, idx: number) => {
+                                    .map((catCmp: any) => {
                                         const category = catCmp.category;
                                         if (selectedCategory && category !== selectedCategory) return null;
 

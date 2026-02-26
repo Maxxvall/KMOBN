@@ -24,7 +24,7 @@ const Prices: React.FC<PricesProps> = ({
     onEditMaterialLink,
 }) => {
     const catalogContext = useOptionalCatalogContext();
-    const materialList = materials ?? catalogContext?.materials ?? [];
+    const materialList = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
     const addMaterialAction = onAddMaterial ?? catalogContext?.onAddMaterial;
     const deleteMaterialAction = onDeleteMaterial ?? catalogContext?.onDeleteMaterial;
     const editMaterialPriceAction = onEditMaterialPrice ?? catalogContext?.onEditMaterialPrice;

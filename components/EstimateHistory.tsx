@@ -120,9 +120,9 @@ const VersionDropdown: React.FC<{
     );
 };
 
-const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates, onCreateNew, onEdit, onDelete, onDeleteVersion, onGeneratePdf }) => {
+const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates: _templates, onCreateNew, onEdit, onDelete, onDeleteVersion, onGeneratePdf }) => {
     const estimateContext = useOptionalEstimateContext();
-    const estimateList = estimates ?? estimateContext?.estimates ?? [];
+    const estimateList = useMemo(() => estimates ?? estimateContext?.estimates ?? [], [estimates, estimateContext?.estimates]);
     const createNewAction = onCreateNew ?? estimateContext?.actions.onCreateNew;
     const editAction = onEdit ?? estimateContext?.actions.onEdit;
     const deleteAction = onDelete ?? estimateContext?.actions.onDelete;

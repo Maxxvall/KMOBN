@@ -12,7 +12,7 @@ interface WorksProps {
 
 const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteWork }) => {
     const catalogContext = useOptionalCatalogContext();
-    const worksList = works ?? catalogContext?.works ?? [];
+    const worksList = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
     const addWorkAction = onAddWork ?? catalogContext?.onAddWork;
     const updateWorkAction = onUpdateWork ?? catalogContext?.onUpdateWork;
     const deleteWorkAction = onDeleteWork ?? catalogContext?.onDeleteWork;

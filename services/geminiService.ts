@@ -1,4 +1,4 @@
-import { Estimate, EstimateItem, GenerationParams, EstimateStatus, EstimateCategory, EstimateSubgroup, Material, Work } from '../types';
+import { Estimate, EstimateItem, GenerationParams, EstimateCategory, EstimateSubgroup, Material, Work } from '../types';
 import { generateEstimateWithAI as generateWithOpenRouter } from './openRouterService';
 import { hasOpenRouterKey } from './aiConfig';
 

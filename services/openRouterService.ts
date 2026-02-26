@@ -125,8 +125,6 @@ const looksLikePackOrRoll = (nameRaw: string): boolean => {
   );
 };
 
-const nearlyEqual = (a: number, b: number, eps = 0.01) => Math.abs(a - b) <= eps;
-
 const computePackQuantityWithReserve = (area: number, packArea: number): number => {
   const base = Math.max(1, Math.ceil(area / packArea));
   const reserve = base > 2 ? 2 : 0;
@@ -366,7 +364,7 @@ const tryParseJsonWithHeuristics = (text: string): { obj: any | null; cleanedTex
   // Try raw
   try {
     return { obj: JSON.parse(base) };
-  } catch (e) {
+  } catch {
     // continue to heuristics
   }
 
@@ -380,13 +378,13 @@ const tryParseJsonWithHeuristics = (text: string): { obj: any | null; cleanedTex
   try {
     const singleQuoted = t.replace(/'([^']*)'/g, '"$1"');
     t = singleQuoted;
-  } catch (e) {
+  } catch {
     // ignore
   }
 
   try {
     return { obj: JSON.parse(t), cleanedText: t };
-  } catch (e) {
+  } catch {
     const evalTry = tryEvalJson(t);
     if (evalTry.obj) return { obj: evalTry.obj, cleanedText: t };
     return { obj: null, cleanedText: t };

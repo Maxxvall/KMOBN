@@ -45,11 +45,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const subscriptionContext = useOptionalSubscriptionContext();
 
     const initialEstimateValue = initialEstimate ?? estimateContext?.currentEstimate ?? null;
-    const templatesValue = templates ?? estimateContext?.templates ?? [];
-    const materialsValue = materials ?? catalogContext?.materials ?? [];
-    const worksValue = works ?? catalogContext?.works ?? [];
-    const bundlesValue = bundles ?? catalogContext?.bundles ?? [];
-    const allEstimatesValue = allEstimates ?? estimateContext?.estimates ?? [];
+    const templatesValue = useMemo(() => templates ?? estimateContext?.templates ?? [], [templates, estimateContext?.templates]);
+    const materialsValue = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
+    const worksValue = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
+    const bundlesValue = useMemo(() => bundles ?? catalogContext?.bundles ?? [], [bundles, catalogContext?.bundles]);
+    const allEstimatesValue = useMemo(() => allEstimates ?? estimateContext?.estimates ?? [], [allEstimates, estimateContext?.estimates]);
     const onRequestSaveAction = onRequestSave ?? estimateContext?.actions.onRequestSave;
     const onDraftChangeAction = onDraftChange ?? estimateContext?.actions.onDraftChange;
     const onDirtyChangeAction = onDirtyChange ?? estimateContext?.actions.onDirtyChange;
@@ -104,7 +104,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const debounceTimers = useRef<Record<string, any>>({});
     const suggestionPoolCacheRef = useRef<Record<string, { poolRef: (Material | Work)[]; entries: Array<{ item: Material | Work; key: string }> }>>({});
     const hideTimeouts = useRef<Record<string, any>>({});
-    const [loadingPrices, setLoadingPrices] = useState<Record<string, boolean>>({});
+    const [loadingPrices, _setLoadingPrices] = useState<Record<string, boolean>>({});
 
     const aiSessionRef = useRef<null | {
         baselineItems: EstimateItem[];
@@ -634,7 +634,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
     const handleApplyBundle = useCallback((bundleId: string) => {
-        const bundle = bundles.find(b => b.id === bundleId);
+        const bundle = bundlesValue.find(b => b.id === bundleId);
         if (!bundle) return;
 
         // Создаем новые items из bundle, присваивая им уникальные id и категорию bundle
@@ -649,7 +649,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
             return { ...prev, items: updatedItems, total: newTotal };
         });
-    }, [bundles]);
+    }, [bundlesValue]);
 
     const handleSave = () => {
         if (!estimate.client) {
@@ -853,7 +853,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             defaultValue=""
                         >
                             <option value="">Добавить комплект...</option>
-                            {bundles.map(bundle => (
+                            {bundlesValue.map(bundle => (
                                 <option key={bundle.id} value={bundle.id}>{bundle.name}</option>
                             ))}
                         </select>

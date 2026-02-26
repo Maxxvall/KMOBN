@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { ESTIMATE_CATEGORIES } from '../constants';
 import { EstimateItem, EstimateSubgroup } from '../types';
 
@@ -21,7 +21,7 @@ const AIMissingItemsModal = ({
 }) => {
   if (!isOpen) return null;
 
-  const grouped = useMemo(() => {
+  const grouped = (() => {
     type Entry = { item: EstimateItem; priority: 'critical' | 'recommended' };
     type Group = { materials: Entry[]; works: Entry[]; delivery: Entry[] };
 
@@ -59,7 +59,7 @@ const AIMissingItemsModal = ({
         return g && (g.materials.length + g.works.length + g.delivery.length) > 0;
       })
       .map((c) => ({ category: c, group: map.get(c)! }));
-  }, [missing, optional]);
+  })();
 
   const renderEntry = (entry: { item: EstimateItem; priority: 'critical' | 'recommended' }) => {
     const it = entry.item;

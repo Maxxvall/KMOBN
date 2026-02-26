@@ -64,7 +64,7 @@ export const generatePdf = async (estimate: Estimate) => {
         // Ensure we're drawing on the correct page
         try {
             doc.setPage(pageNumber);
-        } catch (e) {
+        } catch {
             // setPage might fail in some older jspdf builds; ignore safely
         }
 
@@ -199,8 +199,6 @@ export const generatePdf = async (estimate: Estimate) => {
             subgroupList.forEach(subgroup => {
                 const subItems = itemsInCategory.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
                 if (subItems.length === 0) return;
-                const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-
                 // Subgroup header
                 tableBody.push([{ 
                     content: subgroup, 
@@ -261,8 +259,6 @@ export const generatePdf = async (estimate: Estimate) => {
     // compute table widths to ensure table fits the page
     const availablePageWidth = pageWidth - margin * 2;
     // keep these numeric widths for numeric columns (in same units as jsPDF page width)
-    const col1 = 0; // will be computed
-    const col1Fixed = 0;
     const colWidthsFixed = [15, 20, 25, 28]; // cols 1..4 fixed widths
     const fixedSum = colWidthsFixed.reduce((s, v) => s + v, 0);
     // small safety gap of 2 units to account for borders/padding
@@ -346,7 +342,7 @@ export const generatePdf = async (estimate: Estimate) => {
                     doc.setFillColor(Array.isArray(fill) ? fill : [220,220,220]);
                     doc.rect(cell.x, cell.y, spanWidth, cell.height, 'F');
                 }
-            } catch (e) {
+            } catch {
                 // ignore
             }
         },

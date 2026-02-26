@@ -63,7 +63,7 @@ export const generatePdf = async (estimate: Estimate) => {
         // Switch to target page
         try {
             doc.setPage(pageNumber);
-        } catch (e) {}
+        } catch {}
 
         // --- BACKGROUND ---
         // Light green background (brand color #f8fff8)
@@ -171,8 +171,6 @@ export const generatePdf = async (estimate: Estimate) => {
             subgroupList.forEach(subgroup => {
                 const subItems = itemsInCategory.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
                 if (subItems.length === 0) return;
-                const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-
                 // Subgroup header
                 tableBody.push([{ 
                     content: subgroup, 
@@ -298,7 +296,7 @@ export const generatePdf = async (estimate: Estimate) => {
                         doc.rect(cell.x, cell.y, spanWidth, cell.height, 'F');
                     }
                 }
-            } catch (e) {
+            } catch {
                 // ignore
             }
         },

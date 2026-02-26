@@ -14,9 +14,9 @@ interface BundlesProps {
 
 const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundle, onUpdateBundle, onDeleteBundle }) => {
     const catalogContext = useOptionalCatalogContext();
-    const bundleList = bundles ?? catalogContext?.bundles ?? [];
-    const worksList = works ?? catalogContext?.works ?? [];
-    const materialList = materials ?? catalogContext?.materials ?? [];
+    const bundleList = useMemo(() => bundles ?? catalogContext?.bundles ?? [], [bundles, catalogContext?.bundles]);
+    const worksList = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
+    const materialList = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
     const addBundleAction = onAddBundle ?? catalogContext?.onAddBundle;
     const updateBundleAction = onUpdateBundle ?? catalogContext?.onUpdateBundle;
     const deleteBundleAction = onDeleteBundle ?? catalogContext?.onDeleteBundle;

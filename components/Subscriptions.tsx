@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import { SubscriptionLimits, SubscriptionTier, SubscriptionUsage, UserSubscription } from '../types';
 import { getSubscriptionLabel } from '../services/subscriptionConfig';
 import { useOptionalSubscriptionContext } from '../contexts/SubscriptionContext';
@@ -115,15 +115,13 @@ const Subscriptions: React.FC<{
     );
     const currentTierIndex = TIER_ORDER[currentTier];
 
-    const usageSummary = useMemo(() => {
-        return [
-            `Сметы: ${currentUsage.estimatesCreated}/${formatLimit(currentLimits.estimates.max)}`,
-            `Материалы: ${currentUsage.materialsCreated}/${formatLimit(currentLimits.materials.max)}`,
-            `Работы: ${currentUsage.worksCreated}/${formatLimit(currentLimits.works.max)}`,
-            `Комплекты: ${currentUsage.bundlesCreated}/${formatLimit(currentLimits.bundles.max)}`,
-            `AI сегодня: ${currentUsage.aiRequestsToday}/${formatLimit(currentLimits.aiRequestsPerDay)}`,
-        ];
-    }, [currentLimits, currentUsage]);
+    const usageSummary = [
+        `Сметы: ${currentUsage.estimatesCreated}/${formatLimit(currentLimits.estimates.max)}`,
+        `Материалы: ${currentUsage.materialsCreated}/${formatLimit(currentLimits.materials.max)}`,
+        `Работы: ${currentUsage.worksCreated}/${formatLimit(currentLimits.works.max)}`,
+        `Комплекты: ${currentUsage.bundlesCreated}/${formatLimit(currentLimits.bundles.max)}`,
+        `AI сегодня: ${currentUsage.aiRequestsToday}/${formatLimit(currentLimits.aiRequestsPerDay)}`,
+    ];
 
     return (
         <div className="space-y-6">
