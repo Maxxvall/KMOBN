@@ -16,6 +16,7 @@ import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate } from './services/estimateValidation';
+import { hashData } from './services/hashing';
 import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
@@ -203,19 +204,11 @@ const App: React.FC = () => {
     const saveQueuedRef = useRef(false);
     const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    const hashData = useCallback((data: unknown): string => {
-        try {
-            return JSON.stringify(data ?? null).length.toString();
-        } catch {
-            return '0';
-        }
-    }, []);
-
     const needsReload = useCallback((key: string, data: unknown): boolean => {
         const currentHash = hashData(data);
         const savedHash = dataHashes[key];
         return savedHash !== currentHash;
-    }, [dataHashes, hashData]);
+    }, [dataHashes]);
 
     const handleCacheUpdate = useCallback((detail: { key: CacheTableKey; data: unknown[] }) => {
         const nextHash = hashData(detail.data);
@@ -263,7 +256,7 @@ const App: React.FC = () => {
             setLoadedFlags(prev => ({ ...prev, bundles: true }));
             setDataHashes(prev => ({ ...prev, bundles: hashData(loaded) }));
         }
-    }, [dataHashes, hashData]);
+    }, [dataHashes]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -573,7 +566,7 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [estimates, hashData, loadedFlags.estimates, loadedFlags.templates, templates]);
+    }, [estimates, loadedFlags.estimates, loadedFlags.templates, templates]);
 
     const loadMaterialsData = useCallback(async () => {
         if (loadedFlags.materials) return;
@@ -586,7 +579,7 @@ const App: React.FC = () => {
             console.error('Failed to load materials:', error);
             setMaterials([]);
         }
-    }, [hashData, loadedFlags.materials]);
+    }, [loadedFlags.materials]);
 
     const loadWorksData = useCallback(async () => {
         if (loadedFlags.works) return;
@@ -599,7 +592,7 @@ const App: React.FC = () => {
             console.error('Failed to load works:', error);
             setWorks([]);
         }
-    }, [hashData, loadedFlags.works]);
+    }, [loadedFlags.works]);
 
     const loadBundlesData = useCallback(async () => {
         if (loadedFlags.bundles) return;
@@ -612,37 +605,37 @@ const App: React.FC = () => {
             console.error('Failed to load bundles:', error);
             setBundles([]);
         }
-    }, [hashData, loadedFlags.bundles]);
+    }, [loadedFlags.bundles]);
 
     useEffect(() => {
         if (loadedFlags.estimates) {
             setDataHashes(prev => ({ ...prev, estimates: hashData(estimates) }));
         }
-    }, [estimates, hashData, loadedFlags.estimates]);
+    }, [estimates, loadedFlags.estimates]);
 
     useEffect(() => {
         if (loadedFlags.templates) {
             setDataHashes(prev => ({ ...prev, templates: hashData(templates) }));
         }
-    }, [hashData, loadedFlags.templates, templates]);
+    }, [loadedFlags.templates, templates]);
 
     useEffect(() => {
         if (loadedFlags.materials) {
             setDataHashes(prev => ({ ...prev, materials: hashData(materials) }));
         }
-    }, [hashData, loadedFlags.materials, materials]);
+    }, [loadedFlags.materials, materials]);
 
     useEffect(() => {
         if (loadedFlags.works) {
             setDataHashes(prev => ({ ...prev, works: hashData(works) }));
         }
-    }, [hashData, loadedFlags.works, works]);
+    }, [loadedFlags.works, works]);
 
     useEffect(() => {
         if (loadedFlags.bundles) {
             setDataHashes(prev => ({ ...prev, bundles: hashData(bundles) }));
         }
-    }, [bundles, hashData, loadedFlags.bundles]);
+    }, [bundles, loadedFlags.bundles]);
 
     useEffect(() => {
         if (!isAuthenticated) return;

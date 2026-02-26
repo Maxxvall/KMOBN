@@ -1,3 +1,5 @@
+import { fnv1aHash } from './hashing';
+
 export type CacheTableKey =
   | 'estimates'
   | 'templates'
@@ -82,15 +84,6 @@ const stableStringify = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
-const fnv1aHash = (input: string): string => {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < input.length; i += 1) {
-    hash ^= input.charCodeAt(i);
-    hash = (hash * 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, '0');
-};
-
 const hashRecord = (record: unknown): string => fnv1aHash(stableStringify(record));
 
 const getAllEntriesByUser = async <T>(table: CacheTableKey, userId: string): Promise<CacheRecord<T>[]> => {
@@ -119,9 +112,9 @@ export const syncCachedRecords = async <T extends { id: string }>(
   table: CacheTableKey,
   userId: string,
   records: T[],
-): Promise<{ changed: boolean; next: T[] }> => {
+): Promise<{ changed: boolean; next: T[]; changedIds: string[]; cacheAvailable: boolean }> => {
   if (!isIndexedDbAvailable()) {
-    return { changed: false, next: records };
+    return { changed: false, next: records, changedIds: [], cacheAvailable: false };
   }
   try {
     const db = await openDb();
@@ -133,6 +126,7 @@ export const syncCachedRecords = async <T extends { id: string }>(
     });
 
     let changed = false;
+  const changedIds: string[] = [];
     const nextIds = new Set<string>();
 
     const tx = db.transaction(storeName, 'readwrite');
@@ -155,6 +149,7 @@ export const syncCachedRecords = async <T extends { id: string }>(
         };
         store.put(payload);
         changed = true;
+        changedIds.push(id);
       }
     });
 
@@ -166,8 +161,8 @@ export const syncCachedRecords = async <T extends { id: string }>(
     });
 
     await waitForTransaction(tx);
-    return { changed, next: records };
+    return { changed, next: records, changedIds, cacheAvailable: true };
   } catch {
-    return { changed: false, next: records };
+    return { changed: false, next: records, changedIds: [], cacheAvailable: false };
   }
 };

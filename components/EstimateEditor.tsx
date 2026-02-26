@@ -12,6 +12,7 @@ import { aiAutocomplete, analyzeMissingItems } from '../services/openRouterServi
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
 import { aiCache } from '../services/aiCache';
+import { generateEstimateNumber } from '../services/estimateNumber';
 
 interface EstimateEditorProps {
     initialEstimate: Estimate | null;
@@ -79,6 +80,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [suggestions, setSuggestions] = useState<Record<string, (Material | Work)[]>>({});
     const [showSuggestions, setShowSuggestions] = useState<Record<string, boolean>>({});
     const debounceTimers = useRef<Record<string, any>>({});
+    const suggestionPoolCacheRef = useRef<Record<string, { poolRef: (Material | Work)[]; entries: Array<{ item: Material | Work; key: string }> }>>({});
     const hideTimeouts = useRef<Record<string, any>>({});
     const [loadingPrices, setLoadingPrices] = useState<Record<string, boolean>>({});
 
@@ -114,6 +116,34 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         onDraftChange?.(estimate);
     }, [estimate, onDraftChange]);
 
+    const materialsIndex = useMemo(() => {
+        const index = new Map<string, Material>();
+        materials.forEach(material => index.set(material.name, material));
+        return index;
+    }, [materials]);
+
+    const worksIndex = useMemo(() => {
+        const index = new Map<string, Work>();
+        works.forEach(work => index.set(work.name, work));
+        return index;
+    }, [works]);
+
+    const filteredMaterialsByCategory = useMemo(() => {
+        const map = new Map<EstimateCategory, Material[]>();
+        Object.values(EstimateCategory).forEach(category => {
+            map.set(category, materials.filter(material => material.category === category || material.category === EstimateCategory.GENERAL));
+        });
+        return map;
+    }, [materials]);
+
+    const filteredWorksByCategory = useMemo(() => {
+        const map = new Map<EstimateCategory, Work[]>();
+        Object.values(EstimateCategory).forEach(category => {
+            map.set(category, works.filter(work => work.category === category || work.category === EstimateCategory.GENERAL));
+        });
+        return map;
+    }, [works]);
+
     const scheduleSuggestions = (itemId: string, query: string, pool: (Material | Work)[]) => {
         clearDebounce(itemId);
         if (!query) {
@@ -122,18 +152,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             return;
         }
         // Use precomputed lowercase cache for pool names to avoid repeated toLowerCase overhead
-        const poolKey = `pool_cache_${itemId}`;
-        if (!(debounceTimers.current as any)[poolKey]) {
-            try {
-                (debounceTimers.current as any)[poolKey] = (pool || []).map(p => ({ item: p, key: String((p as any).name || '').toLowerCase() }));
-            } catch {
-                (debounceTimers.current as any)[poolKey] = (pool || []).map(p => ({ item: p, key: String((p as any).name || '') }));
-            }
+        const cachedPool = suggestionPoolCacheRef.current[itemId];
+        if (!cachedPool || cachedPool.poolRef !== pool) {
+            suggestionPoolCacheRef.current[itemId] = {
+                poolRef: pool || [],
+                entries: (pool || []).map(item => ({ item, key: String(item.name || '').toLowerCase() })),
+            };
         }
 
         debounceTimers.current[itemId] = setTimeout(() => {
             const q = query.toLowerCase();
-            const cached = (debounceTimers.current as any)[poolKey] as Array<{ item: Material | Work; key: string }>;
+            const cached = suggestionPoolCacheRef.current[itemId]?.entries || [];
             const results = (cached || []).filter(p => p.key.includes(q)).map(p => p.item).slice(0, 20);
             setSuggestions(prev => ({ ...prev, [itemId]: results }));
             setShowSuggestions(prev => ({ ...prev, [itemId]: results.length > 0 }));
@@ -319,7 +348,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const handleMaterialSelect = async (itemId: string, materialName: string) => {
         console.info('[EstimateEditor] handleMaterialSelect start', { itemId, materialName });
-        const material = materials.find(m => m.name === materialName);
+        const material = materialsIndex.get(materialName);
         if (!material) {
             // Allow AI suggestions that are not in the catalog
             const aiSuggested = (suggestions[itemId] as any[] | undefined)?.find(s => s?.name === materialName);
@@ -344,7 +373,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     // Try to apply material by exact name (used on blur / Enter) so user can type freely
     const tryApplyMaterialByName = async (itemId: string, name: string) => {
         if (!name) return;
-        const material = materials.find(m => m.name === name);
+        const material = materialsIndex.get(name);
         if (!material) return;
         await handleMaterialSelect(itemId, name);
     };
@@ -357,7 +386,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
     const handleWorkSelect = (itemId: string, workName: string) => {
-        const work = works.find(w => w.name === workName);
+        const work = worksIndex.get(workName);
         if (!work) {
             // Allow AI suggestions that are not in the catalog
             const aiSuggested = (suggestions[itemId] as any[] | undefined)?.find(s => s?.name === workName);
@@ -374,7 +403,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     // Try to apply work by exact name (used on blur / Enter) so user can type freely
     const tryApplyWorkByName = (itemId: string, name: string) => {
         if (!name) return;
-        const work = works.find(w => w.name === name);
+        const work = worksIndex.get(name);
         if (!work) return;
         handleWorkSelect(itemId, name);
     };
@@ -608,7 +637,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         const finalEstimate = {
             ...estimate,
             id: initialEstimate ? estimate.id : `sm-id-${Date.now()}`,
-            estimateNumber: initialEstimate ? estimate.estimateNumber : `SM-${new Date().getFullYear()}-${String(allEstimates.length + 1).padStart(3, '0')}`
+            estimateNumber: initialEstimate ? estimate.estimateNumber : generateEstimateNumber(allEstimates.map(item => item.estimateNumber), new Date())
         };
 
         // Learning: record user corrections vs last AI baseline (if any)
@@ -902,8 +931,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 </tr>
                                                             )}
                                                             {subItems.map((item) => {
-                                                                const filteredMaterials = materials.filter(m => m.category === category || m.category === EstimateCategory.GENERAL);
-                                                                const filteredWorks = works.filter(w => w.category === category || w.category === EstimateCategory.GENERAL);
+                                                                const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
+                                                                const filteredWorks = filteredWorksByCategory.get(category) || [];
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                                 return (

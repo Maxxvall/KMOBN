@@ -1074,8 +1074,8 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       parsedSuggestions.push(`Предположения (этап 1): ${stage1Assumptions.join('; ')}`);
     }
 
-    // --- Stage 2: detail per block ---
-    for (const block of chosenBlocks) {
+    // --- Stage 2: detail per block (parallel) ---
+    const stage2Results = await Promise.allSettled(chosenBlocks.map(async block => {
       const cat = block.category as EstimateCategory;
 
       const catMaterials = buildMaterialsCatalogForCategory(cat);
@@ -1097,11 +1097,23 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       const s2Content = String(s2?.choices?.[0]?.message?.content || '');
       console.info('[AI] Stage 2: received response for block', cat, '(length:', String((s2Content || '').length) + ')');
       console.debug('[AI] Stage 2 full response for ' + String(cat) + ':', s2Content);
-      const s2Parsed = parseEstimateResponse(s2Content, cat);
-      parsedItems.push(...(s2Parsed.items || []));
-      parsedSuggestions.push(...(s2Parsed.suggestions || []));
-      parsedWarnings.push(...(s2Parsed.warnings || []));
-    }
+      return {
+        cat,
+        parsed: parseEstimateResponse(s2Content, cat),
+      };
+    }));
+
+    stage2Results.forEach((result, index) => {
+      const categoryLabel = String(chosenBlocks[index]?.category || 'unknown');
+      if (result.status === 'fulfilled') {
+        parsedItems.push(...(result.value.parsed.items || []));
+        parsedSuggestions.push(...(result.value.parsed.suggestions || []));
+        parsedWarnings.push(...(result.value.parsed.warnings || []));
+        return;
+      }
+
+      parsedWarnings.push(`AI: блок ${categoryLabel} не обработан на этапе 2. Причина: ${String(result.reason)}`);
+    });
 
     // --- Stage 3: self-check ---
     const stage3Prompt = `Этап 3/3: Самопроверка и корректировка.\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n\nПромежуточная смета (черновик items):\n${JSON.stringify(parsedItems, null, 0)}\n\n${adv.text}\n\nЗадача:\n1) Удалить дубли/мусорные позиции\n2) Проверить комплектность: если есть работа — добавь необходимые материалы (в рамках справочников и только если уместно по описанию сметы)\n3) Исправить явные несоответствия масштаба количеств (ориентируйся на историю и площадь)\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;

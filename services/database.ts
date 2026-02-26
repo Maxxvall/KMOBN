@@ -130,12 +130,19 @@ const upsertRecords = async (upserter: (records: any[], userId: string) => Promi
   }
 };
 
+export const pickChangedRecordsByIds = <T extends { id: string }>(records: T[], changedIds: string[]): T[] => {
+  if (!records.length || !changedIds.length) return [];
+  const changedSet = new Set(changedIds);
+  return records.filter(record => changedSet.has(record.id));
+};
+
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
   const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
-  await Promise.all([
-    upsertRecords(upsertEstimates, estimates),
-    syncCachedRecords('estimates', cacheUserId, estimates),
-  ]);
+  const syncResult = await syncCachedRecords('estimates', cacheUserId, estimates);
+  const changedEstimates = syncResult.cacheAvailable
+    ? pickChangedRecordsByIds(estimates, syncResult.changedIds)
+    : estimates;
+  await upsertRecords(upsertEstimates, changedEstimates);
 };
 
 export const loadEstimates = async (): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates);
