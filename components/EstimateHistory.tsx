@@ -4,15 +4,16 @@ import { Estimate, EstimateStatus, ProjectTemplate } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
 import { exportData, importData } from '../services/database';
 import TabDescription from './TabDescription';
+import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 
 interface EstimateHistoryProps {
-    estimates: Estimate[];
-    templates: ProjectTemplate[];
-    onCreateNew: () => void;
-    onEdit: (estimate: Estimate) => void;
-    onDelete: (estimate: Estimate) => void;
-    onDeleteVersion: (estimate: Estimate) => void;
-    onGeneratePdf: (estimate: Estimate) => void;
+    estimates?: Estimate[];
+    templates?: ProjectTemplate[];
+    onCreateNew?: () => void;
+    onEdit?: (estimate: Estimate) => void;
+    onDelete?: (estimate: Estimate) => void;
+    onDeleteVersion?: (estimate: Estimate) => void;
+    onGeneratePdf?: (estimate: Estimate) => void;
 }
 
 const statusColors: { [key in EstimateStatus]: string } = {
@@ -120,6 +121,14 @@ const VersionDropdown: React.FC<{
 };
 
 const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates, onCreateNew, onEdit, onDelete, onDeleteVersion, onGeneratePdf }) => {
+    const estimateContext = useOptionalEstimateContext();
+    const estimateList = estimates ?? estimateContext?.estimates ?? [];
+    const createNewAction = onCreateNew ?? estimateContext?.actions.onCreateNew;
+    const editAction = onEdit ?? estimateContext?.actions.onEdit;
+    const deleteAction = onDelete ?? estimateContext?.actions.onDelete;
+    const deleteVersionAction = onDeleteVersion ?? estimateContext?.actions.onDeleteVersion;
+    const generatePdfAction = onGeneratePdf ?? estimateContext?.actions.onGeneratePdf;
+
     const [filterClient, setFilterClient] = useState('');
     const [filterStatus, setFilterStatus] = useState<EstimateStatus | 'all'>('all');
     const [filterBuildingType, setFilterBuildingType] = useState<string>('');
@@ -167,7 +176,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
     };
 
     const filteredEstimates = useMemo(() => {
-        const latestEstimates = filterToLatestEstimateVersions(estimates);
+        const latestEstimates = filterToLatestEstimateVersions(estimateList);
         return latestEstimates
             .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
             .filter(e => filterStatus === 'all' || e.status === filterStatus)
@@ -178,11 +187,11 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                 return e.area >= min && e.area <= max;
             })
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [estimates, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
+    }, [estimateList, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
     
     const getVersionHistory = (estimate: Estimate) => {
         const groupKey = estimate.estimateNumber;
-        return estimates
+        return estimateList
             .filter(e => e.estimateNumber === groupKey)
             .sort((a, b) => b.version - a.version);
     }
@@ -192,7 +201,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
         const selectedVersionId = selectedVersions[groupKey];
         
         if (selectedVersionId) {
-            const selectedEstimate = estimates.find(e => e.id === selectedVersionId);
+            const selectedEstimate = estimateList.find(e => e.id === selectedVersionId);
             if (selectedEstimate) return selectedEstimate;
         }
         
@@ -214,10 +223,10 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
 
             // Collect all estimate numbers present in estimates
             const groupKeys = new Set<string>();
-            estimates.forEach(e => groupKeys.add(e.estimateNumber));
+            estimateList.forEach(e => groupKeys.add(e.estimateNumber));
 
             groupKeys.forEach(groupKey => {
-                const versionHistory = estimates
+                const versionHistory = estimateList
                     .filter(e => e.estimateNumber === groupKey)
                     .sort((a, b) => b.version - a.version);
 
@@ -231,7 +240,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
 
                 const latestId = versionHistory[0].id;
                 // if no selection for this parent or current selection no longer exists — set to latest
-                if (!next[groupKey] || !estimates.some(e => e.id === next[groupKey])) {
+                if (!next[groupKey] || !estimateList.some(e => e.id === next[groupKey])) {
                     next[groupKey] = latestId;
                     changed = true;
                 }
@@ -239,7 +248,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
 
             return changed ? next : prev;
         });
-    }, [estimates]);
+    }, [estimateList]);
 
     return (
         <div className="bg-surface p-4 rounded-lg shadow-2xl">
@@ -329,7 +338,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                     <button onClick={handleImportData} className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
                         Импорт данных
                     </button>
-                    <button onClick={onCreateNew} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
+                          <button onClick={() => createNewAction?.()} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
                        Создать новую
                     </button>
                 </div>
@@ -366,7 +375,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                                             versions={versionHistory}
                                             selectedId={selectedVersions[groupKey] || (versionHistory[0] && versionHistory[0].id) || estimate.id}
                                             onSelect={(versionId) => handleVersionChange(groupKey, versionId)}
-                                            onDelete={onDeleteVersion}
+                                            onDelete={(estimateVersion) => deleteVersionAction?.(estimateVersion)}
                                         />
                                     </td>
                                     <td className="text-center py-3 px-4">
@@ -379,9 +388,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates,
                                     <td className="text-right py-2 px-3 font-medium">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</td>
                                     <td className="text-center py-2 px-3">
                                         <div className="flex item-center justify-center gap-3">
-                                            <button onClick={() => onEdit(selectedEstimate)} className="text-blue-400 hover:text-blue-300 font-semibold transition-colors">Просмотр</button>
-                                            <button onClick={() => onGeneratePdf(selectedEstimate)} className="text-purple-400 hover:text-purple-300 font-semibold transition-colors">PDF</button>
-                                            <button onClick={() => onDelete(estimate)} className="text-red-500 hover:text-red-400 font-semibold transition-colors">Удалить</button>
+                                            <button onClick={() => editAction?.(selectedEstimate)} className="text-blue-400 hover:text-blue-300 font-semibold transition-colors">Просмотр</button>
+                                            <button onClick={() => generatePdfAction?.(selectedEstimate)} className="text-purple-400 hover:text-purple-300 font-semibold transition-colors">PDF</button>
+                                            <button onClick={() => deleteAction?.(estimate)} className="text-red-500 hover:text-red-400 font-semibold transition-colors">Удалить</button>
                                         </div>
                                     </td>
                                 </tr>

@@ -13,20 +13,23 @@ import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
 import { aiCache } from '../services/aiCache';
 import { generateEstimateNumber } from '../services/estimateNumber';
+import { useOptionalEstimateContext } from '../contexts/EstimateContext';
+import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import { useOptionalSubscriptionContext } from '../contexts/SubscriptionContext';
 
 interface EstimateEditorProps {
-    initialEstimate: Estimate | null;
-    templates: ProjectTemplate[];
-    materials: Material[];
-    works: Work[];
-    bundles: WorkBundle[];
-    onRequestSave: (estimate: Estimate) => void;
+    initialEstimate?: Estimate | null;
+    templates?: ProjectTemplate[];
+    materials?: Material[];
+    works?: Work[];
+    bundles?: WorkBundle[];
+    onRequestSave?: (estimate: Estimate) => void;
     onDraftChange?: (estimate: Estimate) => void;
     onDirtyChange?: (dirty: boolean) => void;
-    onSaveAsTemplate: (estimate: Estimate) => void;
-    onDeleteTemplate: (templateId: string) => void;
-    onBack: () => void;
-    allEstimates: Estimate[];
+    onSaveAsTemplate?: (estimate: Estimate) => void;
+    onDeleteTemplate?: (templateId: string) => void;
+    onBack?: () => void;
+    allEstimates?: Estimate[];
     validationResult?: EstimateValidationResult | null;
     aiAccess?: {
         canUseAi: boolean;
@@ -37,6 +40,25 @@ interface EstimateEditorProps {
 }
 
 const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates, validationResult, aiAccess, onUpgradeRequest }) => {
+    const estimateContext = useOptionalEstimateContext();
+    const catalogContext = useOptionalCatalogContext();
+    const subscriptionContext = useOptionalSubscriptionContext();
+
+    const initialEstimateValue = initialEstimate ?? estimateContext?.currentEstimate ?? null;
+    const templatesValue = templates ?? estimateContext?.templates ?? [];
+    const materialsValue = materials ?? catalogContext?.materials ?? [];
+    const worksValue = works ?? catalogContext?.works ?? [];
+    const bundlesValue = bundles ?? catalogContext?.bundles ?? [];
+    const allEstimatesValue = allEstimates ?? estimateContext?.estimates ?? [];
+    const onRequestSaveAction = onRequestSave ?? estimateContext?.actions.onRequestSave;
+    const onDraftChangeAction = onDraftChange ?? estimateContext?.actions.onDraftChange;
+    const onDirtyChangeAction = onDirtyChange ?? estimateContext?.actions.onDirtyChange;
+    const onSaveAsTemplateAction = onSaveAsTemplate ?? estimateContext?.actions.onSaveAsTemplate;
+    const onDeleteTemplateAction = onDeleteTemplate ?? estimateContext?.actions.onDeleteTemplate;
+    const onBackAction = onBack ?? estimateContext?.actions.onBack;
+    const validationResultValue = validationResult ?? estimateContext?.validationResult ?? null;
+    const aiAccessValue = aiAccess ?? subscriptionContext?.aiAccess;
+
     const createEmptyEstimate = useCallback((): Estimate => ({
         id: `sm-temp-${Date.now()}`,
         estimateNumber: `SM-${new Date().getFullYear()}-...`,
@@ -50,7 +72,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         area: 0,
         needsPriceUpdate: false,
     }), []);
-    const baselineEstimate = useMemo(() => initialEstimate ?? createEmptyEstimate(), [initialEstimate, createEmptyEstimate]);
+    const baselineEstimate = useMemo(() => initialEstimateValue ?? createEmptyEstimate(), [initialEstimateValue, createEmptyEstimate]);
     const [estimate, setEstimate] = useState<Estimate>(baselineEstimate);
     useEffect(() => {
         setEstimate(baselineEstimate);
@@ -92,10 +114,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     // Update genParams if selected template is deleted
     useEffect(() => {
-        if (templates.length > 0 && !templates.find(t => t.id === genParams.projectTemplateId)) {
-            setGenParams(prev => ({ ...prev, projectTemplateId: templates[0].id }));
+        if (templatesValue.length > 0 && !templatesValue.find(t => t.id === genParams.projectTemplateId)) {
+            setGenParams(prev => ({ ...prev, projectTemplateId: templatesValue[0].id }));
         }
-    }, [templates, genParams.projectTemplateId]);
+    }, [templatesValue, genParams.projectTemplateId]);
 
     const clearDebounce = (itemId: string) => {
         const t = debounceTimers.current[itemId];
@@ -109,40 +131,40 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     useEffect(() => {
         const currentSnapshot = JSON.stringify(estimate);
         const dirty = currentSnapshot !== baselineSnapshot;
-        onDirtyChange?.(dirty);
-    }, [baselineSnapshot, estimate, onDirtyChange]);
+        onDirtyChangeAction?.(dirty);
+    }, [baselineSnapshot, estimate, onDirtyChangeAction]);
 
     useEffect(() => {
-        onDraftChange?.(estimate);
-    }, [estimate, onDraftChange]);
+        onDraftChangeAction?.(estimate);
+    }, [estimate, onDraftChangeAction]);
 
     const materialsIndex = useMemo(() => {
         const index = new Map<string, Material>();
-        materials.forEach(material => index.set(material.name, material));
+        materialsValue.forEach(material => index.set(material.name, material));
         return index;
-    }, [materials]);
+    }, [materialsValue]);
 
     const worksIndex = useMemo(() => {
         const index = new Map<string, Work>();
-        works.forEach(work => index.set(work.name, work));
+        worksValue.forEach(work => index.set(work.name, work));
         return index;
-    }, [works]);
+    }, [worksValue]);
 
     const filteredMaterialsByCategory = useMemo(() => {
         const map = new Map<EstimateCategory, Material[]>();
         Object.values(EstimateCategory).forEach(category => {
-            map.set(category, materials.filter(material => material.category === category || material.category === EstimateCategory.GENERAL));
+            map.set(category, materialsValue.filter(material => material.category === category || material.category === EstimateCategory.GENERAL));
         });
         return map;
-    }, [materials]);
+    }, [materialsValue]);
 
     const filteredWorksByCategory = useMemo(() => {
         const map = new Map<EstimateCategory, Work[]>();
         Object.values(EstimateCategory).forEach(category => {
-            map.set(category, works.filter(work => work.category === category || work.category === EstimateCategory.GENERAL));
+            map.set(category, worksValue.filter(work => work.category === category || work.category === EstimateCategory.GENERAL));
         });
         return map;
-    }, [works]);
+    }, [worksValue]);
 
     const scheduleSuggestions = (itemId: string, query: string, pool: (Material | Work)[]) => {
         clearDebounce(itemId);
@@ -170,7 +192,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             // AI autocomplete as a fallback when local results are weak.
             // IMPORTANT: never blocks typing; runs after local results are shown.
             if (query.length >= 3 && results.length < 5) {
-                if (aiAccess && !aiAccess.canUseAi) {
+                if (aiAccessValue && !aiAccessValue.canUseAi) {
                     if (onUpgradeRequest) onUpgradeRequest();
                     return;
                 }
@@ -178,11 +200,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 const runAi = () => {
                     (async () => {
                         try {
-                            aiAccess?.onConsume?.('autocomplete');
+                            aiAccessValue?.onConsume?.('autocomplete');
                             const isMaterialPool = pool.length > 0 && (pool[0] as any).lastUpdated !== undefined;
                             const category = estimate.items.find(i => i.id === itemId)?.category;
                             if (!category) return;
-                            const aiItems = await aiAutocomplete(query, category, estimate.items, materials, works, estimate.area);
+                            const aiItems = await aiAutocomplete(query, category, estimate.items, materialsValue, worksValue, estimate.area);
                             if (!aiItems || aiItems.length === 0) return;
 
                             const mapped = aiItems.map((it, idx) => {
@@ -422,7 +444,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setIsLoading(true);
         try {
             // Найти выбранный шаблон
-            const selectedTemplate = templates.find(t => t.id === genParams.projectTemplateId);
+            const selectedTemplate = templatesValue.find(t => t.id === genParams.projectTemplateId);
 
             // Основная кнопка: ВСЕГДА берем за основу выбранный шаблон и копируем его
             const templateItems = selectedTemplate?.items || [];
@@ -445,10 +467,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         } finally {
             setIsLoading(false);
         }
-    }, [genParams, templates]);
+    }, [genParams, templatesValue]);
 
     const handleGenerateWithAI = useCallback(async (opts?: { scopeDescription?: string; enableAiPriceSearch?: boolean }) => {
-        if (aiAccess && !aiAccess.canUseAi) {
+        if (aiAccessValue && !aiAccessValue.canUseAi) {
             alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
             if (onUpgradeRequest) onUpgradeRequest();
             return;
@@ -470,10 +492,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setAiWarnings([]);
         setAiTextSuggestions([]);
         try {
-            aiAccess?.onConsume?.('generation');
+            aiAccessValue?.onConsume?.('generation');
             const latestOnlyEstimates = (() => {
                 const byRoot = new Map<string, Estimate>();
-                for (const e of (allEstimates || [])) {
+                for (const e of (allEstimatesValue || [])) {
                     if (!e || e.isArchived) continue;
                     const rootId = e.parentId || e.id;
                     const prev = byRoot.get(rootId);
@@ -496,7 +518,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 return Array.from(byRoot.values());
             })();
 
-            const selectedTemplate = templates.find(t => t.id === genParams.projectTemplateId);
+            const selectedTemplate = templatesValue.find(t => t.id === genParams.projectTemplateId);
             const templateItems = selectedTemplate?.items || [];
             // Для AI-режима: масштабируем базу шаблона под введённую площадь (если у шаблона задана baseArea).
             const baseArea = selectedTemplate?.baseArea || 0;
@@ -523,8 +545,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             const { items: aiItems, suggestions, warnings } = await generateEstimateWithAI(
                 callParams,
                 latestOnlyEstimates,
-                materials,
-                works,
+                materialsValue,
+                worksValue,
                 baseItems,
                 {
                     buildingType: estimate.buildingType,
@@ -586,7 +608,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templates, allEstimates, materials, works, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch, aiAccess, onUpgradeRequest]);
+    }, [genParams, templatesValue, allEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, onUpgradeRequest]);
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
@@ -637,7 +659,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         const finalEstimate = {
             ...estimate,
             id: initialEstimate ? estimate.id : `sm-id-${Date.now()}`,
-            estimateNumber: initialEstimate ? estimate.estimateNumber : generateEstimateNumber(allEstimates.map(item => item.estimateNumber), new Date())
+            estimateNumber: initialEstimateValue ? estimate.estimateNumber : generateEstimateNumber(allEstimatesValue.map(item => item.estimateNumber), new Date())
         };
 
         // Learning: record user corrections vs last AI baseline (if any)
@@ -655,25 +677,25 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }
 
         setEstimate(finalEstimate);
-        onRequestSave(finalEstimate);
+        onRequestSaveAction?.(finalEstimate);
     };
 
     const getPreviousVersion = (): Estimate | undefined => {
-        if (!initialEstimate) return undefined;
-        const parentId = initialEstimate.parentId || initialEstimate.id;
-        return allEstimates.find(e => (e.id === parentId || e.parentId === parentId) && e.version === initialEstimate.version - 1);
+        if (!initialEstimateValue) return undefined;
+        const parentId = initialEstimateValue.parentId || initialEstimateValue.id;
+        return allEstimatesValue.find(e => (e.id === parentId || e.parentId === parentId) && e.version === initialEstimateValue.version - 1);
     };
 
     const inputStyles = "p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full";
 
-    const hasValidationIssues = Boolean(validationResult && validationResult.issues.length > 0);
+    const hasValidationIssues = Boolean(validationResultValue && validationResultValue.issues.length > 0);
     const getFieldClass = (itemId: string, field: 'name' | 'quantity' | 'price', base: string) => {
-        const invalid = Boolean(validationResult?.invalidFieldsByItemId?.[itemId]?.[field]);
+        const invalid = Boolean(validationResultValue?.invalidFieldsByItemId?.[itemId]?.[field]);
         return invalid ? `${base} border-red-500` : base;
     };
 
     const getItemIssueMessages = (itemId: string) => {
-        const issues = (validationResult?.issues || []).filter(i => i.itemId === itemId);
+        const issues = (validationResultValue?.issues || []).filter(i => i.itemId === itemId);
         return Array.from(new Set(issues.map(i => i.message)));
     };
 
@@ -681,14 +703,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         <div className="space-y-6">
             <div className="bg-surface p-6 rounded-lg shadow-2xl">
                 <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-2xl font-bold text-text-primary">{initialEstimate ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
-                    <button onClick={onBack} className="text-text-secondary hover:text-text-primary">&larr; Назад к истории</button>
+                    <h2 className="text-2xl font-bold text-text-primary">{initialEstimateValue ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
+                    <button onClick={() => onBackAction?.()} className="text-text-secondary hover:text-text-primary">&larr; Назад к истории</button>
                 </div>
 
                 {hasValidationIssues && (
                     <div className="mb-4 p-3 border border-red-500/40 bg-background/40 rounded-md">
                         <div className="font-semibold text-red-400">Есть ошибки в смете — исправьте перед PDF/отправкой</div>
-                        <div className="text-sm text-text-secondary">Проблемных строк: {validationResult!.invalidItemIds.size}. Ошибок: {validationResult!.issues.length}.</div>
+                        <div className="text-sm text-text-secondary">Проблемных строк: {validationResultValue!.invalidItemIds.size}. Ошибок: {validationResultValue!.issues.length}.</div>
                     </div>
                 )}
 
@@ -730,9 +752,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="Площадь" className={inputStyles} />
                     <div className="flex gap-2">
                         <select value={genParams.projectTemplateId} onChange={e => setGenParams({ ...genParams, projectTemplateId: e.target.value })} className={inputStyles + " flex-1"}>
-                            {templates.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+                            {templatesValue.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
                         </select>
-                        <button onClick={() => onDeleteTemplate(genParams.projectTemplateId)} className="text-red-500 hover:text-red-400 transition-colors px-2">✖</button>
+                        <button onClick={() => onDeleteTemplateAction?.(genParams.projectTemplateId)} className="text-red-500 hover:text-red-400 transition-colors px-2">✖</button>
                     </div>
                     <div className="flex gap-2 items-center">
                         <button onClick={handleGenerate} disabled={isLoading} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-500 transition-colors">
@@ -740,7 +762,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </button>
                         <button
                             onClick={() => {
-                                if (aiAccess && !aiAccess.canUseAi) {
+                                if (aiAccessValue && !aiAccessValue.canUseAi) {
                                     alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
                                     if (onUpgradeRequest) onUpgradeRequest();
                                     return;
@@ -770,7 +792,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 <div className="flex gap-2 mb-4">
                     <button
                         onClick={async () => {
-                                if (aiAccess && !aiAccess.canUseAi) {
+                                if (aiAccessValue && !aiAccessValue.canUseAi) {
                                     alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
                                     if (onUpgradeRequest) onUpgradeRequest();
                                     return;
@@ -778,15 +800,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             setIsLoading(true);
                             setAiBusyMessage('Анализирую смету');
                             try {
-                                    aiAccess?.onConsume?.('analysis');
-                                const similar = allEstimates.filter(e =>
+                                    aiAccessValue?.onConsume?.('analysis');
+                                const similar = allEstimatesValue.filter(e =>
                                     e.buildingType === estimate.buildingType &&
                                     estimate.area > 0 &&
                                     Math.abs(e.area - estimate.area) / estimate.area < 0.3,
                                 );
 
                                 const presentCategories = Array.from(new Set((estimate.items || []).map(i => i.category)));
-                                const analysis = await analyzeMissingItems(estimate, similar, materials, works, presentCategories);
+                                const analysis = await analyzeMissingItems(estimate, similar, materialsValue, worksValue, presentCategories);
                                 setAiAnalysisMissing(analysis.missing);
                                 setAiAnalysisOptional(analysis.optional);
                                 setAiAnalysisReasoning(analysis.reasoning);
@@ -814,8 +836,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             {getPreviousVersion() && (
                                 <button onClick={() => setShowComparison(true)} className="text-sm text-blue-400 hover:underline">Сравнить с v{estimate.version - 1}</button>
                             )}
-                            {initialEstimate && (
-                                <button onClick={() => onSaveAsTemplate(estimate)} className="text-sm text-green-400 hover:text-green-300 font-semibold transition-colors">Сохранить как шаблон</button>
+                            {initialEstimateValue && (
+                                <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="text-sm text-green-400 hover:text-green-300 font-semibold transition-colors">Сохранить как шаблон</button>
                             )}
                         </div>
                     </div>
@@ -936,7 +958,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                                 return (
-                                                                <tr key={item.id} className={"border-b border-border last:border-b-0" + (validationResult?.invalidItemIds?.has(item.id) ? " bg-red-500/5" : "")}>
+                                                                <tr key={item.id} className={"border-b border-border last:border-b-0" + (validationResultValue?.invalidItemIds?.has(item.id) ? " bg-red-500/5" : "")}>
                                                                     <td className="p-1">
                                                                         { (subgroup === EstimateSubgroup.MATERIALS || subgroup === EstimateSubgroup.DELIVERY) ? (
                                                                             useTypeaheadMaterials ? (
@@ -1018,7 +1040,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             <input type="text" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Новая позиция" className={getFieldClass(item.id, 'name', inputStyles + " text-sm")} />
                                                                         )}
 
-                                                                        {validationResult?.invalidItemIds?.has(item.id) && getItemIssueMessages(item.id).length > 0 && (
+                                                                        {validationResultValue?.invalidItemIds?.has(item.id) && getItemIssueMessages(item.id).length > 0 && (
                                                                             <div className="mt-1 text-xs text-red-400">
                                                                                 {getItemIssueMessages(item.id).join(' • ')}
                                                                             </div>

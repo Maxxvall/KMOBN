@@ -21,16 +21,15 @@ import { EstimateProvider } from './contexts/EstimateContext';
 import { CatalogProvider } from './contexts/CatalogContext';
 import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import { SyncProvider } from './contexts/SyncContext';
-import { loadEstimates, saveEstimates, loadTemplates, saveTemplates, addTemplate, deleteTemplate, deleteEstimatesByNumber, deleteEstimateById, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { loadEstimates, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
+import { useEstimateCrud } from './hooks/useEstimateCrud';
 import {
     canCreateBundle,
-    canCreateEstimate,
     canCreateMaterial,
     canCreateWork,
-    canDeleteEstimate,
     canUseAi,
     canUseAnalytics,
     canUseSalaryCalculator,
@@ -856,97 +855,33 @@ const App: React.FC = () => {
         goToView(target);
     }, [view, editorDirty, goToView, subscriptionLimits, openAccessModal]);
 
-    const handleCreateNew = () => {
-        if (!canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
-            openAccessModal('Лимит смет исчерпан', 'Перейдите на платный план, чтобы создавать больше смет.');
-            return;
-        }
-        setCurrentEstimate(null);
-        setEditorValidationResult(null);
-        setEditorDirty(false);
-        setEditorDraft(null);
-        setPendingView(null);
-        setShowSaveOptions(false);
-        setShowUnsavedModal(false);
-        goToView(View.EDITOR);
-    };
-
-    const handleEdit = (estimate: Estimate) => {
-        let nextEstimate = estimate;
-        if (estimate.status === EstimateStatus.DRAFT && estimate.needsPriceUpdate) {
-            nextEstimate = recalculateEstimatePrices(estimate);
-            setEstimates(prev => prev.map(item => item.id === estimate.id ? nextEstimate : item));
-        }
-        setCurrentEstimate(nextEstimate);
-        setEditorValidationResult(null);
-        setEditorDirty(false);
-        setEditorDraft(null);
-        setPendingView(null);
-        setShowSaveOptions(false);
-        setShowUnsavedModal(false);
-        goToView(View.EDITOR);
-    };
-
-    const handleBackToHistory = () => {
+    const handleBackToHistory = useCallback(() => {
         handleNavigationAttempt(View.HISTORY);
-    };
+    }, [handleNavigationAttempt]);
 
-    const handleSaveEstimate = useCallback((draft: Estimate, saveMode: SaveMode, afterSaveView: View = View.HISTORY) => {
-        if (!draft) return;
+    const recalculateEstimatePrices = useCallback((estimate: Estimate): Estimate => {
+        const materialsMap = new Map(materials.map(material => [material.name, material.price]));
+        const worksMap = new Map(works.map(work => [work.name, work.price]));
 
-        const validation = validateEstimate(draft);
-        if (validation.issues.length > 0) {
-            setEditorValidationResult(validation);
-            setShowSaveOptions(false);
-            setShowUnsavedModal(false);
-            setPendingView(null);
-            goToView(View.EDITOR);
-
-            alert(
-                `Есть ошибки в смете:\n` +
-                `Проблемных строк: ${validation.invalidItemIds.size}. Ошибок: ${validation.issues.length}.\n` +
-                `Исправьте перед сохранением.`
-            );
-            return;
-        }
-
-        setEstimates(prevEstimates => {
-            const existingIndex = prevEstimates.findIndex(e => e.id === draft.id);
-            if (existingIndex !== -1) {
-                const existing = prevEstimates[existingIndex];
-                if (saveMode === 'overwrite') {
-                    const updated = {
-                        ...draft,
-                        version: existing.version,
-                        parentId: existing.parentId,
-                        date: new Date().toISOString().split('T')[0],
-                    };
-                    const updatedEstimates = [...prevEstimates];
-                    updatedEstimates[existingIndex] = updated;
-                    return updatedEstimates;
+        const updatedItems = estimate.items.map(item => {
+            let newPrice = item.price;
+            if (item.subgroup === EstimateSubgroup.MATERIALS) {
+                const nextPrice = materialsMap.get(item.name);
+                if (typeof nextPrice === 'number') {
+                    newPrice = nextPrice;
                 }
-                const archivedEstimate = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
-                const newVersion: Estimate = {
-                    ...draft,
-                    id: `sm-id-${Date.now()}`,
-                    version: existing.version + 1,
-                    parentId: existing.parentId || existing.id,
-                    isArchived: false,
-                };
-                const updatedEstimates = [...prevEstimates];
-                updatedEstimates[existingIndex] = archivedEstimate;
-                return [...updatedEstimates, newVersion];
+            } else if (item.subgroup === EstimateSubgroup.WORKS) {
+                const nextPrice = worksMap.get(item.name);
+                if (typeof nextPrice === 'number') {
+                    newPrice = nextPrice;
+                }
             }
-            return [...prevEstimates, draft];
+            return { ...item, price: newPrice, total: item.quantity * newPrice };
         });
-        setEditorDirty(false);
-        setEditorDraft(null);
-        setShowSaveOptions(false);
-        setPendingView(null);
-        setShowUnsavedModal(false);
-        setViewAfterSave(View.HISTORY);
-        goToView(afterSaveView);
-    }, [goToView, setEstimates]);
+
+        const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
+        return { ...estimate, items: updatedItems, total: newTotal, needsPriceUpdate: false };
+    }, [materials, works]);
 
     const consumeDeleteLimit = useCallback(() => {
         if (!subscription || !supabaseUser) return;
@@ -979,112 +914,34 @@ const App: React.FC = () => {
         };
     }, [subscriptionUsage, subscriptionLimits, consumeAiLimit]);
 
-    const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
-        if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
-            alert('Удаление смет доступно на платных планах.');
-            goToView(View.SUBSCRIPTIONS);
-            return;
-        }
-        if (!window.confirm(`Вы уверены, что хотите удалить смету №${estimateToDelete.estimateNumber} и все ее версии? Это действие необратимо.`)) return;
-        const estimateNumberToDelete = estimateToDelete.estimateNumber;
-        try {
-            // Delete from Supabase first
-            await deleteEstimatesByNumber(estimateNumberToDelete);
-            // Update local state
-            setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateNumberToDelete));
-            consumeDeleteLimit();
-            setSync({ visible: true, message: 'Сметы удалены из БД', type: 'success' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
-        } catch (error) {
-            console.error('Failed to delete estimates from DB:', error);
-            setSync({ visible: true, message: 'Ошибка удаления смет в БД', type: 'error' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
-        }
-    }, [subscriptionUsage, subscriptionLimits, goToView, consumeDeleteLimit]);
-
-    const handleDeleteEstimateVersion = useCallback(async (estimateToDelete: Estimate) => {
-        if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
-            alert('Удаление смет доступно на платных планах.');
-            goToView(View.SUBSCRIPTIONS);
-            return;
-        }
-        const estimateNumber = estimateToDelete.estimateNumber;
-        const versionHistory = estimates
-            .filter(e => e.estimateNumber === estimateNumber)
-            .sort((a, b) => b.version - a.version);
-
-        if (versionHistory.length === 0) {
-            alert('Версия не найдена. Обновите список и попробуйте снова.');
-            return;
-        }
-
-        const isOnlyVersion = versionHistory.length === 1;
-        const latestVersionId = versionHistory[0].id;
-        const isLatest = estimateToDelete.id === latestVersionId;
-
-        let confirmMessage = '';
-        if (isOnlyVersion) {
-            confirmMessage = `Вы уверены, что хотите удалить смету №${estimateToDelete.estimateNumber} целиком? Это удалит единственную версию и всю цепочку.`;
-        } else if (!isLatest) {
-            confirmMessage = `Вы удаляете промежуточную версию v${estimateToDelete.version}. Это может нарушить историю изменений. Продолжить?`;
-        } else {
-            confirmMessage = `Вы уверены, что хотите удалить версию v${estimateToDelete.version} сметы №${estimateToDelete.estimateNumber}?`;
-        }
-
-        if (!window.confirm(confirmMessage)) return;
-
-        try {
-            if (isOnlyVersion) {
-                await deleteEstimatesByNumber(estimateToDelete.estimateNumber);
-                setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateToDelete.estimateNumber));
-                consumeDeleteLimit();
-                setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
-            } else {
-                const remainingVersions = versionHistory.filter(e => e.id !== estimateToDelete.id);
-                const hasChildren = remainingVersions.some(e => e.parentId === estimateToDelete.id);
-                const isRootVersion = !estimateToDelete.parentId || hasChildren;
-                const shouldNormalize = remainingVersions.length > 0 && (isRootVersion || isLatest);
-
-                if (shouldNormalize) {
-                    const [newRoot] = [...remainingVersions].sort((a, b) => {
-                        if (b.version !== a.version) return b.version - a.version;
-                        return new Date(b.date).getTime() - new Date(a.date).getTime();
-                    });
-                    const reparented = remainingVersions.map(e => {
-                        const isNewRoot = e.id === newRoot.id;
-                        return {
-                            ...e,
-                            parentId: isNewRoot ? undefined : newRoot.id,
-                            isArchived: isNewRoot ? false : true,
-                            status: isNewRoot ? e.status : EstimateStatus.ARCHIVED,
-                        };
-                    });
-
-                    await deleteEstimateById(estimateToDelete.id);
-                    await saveEstimates(reparented);
-
-                    setEstimates(prevEstimates => {
-                        const updatedById = new Map(reparented.map(e => [e.id, e]));
-                        return prevEstimates
-                            .filter(e => e.id !== estimateToDelete.id)
-                            .map(e => updatedById.get(e.id) ?? e);
-                    });
-                    consumeDeleteLimit();
-                    setSync({ visible: true, message: 'Версия удалена, главная обновлена', type: 'success' });
-                } else {
-                    await deleteEstimateById(estimateToDelete.id);
-                    setEstimates(prevEstimates => prevEstimates.filter(e => e.id !== estimateToDelete.id));
-                    consumeDeleteLimit();
-                    setSync({ visible: true, message: 'Версия сметы удалена', type: 'success' });
-                }
-            }
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
-        } catch (error) {
-            console.error('Failed to delete estimate version from DB:', error);
-            setSync({ visible: true, message: 'Ошибка удаления версии в БД', type: 'error' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
-        }
-    }, [subscriptionUsage, subscriptionLimits, goToView, estimates, consumeDeleteLimit]);
+    const {
+        handleCreateNew,
+        handleEdit,
+        handleSaveEstimate,
+        handleDeleteEstimate,
+        handleDeleteEstimateVersion,
+        handleSaveAsTemplate,
+        handleDeleteTemplate,
+    } = useEstimateCrud({
+        estimates,
+        subscriptionUsage,
+        subscriptionLimits,
+        goToView,
+        openAccessModal,
+        recalculateEstimatePrices,
+        consumeDeleteLimit,
+        setEstimates,
+        setTemplates,
+        setCurrentEstimate,
+        setEditorValidationResult,
+        setEditorDirty,
+        setEditorDraft,
+        setShowSaveOptions,
+        setShowUnsavedModal,
+        setPendingView,
+        setViewAfterSave,
+        setSync,
+    });
 
     const handleDraftChange = useCallback((draft: Estimate) => {
         setEditorDraft(draft);
@@ -1144,30 +1001,6 @@ const App: React.FC = () => {
             setPendingView(null);
         }
     }, [view]);
-
-    const recalculateEstimatePrices = useCallback((estimate: Estimate): Estimate => {
-        const materialsMap = new Map(materials.map(material => [material.name, material.price]));
-        const worksMap = new Map(works.map(work => [work.name, work.price]));
-
-        const updatedItems = estimate.items.map(item => {
-            let newPrice = item.price;
-            if (item.subgroup === EstimateSubgroup.MATERIALS) {
-                const nextPrice = materialsMap.get(item.name);
-                if (typeof nextPrice === 'number') {
-                    newPrice = nextPrice;
-                }
-            } else if (item.subgroup === EstimateSubgroup.WORKS) {
-                const nextPrice = worksMap.get(item.name);
-                if (typeof nextPrice === 'number') {
-                    newPrice = nextPrice;
-                }
-            }
-            return { ...item, price: newPrice, total: item.quantity * newPrice };
-        });
-
-        const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
-        return { ...estimate, items: updatedItems, total: newTotal, needsPriceUpdate: false };
-    }, [materials, works]);
 
     const handleGeneratePdf = useCallback((estimate: Estimate) => {
         let exportEstimate = estimate;
@@ -1239,38 +1072,6 @@ const App: React.FC = () => {
             setPendingExportEstimate(null);
         }
     }, [pendingExportEstimate]);
-
-    const handleSaveAsTemplate = useCallback(async (estimate: Estimate) => {
-        const templateName = prompt('Введите название шаблона:');
-        if (templateName) {
-            const newTemplate: ProjectTemplate = {
-                id: `template-${Date.now()}`,
-                name: templateName,
-                baseArea: estimate.area,
-                items: estimate.items, // Сохраняем элементы сметы в шаблон
-            };
-            try {
-                await addTemplate(newTemplate);
-                setTemplates(prev => [...prev, newTemplate]);
-                alert('Шаблон сохранен!');
-            } catch (error) {
-                console.error('Failed to save template:', error);
-                alert('Не удалось сохранить шаблон.');
-            }
-        }
-    }, []);
-
-    const handleDeleteTemplate = useCallback(async (templateId: string) => {
-        if (window.confirm('Вы уверены, что хотите удалить этот шаблон?')) {
-            try {
-                await deleteTemplate(templateId);
-                setTemplates(prev => prev.filter(t => t.id !== templateId));
-            } catch (error) {
-                console.error('Failed to delete template:', error);
-                alert('Не удалось удалить шаблон.');
-            }
-        }
-    }, []);
 
     const markDraftEstimatesWithPriceChange = useCallback((params: { materialName?: string; workName?: string }) => {
         const { materialName, workName } = params;
@@ -1500,7 +1301,7 @@ const App: React.FC = () => {
                 document.body.appendChild(a);
                 a.click();
                 a.remove();
-            } catch (e) {
+            } catch {
                 window.location.href = paymentUrl;
             }
         } catch (error) {
@@ -1525,7 +1326,7 @@ const App: React.FC = () => {
         } finally {
             setPaymentLoading(false);
         }
-    }, [supabaseUser]);
+    }, [showToast, supabaseUser]);
 
     const estimateContextValue = useMemo(() => ({
         view,
@@ -1536,7 +1337,38 @@ const App: React.FC = () => {
         setTemplates,
         currentEstimate,
         setCurrentEstimate,
-    }), [view, estimates, templates, currentEstimate]);
+        validationResult: editorValidationResult,
+        actions: {
+            onCreateNew: handleCreateNew,
+            onEdit: handleEdit,
+            onDelete: handleDeleteEstimate,
+            onDeleteVersion: handleDeleteEstimateVersion,
+            onGeneratePdf: handleGeneratePdf,
+            onRequestSave: handleSaveRequest,
+            onDraftChange: handleDraftChange,
+            onDirtyChange: handleDirtyChange,
+            onSaveAsTemplate: handleSaveAsTemplate,
+            onDeleteTemplate: handleDeleteTemplate,
+            onBack: handleBackToHistory,
+        },
+    }), [
+        view,
+        estimates,
+        templates,
+        currentEstimate,
+        editorValidationResult,
+        handleCreateNew,
+        handleEdit,
+        handleDeleteEstimate,
+        handleDeleteEstimateVersion,
+        handleGeneratePdf,
+        handleSaveRequest,
+        handleDraftChange,
+        handleDirtyChange,
+        handleSaveAsTemplate,
+        handleDeleteTemplate,
+        handleBackToHistory,
+    ]);
 
     const catalogContextValue = useMemo(() => ({
         materials,
@@ -1695,32 +1527,10 @@ const App: React.FC = () => {
                 ) : (
                     <Suspense fallback={<AppLoadingSkeleton />}>
                         {view === View.HISTORY && (
-                            <EstimateHistory
-                                estimates={estimates}
-                                templates={templates}
-                                onCreateNew={handleCreateNew}
-                                onEdit={handleEdit}
-                                onDelete={handleDeleteEstimate}
-                                onDeleteVersion={handleDeleteEstimateVersion}
-                                onGeneratePdf={handleGeneratePdf}
-                            />
+                            <EstimateHistory />
                         )}
                         {view === View.EDITOR && (
                             <EstimateEditor
-                                initialEstimate={currentEstimate}
-                                templates={templates}
-                                validationResult={editorValidationResult}
-                                materials={materials}
-                                works={works}
-                                bundles={bundles}
-                                onRequestSave={handleSaveRequest}
-                                onDraftChange={handleDraftChange}
-                                onDirtyChange={handleDirtyChange}
-                                onSaveAsTemplate={handleSaveAsTemplate}
-                                onDeleteTemplate={handleDeleteTemplate}
-                                onBack={handleBackToHistory}
-                                allEstimates={estimates}
-                                aiAccess={aiAccess}
                                 onUpgradeRequest={handleUpgradeClick}
                             />
                         )}

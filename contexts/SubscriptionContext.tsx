@@ -4,7 +4,7 @@ import { SubscriptionLimits, SubscriptionTier, SubscriptionUsage, UserSubscripti
 export type AiAccess = {
   canUseAi: boolean;
   remaining: number | null;
-  onConsume: () => void;
+  onConsume: (reason: 'autocomplete' | 'generation' | 'analysis') => void;
 };
 
 export type HeaderSubscriptionSummary = {
