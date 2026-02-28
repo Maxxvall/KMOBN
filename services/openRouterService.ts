@@ -114,6 +114,22 @@ const normalizeUnitText = (unitRaw: string): string => {
   return String(unitRaw).trim();
 };
 
+/**
+ * Infer measurement unit from item name heuristics (when the type has no unit field).
+ */
+const inferUnitFromName = (name: string): string | null => {
+  const n = String(name || '').toLowerCase();
+  if (/\bм2\b|м²|\bкв\.?\s*м/i.test(n)) return 'м2';
+  if (/\bм3\b|м³|\bкуб\.?\s*м/i.test(n)) return 'м3';
+  if (/\bм\/п\b|\bпог\.?\s*м|\bм\.п/i.test(n)) return 'м/п';
+  if (/\bупак|\bуп\b|\bрулон|\bпач/i.test(n)) return 'уп';
+  // Works that typically measure in м2
+  if (/монтаж|укладка|устройство|облицовка|штукатур|покраска|утеплени|гидроизол/i.test(n)) return 'м2';
+  // Works that typically measure in м/п
+  if (/прокладка|разводка|провод|кабел/i.test(n)) return 'м/п';
+  return null;
+};
+
 const parsePackAreaSqMFromName = (nameRaw: string): number | null => {
   const name = String(nameRaw || '');
   // Matches: 25м2, 25 м2, 25м², 25 m2, 3 м², 3m²
@@ -533,45 +549,6 @@ const ensureSp31Mention = (texts: string[], fallbackLine: string): string[] => {
   return [...texts, fallbackLine];
 };
 
-const buildHistoricalContext = (estimates: Estimate[], params: GenerationParams, buildingType?: string): string => {
-  const area = params.area || 0;
-  const latestOnly = filterToLatestEstimateVersions(estimates || []);
-  const similar = (latestOnly || []).filter(e => {
-    if (!e?.area || area <= 0) return false;
-    const areaClose = Math.abs(e.area - area) / area < 0.2;
-    const typeOk = buildingType ? e.buildingType === buildingType : true;
-    const regionOk = params.region ? String((e as any).region || '').toLowerCase() === String(params.region).toLowerCase() : true;
-    return areaClose && typeOk && regionOk;
-  });
-
-  const freq = new Map<string, number>();
-  let worksSum = 0;
-  let materialsSum = 0;
-
-  for (const est of similar) {
-    for (const it of est.items || []) {
-      const k = (it.name || '').trim();
-      if (k) freq.set(k, (freq.get(k) || 0) + 1);
-      const subtotal = it.total || (it.quantity || 0) * (it.price || 0);
-      const sg = it.subgroup || EstimateSubgroup.WORKS;
-      if (sg === EstimateSubgroup.MATERIALS) materialsSum += subtotal;
-      else worksSum += subtotal;
-    }
-  }
-
-  const mostCommon = Array.from(freq.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 15)
-    .map(([name, count]) => {
-      const pct = similar.length ? (count / similar.length) * 100 : 0;
-      return `${name} (${count}/${Math.max(1, similar.length)}, ${pct.toFixed(0)}%)`;
-    });
-
-  const avgArea = similar.length ? similar.reduce((s, e) => s + (e.area || 0), 0) / similar.length : 0;
-
-  return `История похожих проектов (${similar.length} смет):\n- Средняя площадь: ${avgArea.toFixed(1)} м²\n- Частые позиции: ${mostCommon.join(', ') || 'нет данных'}\n- Суммарная стоимость работ (история): ${Math.round(worksSum).toLocaleString('ru-RU')} ₽\n- Суммарная стоимость материалов (история): ${Math.round(materialsSum).toLocaleString('ru-RU')} ₽\n`;
-};
-
 const buildAdvancedContext = (opts: {
   historicalEstimates: Estimate[];
   params: GenerationParams;
@@ -704,6 +681,18 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
       }
 
       const data = await res.json();
+
+      // Diagnostic logging: show raw model response content
+      const _respContent = data?.choices?.[0]?.message?.content;
+      const _promptTokens = data?.usage?.prompt_tokens;
+      const _completionTokens = data?.usage?.completion_tokens;
+      console.warn(`[AI][callOpenRouter] model=${AI_CONFIG.model} prompt_tokens=${_promptTokens ?? '?'} completion_tokens=${_completionTokens ?? '?'} content_length=${String(_respContent || '').length}`);
+      if (!_respContent || String(_respContent).trim().length === 0) {
+        console.warn('[AI][callOpenRouter] WARNING: model returned EMPTY content! Full response:', JSON.stringify(data).slice(0, 600));
+      } else {
+        console.debug('[AI][callOpenRouter] Response preview:', String(_respContent).slice(0, 500));
+      }
+
       if (cacheKey) {
         aiCache.set(cacheKey, data, opts?.ttlMs ?? 30 * 60 * 1000);
       }
@@ -987,6 +976,143 @@ const applyAiPriceSearchForMissingMaterials = async (opts: {
   return { items, warnings };
 };
 
+/**
+ * Deterministic fallback: generates estimate items directly from catalogs
+ * when AI is unavailable or returns empty results.
+ * Picks ALL materials and works matching the selected sections.
+ */
+const generateItemsFromCatalog = (opts: {
+  area: number;
+  buildingType: string;
+  materials: Material[];
+  works: Work[];
+  selectedSections?: EstimateCategory[];
+  existingItems?: EstimateItem[];
+}): EstimateItem[] => {
+  const now = Date.now();
+  const area = Math.max(1, opts.area || 100);
+  const existingNames = new Set((opts.existingItems || []).map(i => normalizeKey(i.name)));
+
+  // Determine which categories to include
+  const sections = (opts.selectedSections && opts.selectedSections.length > 0)
+    ? opts.selectedSections
+    : [
+      EstimateCategory.FOUNDATION, EstimateCategory.GRILLAGE,
+      EstimateCategory.WALLS, EstimateCategory.ROOF,
+      EstimateCategory.WINDOWS, EstimateCategory.ELECTRICAL,
+      EstimateCategory.LOGISTICS,
+    ];
+
+  const items: EstimateItem[] = [];
+  let idx = 0;
+
+  // Add works from catalog matching sections
+  for (const w of (opts.works || [])) {
+    if (!sections.includes(w.category)) continue;
+    const k = normalizeKey(w.name);
+    if (existingNames.has(k)) continue;
+    existingNames.add(k);
+
+    // Estimate quantity based on area and inferred unit (Work type has no unit field)
+    const unit = normalizeUnitText(inferUnitFromName(w.name) || 'м2');
+    let quantity = 1;
+    if (unit === 'м2') quantity = Math.ceil(area * 1.1);
+    else if (unit === 'м/п') quantity = Math.ceil(area * 2);
+    else if (unit === 'м3') quantity = Math.round(area * 0.05 * 100) / 100;
+    else if (unit === 'шт') quantity = Math.max(1, Math.ceil(area * 0.1));
+    else quantity = Math.max(1, Math.ceil(area * 0.05));
+
+    items.push({
+      id: `cat-work-${now}-${idx++}`,
+      name: w.name,
+      unit,
+      quantity,
+      price: w.price || 0,
+      total: quantity * (w.price || 0),
+      category: w.category,
+      subgroup: EstimateSubgroup.WORKS,
+    });
+  }
+
+  // Add materials from catalog matching sections
+  for (const m of (opts.materials || [])) {
+    if (!sections.includes(m.category)) continue;
+    const k = normalizeKey(m.name);
+    if (existingNames.has(k)) continue;
+    existingNames.add(k);
+
+    const unit = normalizeUnitText(inferUnitFromName(m.name) || 'шт');
+    let quantity = 1;
+    // Smart quantity estimation based on unit and area
+    const packArea = parsePackAreaSqMFromName(m.name);
+    if (packArea && packArea > 0) {
+      quantity = computePackQuantityWithReserve(area, packArea);
+    } else if (unit === 'м2') {
+      quantity = Math.ceil(area * 1.15);
+    } else if (unit === 'м/п') {
+      quantity = Math.ceil(area * 2);
+    } else if (unit === 'м3') {
+      quantity = Math.round(area * 0.05 * 100) / 100;
+    } else if (unit === 'шт') {
+      quantity = Math.max(1, Math.ceil(area * 0.1));
+    } else if (unit === 'уп') {
+      quantity = Math.max(1, Math.ceil(area * 0.03));
+    } else {
+      quantity = Math.max(1, Math.ceil(area * 0.05));
+    }
+
+    items.push({
+      id: `cat-mat-${now}-${idx++}`,
+      name: m.name,
+      unit,
+      quantity,
+      price: m.price || 0,
+      total: quantity * (m.price || 0),
+      category: m.category,
+      subgroup: classifySubgroup(m.name, unit),
+    });
+  }
+
+  return items;
+};
+
+/**
+ * Build a compact prompt for the one-shot fallback (reduced context to fit smaller models).
+ */
+const buildCompactOneShotPrompt = (req: AIEstimateRequest, referenceContext?: string, sectionsFilter?: string): string => {
+  // Only include top-N materials and works to keep prompt small
+  const maxCatalogItems = 80;
+  const filteredMaterials = (req.selectedSections?.length)
+    ? (req.materials || []).filter(m => req.selectedSections!.includes(m.category))
+    : (req.materials || []);
+  const filteredWorks = (req.selectedSections?.length)
+    ? (req.works || []).filter(w => req.selectedSections!.includes(w.category))
+    : (req.works || []);
+
+  const matLines = filteredMaterials.slice(0, maxCatalogItems).map(m => `${m.name} | ${m.category}`).join('\n');
+  const workLines = filteredWorks.slice(0, maxCatalogItems).map(w => `${w.name} | ${w.category}`).join('\n');
+
+  return `Создай строительную смету. Ответ — ТОЛЬКО JSON.
+
+Площадь: ${req.area} м². Тип: ${req.buildingType || 'не указан'}. Регион: ${req.region}.
+${req.scopeDescription ? `Описание: ${req.scopeDescription}` : ''}
+${sectionsFilter || ''}
+${referenceContext || ''}
+
+Материалы:
+${matLines || 'нет данных'}
+
+Работы:
+${workLines || 'нет данных'}
+
+Уже добавлено: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}
+
+Правила: используй ТОЛЬКО названия из списков выше. price=0. quantity масштабируй под площадь.
+
+JSON формат:
+{"items":[{"name":"...","unit":"...","quantity":число,"price":0,"category":"КАТЕГОРИЯ","subgroup":"Работы|Материалы"}],"suggestions":[],"warnings":[]}`;
+};
+
 export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AIEstimateResult> {
   const params: GenerationParams = {
     area: req.area,
@@ -994,19 +1120,11 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     projectTemplateId: req.projectTemplateId || '',
   };
 
-  const historical = buildHistoricalContext(req.historicalEstimates || [], params, req.buildingType);
-  const materialsContext = buildMaterialsCatalog(req.materials || []);
-  const worksContext = buildWorksCatalog(req.works || []);
-
   const templateContext = req.projectTemplateName
     ? `Выбранный шаблон проекта: ${req.projectTemplateName} (id: ${req.projectTemplateId || '—'})\n`
     : req.projectTemplateId
       ? `Выбранный шаблон проекта: id ${req.projectTemplateId}\n`
       : '';
-
-  const templateItemsContext = (req.templateItems && req.templateItems.length > 0)
-    ? `БАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${JSON.stringify(req.templateItems.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, price: i.price, category: i.category, subgroup: i.subgroup })), null, 0)}\n`
-    : '';
 
   const scopeContext = req.scopeDescription
     ? `Назначение сметы / какие работы нужны (важно): ${req.scopeDescription}\nЕсли указано исключение (например без электрики) — не добавляй этот раздел.\n`
@@ -1024,8 +1142,6 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   const sectionsFilter = (req.selectedSections && req.selectedSections.length > 0)
     ? `Включай ТОЛЬКО следующие разделы/категории: ${req.selectedSections.join(', ')}. НЕ добавляй позиции из других категорий.\n`
     : '';
-
-  const userPrompt = `Создай смету на основе справочников (без выдуманных позиций).\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип строения/объекта: ${req.buildingType || 'не указан'}\n${templateContext}\n${scopeContext}\n${sectionsFilter}\n${referenceContext}\n${historical}\n\n${templateItemsContext}\nДоступные материалы из справочника:\n${materialsContext}\n\nДоступные работы из справочника:\n${worksContext}\n\nУсловия:\n- Не дублируй уже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Кол-во (quantity) строго масштабируй под указанную площадь, где это применимо.\n- Поле price всегда 0 (цены подтянет приложение).\n`;
 
   const cacheKey = aiCache.generateKey(
     'estimate',
@@ -1194,29 +1310,56 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     parsedItems = [];
   }
 
-  // Fallback: if multi-stage produced 0 items (empty blocks, filtered out, or failed), try one-shot
+  // Fallback 1: if multi-stage produced 0 items, try compact one-shot prompt (much smaller context)
   if (parsedItems.length === 0) {
-    console.warn('[AI] Multi-stage produced 0 items, falling back to one-shot prompt');
+    console.warn('[AI] Multi-stage produced 0 items, falling back to COMPACT one-shot prompt');
     parsedWarnings.push('AI: многоэтапная генерация не вернула позиций, использую упрощённый режим.');
     try {
+      const compactPrompt = buildCompactOneShotPrompt(req, referenceContext, sectionsFilter);
+      console.info('[AI] Compact one-shot prompt length:', compactPrompt.length, 'chars');
       const data = await callOpenRouterWithRetry(
         [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
-          { role: 'user', content: userPrompt },
+          { role: 'system', content: 'Ты эксперт по строительным сметам. Отвечай ТОЛЬКО валидным JSON без пояснений.' },
+          { role: 'user', content: compactPrompt },
         ],
         { maxTokens: 4000, temperature: 0.7 },
       );
       const content = data?.choices?.[0]?.message?.content;
+      console.warn('[AI] Compact one-shot raw response (first 800 chars):', String(content || '').slice(0, 800));
       const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
       parsedItems = parsed.items;
       parsedSuggestions.push(...(parsed.suggestions || []));
       parsedWarnings.push(...(parsed.warnings || []));
-      console.info('[AI] One-shot fallback returned', parsedItems.length, 'items');
+      console.info('[AI] Compact one-shot fallback returned', parsedItems.length, 'items');
     } catch (fallbackErr) {
-      console.error('[AI] One-shot fallback also failed', fallbackErr);
+      console.error('[AI] Compact one-shot fallback also failed', fallbackErr);
       parsedWarnings.push(`AI: упрощённый режим тоже не смог сгенерировать позиции. Причина: ${String(fallbackErr)}`);
     }
+  }
+
+  // Fallback 2 (ULTIMATE): if AI still returned 0 items, use deterministic catalog-based generation
+  if (parsedItems.length === 0) {
+    console.warn('[AI] All AI fallbacks returned 0 items. Using deterministic catalog generation.');
+    parsedWarnings.push('AI: модель не смогла сгенерировать позиции. Смета составлена автоматически из справочника.');
+    const catalogItems = generateItemsFromCatalog({
+      area: req.area,
+      buildingType: req.buildingType || '',
+      materials: req.materials || [],
+      works: req.works || [],
+      selectedSections: req.selectedSections,
+      existingItems: req.existingItems,
+    });
+    // Convert to the same shape as AI-parsed items
+    parsedItems = catalogItems.map(ci => ({
+      name: ci.name,
+      unit: ci.unit,
+      quantity: ci.quantity,
+      price: ci.price,
+      category: ci.category,
+      subgroup: ci.subgroup,
+    }));
+    console.info('[AI] Deterministic catalog fallback produced', parsedItems.length, 'items');
+    parsedSuggestions.push('Смета составлена автоматически на основе справочников материалов и работ. Рекомендуем проверить количества и при необходимости скорректировать.');
   }
 
   // Post-processing (packaging, catalog pricing) + deterministic validation
