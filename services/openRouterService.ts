@@ -790,6 +790,69 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
     .filter(Boolean) as EstimateItem[];
 };
 
+/**
+ * Correct AI-generated quantities based on construction rules.
+ * Fixes work quantities (always 1), delivery (always 1), windows/doors, and pack areas.
+ */
+const correctAIQuantities = (
+  items: EstimateItem[],
+  area: number,
+  windowCount?: number,
+  doorCount?: number,
+): EstimateItem[] => {
+  return items.map(it => {
+    const name = it.name.toLowerCase();
+    const isWork = it.subgroup === EstimateSubgroup.WORKS || it.subgroup === EstimateSubgroup.DELIVERY;
+    const isDelivery = it.subgroup === EstimateSubgroup.DELIVERY || /доставк|транспорт|логист|курьер/i.test(name);
+
+    // Rule 1: Works and delivery are always quantity=1 (they're services)
+    if (isWork || isDelivery) {
+      return { ...it, quantity: 1, unit: 'шт' };
+    }
+
+    // Rule 2: Door/window related materials use user-provided counts
+    if (isDoorOrWindowMaterial(name)) {
+      const newQty = /окн/i.test(name) ? (windowCount ?? it.quantity) : (doorCount ?? it.quantity);
+      return { ...it, quantity: Math.max(1, newQty) };
+    }
+
+    // Rule 3: Check if name contains pack area as trailing number (e.g. "Керамогранит 1.44", "Плитка 2.5")
+    // Heuristic: if name ends with a decimal number not followed by unit, it might be pack area in m²
+    const trailingNumberMatch = name.match(/(\d+(?:[.,]\d+)?)\s*(?:м2|м²|м3|м³|м\/п|шт|уп|мм)?$|(\d+[.,]\d+)$/i);
+    if (trailingNumberMatch) {
+      const potentialPackArea = safeNumber(trailingNumberMatch[1] || trailingNumberMatch[2], 0);
+      if (potentialPackArea > 0 && potentialPackArea < 1000) {
+        // Looks like pack area in m²
+        const coverageArea = getCoverageArea(it.category, area);
+        const newQty = Math.max(1, Math.ceil(coverageArea / potentialPackArea)) + (coverageArea / potentialPackArea > 2 ? 1 : 0);
+        // Sanity check: if AI suggested a wildly different quantity, use calculated
+        if (it.quantity > 100 || it.quantity < newQty / 2) {
+          console.warn(`[AI] Corrected ${it.name}: quantity ${it.quantity} → ${newQty} (pack area: ${potentialPackArea}m²)`);
+          return { ...it, quantity: newQty };
+        }
+      }
+    }
+
+    // Rule 4: Fix unreasonably high quantities (e.g. 255556 for a material)
+    // If material quantity > 1000 for residential building, likely an error
+    if (it.quantity > 1000 && it.subgroup === EstimateSubgroup.MATERIALS && area < 500) {
+      // Try to infer correct quantity
+      let correctedQty = 1;
+      if (it.unit === 'м2') {
+        correctedQty = Math.ceil(getCoverageArea(it.category, area) * 1.1);
+      } else if (it.unit === 'м/п') {
+        correctedQty = Math.ceil(Math.sqrt(area) * 4);
+      } else {
+        correctedQty = Math.max(1, Math.ceil(area * 0.05));
+      }
+      console.warn(`[AI] Corrected ${it.name}: unreasonable quantity ${it.quantity} → ${correctedQty}`);
+      return { ...it, quantity: correctedQty };
+    }
+
+    return it;
+  });
+};
+
 const toEstimateItemsWithPrefix = (aiItems: any[], idPrefix: string): EstimateItem[] => {
   const now = Date.now();
   return (aiItems || [])
@@ -1463,8 +1526,12 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     parsedSuggestions.push('Смета составлена автоматически на основе справочников материалов и работ. Рекомендуем проверить количества и при необходимости скорректировать.');
   }
 
-  // Post-processing (packaging, catalog pricing) + deterministic validation
-  const rawItems = applySmartPackagingRules(toEstimateItems(parsedItems), req.area);
+  // Post-processing: Correct AI quantities (works/delivery=1, windows/doors from wizard, pack areas)
+  const aiItems = toEstimateItems(parsedItems);
+  const correctedItems = correctAIQuantities(aiItems, req.area, req.windowCount, req.doorCount);
+  
+  // Then apply smart packaging rules and pricing
+  const rawItems = applySmartPackagingRules(correctedItems, req.area);
   const priced = applyCatalogPricing(rawItems, req.materials, req.works);
 
   // New step: AI-assisted search for missing/zero prices (materials only)
