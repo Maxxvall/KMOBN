@@ -21,13 +21,29 @@ export interface AIEstimateRequest {
 
   // Если true — поиск цены через AI отключён (оставлено для обратной совместимости).
   enableAiPriceSearch?: boolean;
+
+  /** ID эталонной сметы, выбранной пользователем в визарде */
+  referenceEstimateId?: string;
+  /** Выбранные пользователем разделы (если не указаны — все) */
+  selectedSections?: EstimateCategory[];
 }
+
+export type CatalogMismatchItem = {
+  name: string;
+  unit: string;
+  quantity: number;
+  price: number;
+  category: EstimateCategory;
+  subgroup: EstimateSubgroup;
+};
 
 export type AIEstimateResult = {
   items: EstimateItem[];
   total: number;
   suggestions: string[];
   warnings: string[];
+  /** Позиции, которые AI хотел добавить, но не нашёл в справочниках */
+  notInDbItems?: CatalogMismatchItem[];
 };
 
 type OpenRouterChatMessage = {
@@ -861,7 +877,7 @@ const findBestCatalogMatch = (name: string, candidates: string[]): { best?: stri
   return { best, score: bestScore };
 };
 
-const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works: Work[]): { items: EstimateItem[]; warnings: string[] } => {
+const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works: Work[]): { items: EstimateItem[]; warnings: string[]; notInDbItems: CatalogMismatchItem[] } => {
   const materialIndex = new Map<string, Material>();
   const workIndex = new Map<string, Work>();
   for (const m of materials || []) materialIndex.set(normalizeKey(m.name), m);
@@ -875,6 +891,7 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
 
   const warnings: string[] = [];
   const priced: EstimateItem[] = [];
+  const notInDbItems: CatalogMismatchItem[] = [];
 
   for (const it of items || []) {
     let resolvedName = it.name;
@@ -887,10 +904,18 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
         key = normalizeKey(resolvedName);
         warnings.push(`AI-именование сопоставлено со справочником: "${it.name}" → "${resolvedName}"`);
       } else {
-        // Не отбрасываем позицию: оставляем с нулевой ценой, чтобы последующие шаги
-        // (в т.ч. AI-поиск цен) могли её обработать.
+        // Позиция не найдена — собираем для вкладки «Нет в БД»
         warnings.push(`Позиция не найдена в справочниках: ${it.name}. Цена = 0.`);
         const subgroup = it.subgroup || classifySubgroup(resolvedName, it.unit);
+        notInDbItems.push({
+          name: it.name,
+          unit: it.unit || 'шт',
+          quantity: it.quantity || 1,
+          price: it.price || 0,
+          category: it.category || EstimateCategory.GENERAL,
+          subgroup,
+        });
+        // Still keep in items with price 0 for AI price search step
         priced.push({
           ...it,
           name: resolvedName,
@@ -949,7 +974,7 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
     });
   }
 
-  return { items: priced, warnings };
+  return { items: priced, warnings, notInDbItems };
 };
 
 const applyAiPriceSearchForMissingMaterials = async (opts: {
@@ -987,7 +1012,20 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     ? `Назначение сметы / какие работы нужны (важно): ${req.scopeDescription}\nЕсли указано исключение (например без электрики) — не добавляй этот раздел.\n`
     : '';
 
-  const userPrompt = `Создай смету на основе справочников (без выдуманных позиций).\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип строения/объекта: ${req.buildingType || 'не указан'}\n${templateContext}\n${scopeContext}\n\n${historical}\n\n${templateItemsContext}\nДоступные материалы из справочника:\n${materialsContext}\n\nДоступные работы из справочника:\n${worksContext}\n\nУсловия:\n- Не дублируй уже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Кол-во (quantity) строго масштабируй под указанную площадь, где это применимо.\n- Поле price всегда 0 (цены подтянет приложение).\n`;
+  // Reference estimate — сильный пример из истории, выбранный пользователем
+  const referenceEstimate = req.referenceEstimateId
+    ? (req.historicalEstimates || []).find(e => e.id === req.referenceEstimateId)
+    : undefined;
+  const referenceContext = referenceEstimate && referenceEstimate.items?.length
+    ? `ЭТАЛОННАЯ СМЕТА (выбрана пользователем как образец, площадь ${referenceEstimate.area} м², тип: ${referenceEstimate.buildingType || 'не указан'}):\n${JSON.stringify(referenceEstimate.items.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, category: i.category, subgroup: i.subgroup })), null, 0)}\nИспользуй эту смету как основу: адаптируй количества под текущую площадь (${req.area} м²), но сохраняй структуру и набор позиций.\n`
+    : '';
+
+  // Selected sections filter
+  const sectionsFilter = (req.selectedSections && req.selectedSections.length > 0)
+    ? `Включай ТОЛЬКО следующие разделы/категории: ${req.selectedSections.join(', ')}. НЕ добавляй позиции из других категорий.\n`
+    : '';
+
+  const userPrompt = `Создай смету на основе справочников (без выдуманных позиций).\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип строения/объекта: ${req.buildingType || 'не указан'}\n${templateContext}\n${scopeContext}\n${sectionsFilter}\n${referenceContext}\n${historical}\n\n${templateItemsContext}\nДоступные материалы из справочника:\n${materialsContext}\n\nДоступные работы из справочника:\n${worksContext}\n\nУсловия:\n- Не дублируй уже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Кол-во (quantity) строго масштабируй под указанную площадь, где это применимо.\n- Поле price всегда 0 (цены подтянет приложение).\n`;
 
   const cacheKey = aiCache.generateKey(
     'estimate',
@@ -996,6 +1034,8 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     req.buildingType,
     req.projectTemplateId || null,
     req.projectTemplateName || null,
+    req.referenceEstimateId || null,
+    req.selectedSections?.sort() || null,
     (req.existingItems || []).map(i => i.name).sort(),
   );
 
@@ -1031,7 +1071,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
   // --- Stage 1: structure ---
   try {
-    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n${templateContext}${scopeContext}\n\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
+    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n${templateContext}${scopeContext}${sectionsFilter}\n${referenceContext}\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
 
     console.info('[AI] Stage 1: sending structure request to model');
     console.debug('[AI] Stage 1 prompt preview', stage1Prompt.slice(0, 1200));
@@ -1060,12 +1100,17 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       }))
       .filter(b => Boolean(b.category));
 
+    // Filter blocks to only selected sections if provided by wizard
+    const sectionFiltered = (req.selectedSections && req.selectedSections.length > 0)
+      ? blocks.filter(b => req.selectedSections!.includes(b.category as EstimateCategory))
+      : blocks;
+
     const stage1Warnings = Array.isArray(s1Obj?.warnings) ? s1Obj.warnings.map(String) : [];
     const stage1Assumptions = Array.isArray(s1Obj?.assumptions) ? s1Obj.assumptions.map(String) : [];
 
     // Bound blocks to reduce API calls
     const maxBlocks = 6;
-    const chosenBlocks = blocks.slice(0, maxBlocks);
+    const chosenBlocks = sectionFiltered.slice(0, maxBlocks);
 
     parsedWarnings.push(...stage1Warnings);
     if (stage1Assumptions.length) {
@@ -1079,7 +1124,13 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       const catMaterials = buildMaterialsCatalogForCategory(cat);
       const catWorks = buildWorksCatalogForCategory(cat);
 
-      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
+      // Reference items for this category (if available)
+      const refItemsForCat = referenceEstimate?.items?.filter(i => i.category === cat) || [];
+      const refContext = refItemsForCat.length > 0
+        ? `\nЭТАЛОН для блока ${cat} (из выбранной пользователем сметы, площадь ${referenceEstimate!.area} м²):\n${JSON.stringify(refItemsForCat.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, subgroup: i.subgroup })), null, 0)}\nАдаптируй количества под площадь ${req.area} м².\n`
+        : '';
+
+      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n${refContext}\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
 
       console.info('[AI] Stage 2: sending detail request for block', cat);
       console.debug('[AI] Stage 2 prompt preview for ' + String(cat), stage2Prompt.slice(0, 1200));
@@ -1184,6 +1235,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     total,
     suggestions: suggestionsWithNorm,
     warnings: finalWarnings,
+    notInDbItems: priced.notInDbItems.length > 0 ? priced.notInDbItems : undefined,
   };
 
   // Cache only if quality is above threshold and not marked bad

@@ -94,6 +94,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiGenDescription, setAiGenDescription] = useState('');
     const [aiGenEnableAiPriceSearch, setAiGenEnableAiPriceSearch] = useState(true);
     const [aiAddedItemIds, setAiAddedItemIds] = useState<Set<string>>(new Set());
+    const [aiNotInDbItems, setAiNotInDbItems] = useState<import('./AIMissingItemsModal').NotInDbItem[]>([]);
+    const [aiAddedToCatalogNames, setAiAddedToCatalogNames] = useState<Set<string>>(new Set());
     const [showComparison, setShowComparison] = useState(false);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
     // Typeahead / debounce state
@@ -469,7 +471,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }
     }, [genParams, templatesValue]);
 
-    const handleGenerateWithAI = useCallback(async (opts?: { scopeDescription?: string; enableAiPriceSearch?: boolean }) => {
+    const handleGenerateWithAI = useCallback(async (opts?: {
+        scopeDescription?: string;
+        enableAiPriceSearch?: boolean;
+        area?: number;
+        buildingType?: string;
+        selectedSections?: EstimateCategory[];
+        referenceEstimateId?: string;
+    }) => {
         if (aiAccessValue && !aiAccessValue.canUseAi) {
             alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
             if (onUpgradeRequest) onUpgradeRequest();
@@ -479,13 +488,25 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
             return;
         }
-        if (!estimate.buildingType || !estimate.buildingType.trim()) {
+        // Apply wizard overrides to the current estimate
+        const wizardArea = opts?.area ?? estimate.area;
+        const wizardBuildingType = opts?.buildingType ?? estimate.buildingType;
+
+        if (!wizardBuildingType || !wizardBuildingType.trim()) {
             alert('Укажите тип строения перед AI-генерацией.');
             return;
         }
-        if (!estimate.area || estimate.area <= 0) {
+        if (!wizardArea || wizardArea <= 0) {
             alert('Укажите площадь перед AI-генерацией.');
             return;
+        }
+        // Update estimate with wizard-provided area/buildingType
+        if (opts?.area || opts?.buildingType) {
+            setEstimate(prev => ({
+                ...prev,
+                ...(opts.area ? { area: opts.area } : {}),
+                ...(opts.buildingType ? { buildingType: opts.buildingType } : {}),
+            }));
         }
         setIsLoading(true);
         setAiBusyMessage('Генерирую смету с помощью AI');
@@ -536,25 +557,27 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             });
 
             // AI дополняет базу (шаблон) и учитывает тип строения/шаблон
-            const callParams = { ...genParams, area: estimate.area };
+            const callParams = { ...genParams, area: wizardArea };
             const scopeDescription = (opts?.scopeDescription ?? aiGenDescription) || '';
             const enableAiPriceSearch = typeof opts?.enableAiPriceSearch === 'boolean'
                 ? opts.enableAiPriceSearch
                 : aiGenEnableAiPriceSearch;
 
-            const { items: aiItems, suggestions, warnings } = await generateEstimateWithAI(
+            const { items: aiItems, suggestions, warnings, notInDbItems: generatedNotInDb } = await generateEstimateWithAI(
                 callParams,
                 latestOnlyEstimates,
                 materialsValue,
                 worksValue,
                 baseItems,
                 {
-                    buildingType: estimate.buildingType,
+                    buildingType: wizardBuildingType,
                     projectTemplateId: selectedTemplate?.id,
                     projectTemplateName: selectedTemplate?.name,
                     templateItems: baseItems,
                     scopeDescription,
                     enableAiPriceSearch,
+                    referenceEstimateId: opts?.referenceEstimateId,
+                    selectedSections: opts?.selectedSections,
                 },
             );
 
@@ -601,6 +624,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
             if (suggestions && suggestions.length > 0) setAiTextSuggestions(suggestions);
             if (warnings && warnings.length > 0) setAiWarnings(warnings);
+
+            // Show "Not in DB" items if any after generation
+            if (generatedNotInDb && generatedNotInDb.length > 0) {
+                setAiNotInDbItems(generatedNotInDb);
+                setAiAddedToCatalogNames(new Set());
+                // Also open the analysis modal to show the "Not in DB" tab
+                setAiAnalysisOpen(true);
+                setAiAnalysisMissing([]);
+                setAiAnalysisOptional([]);
+                setAiAnalysisReasoning([`AI-генерация завершена. ${generatedNotInDb.length} позиций не найдено в справочниках.`]);
+            }
         } catch (error) {
             console.error('Failed to generate estimate with AI', error);
             alert('Произошла ошибка при AI-генерации сметы.');
@@ -1117,6 +1151,22 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     });
                 }}
                 addedItemIds={aiAddedItemIds}
+                notInDbItems={aiNotInDbItems}
+                onAddToCatalog={(item) => {
+                    // Add to the appropriate catalog (materials or works)
+                    const isMaterial = item.subgroup === EstimateSubgroup.MATERIALS || item.subgroup === EstimateSubgroup.DELIVERY;
+                    if (isMaterial && catalogContext?.onAddMaterial) {
+                        catalogContext.onAddMaterial(item.name, item.category, item.price || 0);
+                    } else if (!isMaterial && catalogContext?.onAddWork) {
+                        catalogContext.onAddWork(item.name, item.category, item.price || 0);
+                    }
+                    setAiAddedToCatalogNames(prev => {
+                        const next = new Set(prev);
+                        next.add(item.name);
+                        return next;
+                    });
+                }}
+                addedToCatalogNames={aiAddedToCatalogNames}
             />
 
             <AIGenerationModal
@@ -1128,8 +1178,20 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     setAiGenDescription(payload.description);
                     setAiGenEnableAiPriceSearch(payload.enableAiPriceSearch);
                     setAiGenModalOpen(false);
-                    handleGenerateWithAI({ scopeDescription: payload.description, enableAiPriceSearch: payload.enableAiPriceSearch });
+                    handleGenerateWithAI({
+                        scopeDescription: payload.description,
+                        enableAiPriceSearch: payload.enableAiPriceSearch,
+                        area: payload.area,
+                        buildingType: payload.buildingType,
+                        selectedSections: payload.selectedSections,
+                        referenceEstimateId: payload.referenceEstimateId,
+                    });
                 }}
+                allEstimates={allEstimatesValue}
+                materials={materialsValue}
+                works={worksValue}
+                currentArea={estimate.area}
+                currentBuildingType={estimate.buildingType}
             />
             {showComparison && getPreviousVersion() && (
                 <VersionComparisonModal

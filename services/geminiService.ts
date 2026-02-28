@@ -47,14 +47,25 @@ const MOCK_LARGE_AREA_ADDITION = {
     category: EstimateCategory.FOUNDATION,
 };
 
+import type { CatalogMismatchItem } from './openRouterService';
+
 export const generateEstimateWithAI = async (
     params: GenerationParams,
     historicalEstimates?: Estimate[],
     materials?: Material[],
     works?: Work[],
     existingItems?: EstimateItem[],
-    options?: { buildingType?: string; projectTemplateId?: string; projectTemplateName?: string; templateItems?: EstimateItem[]; scopeDescription?: string; enableAiPriceSearch?: boolean },
-): Promise<{ items: EstimateItem[]; total: number; suggestions?: string[]; warnings?: string[] }> => {
+    options?: {
+        buildingType?: string;
+        projectTemplateId?: string;
+        projectTemplateName?: string;
+        templateItems?: EstimateItem[];
+        scopeDescription?: string;
+        enableAiPriceSearch?: boolean;
+        referenceEstimateId?: string;
+        selectedSections?: EstimateCategory[];
+    },
+): Promise<{ items: EstimateItem[]; total: number; suggestions?: string[]; warnings?: string[]; notInDbItems?: CatalogMismatchItem[] }> => {
     console.log("AI Generation triggered with params:", params);
 
     // If OpenRouter is configured, prefer real AI. Otherwise keep legacy mock behavior.
@@ -69,6 +80,8 @@ export const generateEstimateWithAI = async (
                 templateItems: options?.templateItems,
                 scopeDescription: options?.scopeDescription,
                 enableAiPriceSearch: options?.enableAiPriceSearch,
+                referenceEstimateId: options?.referenceEstimateId,
+                selectedSections: options?.selectedSections,
                 historicalEstimates: historicalEstimates || [],
                 existingItems,
                 materials,
@@ -81,6 +94,7 @@ export const generateEstimateWithAI = async (
                 total: result.total,
                 suggestions: result.suggestions,
                 warnings: result.warnings,
+                notInDbItems: result.notInDbItems,
             };
         } catch (e) {
             console.warn('[geminiService] OpenRouter generation failed; falling back to mock', e);
