@@ -170,9 +170,18 @@ export interface WikiCategory {
     description: string;
 }
 
+export interface WikiSubcategory {
+    id: string;
+    categoryId: string;
+    name: string;
+    icon: string;
+    description: string;
+}
+
 export interface WikiArticle {
     id: string;
     categoryId: string;
+    subcategoryId: string;
     title: string;
     content: string;
     tags: string[];

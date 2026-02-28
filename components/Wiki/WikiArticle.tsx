@@ -1,56 +1,77 @@
-import React, { useEffect } from 'react';
-import { WikiArticle as WikiArticleType, WikiCategory } from '../../types';
+import React from 'react';
+import { WikiArticle as WikiArticleType, WikiCategory, WikiSubcategory } from '../../types';
 
 interface WikiArticleProps {
     article: WikiArticleType;
     category: WikiCategory | null;
-    onClose: () => void;
+    subcategory: WikiSubcategory | null;
+    onBack: () => void;
 }
 
-const WikiArticle: React.FC<WikiArticleProps> = ({ article, category, onClose }) => {
-    useEffect(() => {
-        const handler = (event: KeyboardEvent) => {
-            if (event.key === 'Escape') onClose();
-        };
-        document.addEventListener('keydown', handler);
-        return () => document.removeEventListener('keydown', handler);
-    }, [onClose]);
-
+const WikiArticle: React.FC<WikiArticleProps> = ({ article, category, subcategory, onBack }) => {
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true">
-            <div className="bg-surface border border-border rounded-xl shadow-2xl w-full max-w-2xl">
-                <div className="flex items-start justify-between gap-4 p-6 border-b border-border">
-                    <div>
-                        <div className="text-sm text-text-secondary">{category ? category.name : 'Wiki'}</div>
-                        <h2 className="text-xl font-semibold text-text-primary mt-1">{article.title}</h2>
-                    </div>
+        <article className="bg-surface border border-border rounded-2xl shadow-lg overflow-hidden">
+            {/* Top gradient bar */}
+            <div className="h-1 bg-gradient-to-r from-primary via-primary/60 to-transparent" />
+
+            <div className="p-6 sm:p-8 space-y-6">
+                {/* Back & breadcrumb */}
+                <div className="flex items-center gap-3">
                     <button
-                        onClick={onClose}
-                        className="text-text-secondary hover:text-text-primary text-2xl"
-                        aria-label="Закрыть"
+                        onClick={onBack}
+                        className="flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors font-medium"
                     >
-                        ×
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                        Назад
                     </button>
+                    {category && (
+                        <span className="text-xs text-text-secondary/60">
+                            {category.icon} {category.name}
+                            {subcategory && ` → ${subcategory.name}`}
+                        </span>
+                    )}
                 </div>
-                <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-                    {article.content.split('\n').map((p, i) => (
-                        <p key={i} className="text-sm text-text-primary leading-relaxed">{p}</p>
-                    ))}
-                    {article.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-2 pt-2">
+
+                {/* Title */}
+                <h2 className="text-2xl sm:text-3xl font-bold text-text-primary leading-tight">
+                    {article.title}
+                </h2>
+
+                {/* Divider */}
+                <div className="border-t border-border" />
+
+                {/* Content */}
+                <div className="space-y-4">
+                    {article.content.split('\n').map((paragraph, i) => {
+                        const trimmed = paragraph.trim();
+                        if (!trimmed) return null;
+                        return (
+                            <p key={i} className="text-[15px] text-text-primary/90 leading-relaxed">
+                                {trimmed}
+                            </p>
+                        );
+                    })}
+                </div>
+
+                {/* Tags */}
+                {article.tags.length > 0 && (
+                    <div className="pt-2 border-t border-border">
+                        <div className="flex flex-wrap gap-2">
                             {article.tags.map(tag => (
                                 <span
                                     key={tag}
-                                    className="text-xs px-2 py-1 rounded-full bg-background border border-border text-text-secondary"
+                                    className="text-xs px-3 py-1 rounded-full bg-primary/10 text-primary/80 font-medium"
                                 >
                                     #{tag}
                                 </span>
                             ))}
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
             </div>
-        </div>
+        </article>
     );
 };
 

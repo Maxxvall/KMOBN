@@ -1,44 +1,123 @@
 import React, { useMemo, useState } from 'react';
 import { WikiArticle as WikiArticleType } from '../../types';
-import { WIKI_ARTICLES, WIKI_CATEGORIES } from '../../services/wikiDatabase';
+import { WIKI_ARTICLES, WIKI_CATEGORIES, WIKI_SUBCATEGORIES } from '../../services/wikiDatabase';
 import { askWikiAI } from '../../services/wikiAI';
 import { hasOpenRouterKey } from '../../services/aiConfig';
 import WikiCategories from './WikiCategories';
+import WikiSubcategories from './WikiSubcategories';
 import WikiArticle from './WikiArticle';
 import WikiAIChat from './WikiAIChat';
 import TabDescription from '../TabDescription';
 
+type NavigationLevel = 'categories' | 'subcategories' | 'articles' | 'article';
+
 const Wiki: React.FC = () => {
+    const [level, setLevel] = useState<NavigationLevel>('categories');
     const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+    const [selectedSubcategoryId, setSelectedSubcategoryId] = useState<string | null>(null);
     const [selectedArticle, setSelectedArticle] = useState<WikiArticleType | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [aiQuestion, setAiQuestion] = useState('');
     const [aiResponse, setAiResponse] = useState('');
     const [isLoadingAI, setIsLoadingAI] = useState(false);
 
-    const categories = useMemo(() => {
+    // ─── Computed data ───────────────────────────────────────────────────────
+
+    const selectedCategory = useMemo(
+        () => WIKI_CATEGORIES.find(c => c.id === selectedCategoryId) ?? null,
+        [selectedCategoryId],
+    );
+
+    const selectedSubcategory = useMemo(
+        () => WIKI_SUBCATEGORIES.find(s => s.id === selectedSubcategoryId) ?? null,
+        [selectedSubcategoryId],
+    );
+
+    const subcategoriesForCategory = useMemo(
+        () => (selectedCategoryId ? WIKI_SUBCATEGORIES.filter(s => s.categoryId === selectedCategoryId) : []),
+        [selectedCategoryId],
+    );
+
+    const articlesForSubcategory = useMemo(
+        () => (selectedSubcategoryId ? WIKI_ARTICLES.filter(a => a.subcategoryId === selectedSubcategoryId) : []),
+        [selectedSubcategoryId],
+    );
+
+    /** Article counts per subcategory for badges */
+    const articleCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        for (const a of WIKI_ARTICLES) {
+            counts[a.subcategoryId] = (counts[a.subcategoryId] ?? 0) + 1;
+        }
+        return counts;
+    }, []);
+
+    /** Article counts per category */
+    const categoryCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        for (const a of WIKI_ARTICLES) {
+            counts[a.categoryId] = (counts[a.categoryId] ?? 0) + 1;
+        }
+        return counts;
+    }, []);
+
+    // ─── Search ──────────────────────────────────────────────────────────────
+
+    const searchResults = useMemo(() => {
         const q = searchQuery.trim().toLowerCase();
-        if (!q) return WIKI_CATEGORIES;
-        return WIKI_CATEGORIES.filter(c =>
-            `${c.name} ${c.description}`.toLowerCase().includes(q)
+        if (!q) return null;
+        return WIKI_ARTICLES.filter(a =>
+            `${a.title} ${a.content} ${a.tags.join(' ')}`.toLowerCase().includes(q),
         );
     }, [searchQuery]);
 
-    const articles = useMemo(() => {
-        const q = searchQuery.trim().toLowerCase();
-        let list = WIKI_ARTICLES;
-        if (selectedCategoryId) {
-            list = list.filter(a => a.categoryId === selectedCategoryId);
-        }
-        if (!q) return list;
-        return list.filter(a =>
-            `${a.title} ${a.content} ${a.tags.join(' ')}`.toLowerCase().includes(q)
-        );
-    }, [searchQuery, selectedCategoryId]);
+    const isSearching = searchResults !== null;
 
-    const selectedCategory = useMemo(() => {
-        return WIKI_CATEGORIES.find(c => c.id === selectedCategoryId) || null;
-    }, [selectedCategoryId]);
+    // ─── Handlers ────────────────────────────────────────────────────────────
+
+    const handleCategoryClick = (categoryId: string) => {
+        setSelectedCategoryId(categoryId);
+        setSelectedSubcategoryId(null);
+        setSelectedArticle(null);
+        setLevel('subcategories');
+    };
+
+    const handleSubcategoryClick = (subcategoryId: string) => {
+        setSelectedSubcategoryId(subcategoryId);
+        setSelectedArticle(null);
+        setLevel('articles');
+    };
+
+    const handleArticleClick = (article: WikiArticleType) => {
+        setSelectedArticle(article);
+        setLevel('article');
+    };
+
+    const handleSearchArticleClick = (article: WikiArticleType) => {
+        setSelectedCategoryId(article.categoryId);
+        setSelectedSubcategoryId(article.subcategoryId);
+        setSelectedArticle(article);
+        setLevel('article');
+        setSearchQuery('');
+    };
+
+    const goToCategories = () => {
+        setSelectedCategoryId(null);
+        setSelectedSubcategoryId(null);
+        setSelectedArticle(null);
+        setLevel('categories');
+    };
+
+    const goToSubcategories = () => {
+        setSelectedSubcategoryId(null);
+        setSelectedArticle(null);
+        setLevel('subcategories');
+    };
+
+    const goToArticles = () => {
+        setSelectedArticle(null);
+        setLevel('articles');
+    };
 
     const handleAskAI = async () => {
         const question = aiQuestion.trim();
@@ -55,37 +134,31 @@ const Wiki: React.FC = () => {
         }
     };
 
-    const handleCategoryClick = (categoryId: string) => {
-        setSelectedCategoryId(prev => (prev === categoryId ? null : categoryId));
-    };
-
-    const resetFilters = () => {
-        setSelectedCategoryId(null);
-        setSearchQuery('');
-    };
-
     const aiDisabled = !hasOpenRouterKey();
+
+    // ─── Render ──────────────────────────────────────────────────────────────
 
     return (
         <div className="space-y-6">
+            {/* Tab description */}
             <TabDescription
                 storageKey="wiki"
-                summary="База знаний и помощник. Найдите ответы на вопросы, изучите инструкции и используйте AI-помощника."
+                summary="База знаний по строительству. Выбирайте тему, подраздел и читайте полезные статьи. Используйте AI-помощника для быстрых ответов."
                 actions={[
-                    'Найти статьи по категориям',
-                    'Использовать поиск по базе знаний',
+                    'Найти статьи по категориям и подразделам',
+                    'Использовать поиск по всей базе знаний',
                     'Задать вопрос AI-помощнику',
-                    'Изучить инструкции по работе с системой',
+                    'Изучить нормативы и чек-листы',
                 ]}
                 steps={[
-                    'Выберите категорию или используйте поиск.',
-                    'Прочитайте статью с инструкцией.',
-                    'Задайте вопрос AI-чату, если нужна помощь.',
-                    'Применяйте знания на практике.',
+                    'Выберите тему (категорию).',
+                    'Откройте подраздел внутри темы.',
+                    'Прочитайте нужную статью.',
+                    'Задайте вопрос AI, если нужна помощь.',
                 ]}
                 examples={[
-                    'Найдите чек-лист по фундаменту и используйте его перед стартом работ.',
-                    'Спросите у AI про оптимальную толщину утеплителя для региона.',
+                    'Откройте «Фундамент» → «Подготовка основания» → «Дренаж и водоотведение».',
+                    'Спросите у AI про оптимальную толщину утеплителя для вашего региона.',
                 ]}
                 quickLinks={[
                     {
@@ -102,11 +175,24 @@ const Wiki: React.FC = () => {
                     },
                 ]}
             />
-            <div className="flex flex-col gap-2">
-                <h1 className="text-3xl font-bold text-text-primary">Wiki</h1>
-                <p className="text-sm text-text-secondary">База знаний по строительным разделам и быстрые ответы от AI.</p>
+
+            {/* Header */}
+            <div className="flex items-end justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-text-primary tracking-tight">
+                        База знаний
+                    </h1>
+                    <p className="text-sm text-text-secondary mt-1">
+                        {WIKI_CATEGORIES.length} разделов · {WIKI_ARTICLES.length} статей · строительство, нормы, практика
+                    </p>
+                </div>
+                <div className="hidden sm:flex items-center gap-1.5 text-xs text-text-secondary bg-surface border border-border rounded-full px-3 py-1.5">
+                    <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+                    Актуально
+                </div>
             </div>
 
+            {/* AI Chat */}
             <WikiAIChat
                 question={aiQuestion}
                 onQuestionChange={setAiQuestion}
@@ -121,69 +207,226 @@ const Wiki: React.FC = () => {
                 </div>
             )}
 
-            <div className="flex flex-col md:flex-row md:items-center gap-3">
+            {/* Search */}
+            <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                    <svg className="w-4 h-4 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
+                    </svg>
+                </div>
                 <input
                     type="text"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Поиск по разделам и статьям..."
-                    className="flex-1 bg-surface border border-border rounded-md px-4 py-2 text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary"
+                    placeholder="Поиск по всем статьям..."
+                    className="w-full bg-surface border border-border rounded-xl pl-11 pr-4 py-3 text-text-primary placeholder:text-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-shadow"
                     aria-label="Поиск по Wiki"
                 />
-                {(selectedCategoryId || searchQuery) && (
+                {searchQuery && (
                     <button
-                        onClick={resetFilters}
-                        className="px-4 py-2 rounded-md border border-border text-text-secondary hover:text-text-primary"
+                        onClick={() => setSearchQuery('')}
+                        className="absolute inset-y-0 right-0 pr-4 flex items-center text-text-secondary hover:text-text-primary"
+                        aria-label="Очистить поиск"
                     >
-                        Сбросить фильтр
+                        ✕
                     </button>
                 )}
             </div>
 
-            <WikiCategories
-                categories={categories}
-                activeCategoryId={selectedCategoryId}
-                onSelect={handleCategoryClick}
-            />
-
-            <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                    <h2 className="text-xl font-semibold text-text-primary">
-                        {selectedCategory ? `Статьи: ${selectedCategory.name}` : 'Статьи'}
-                    </h2>
-                    <span className="text-xs text-text-secondary">{articles.length} шт.</span>
+            {/* Search results */}
+            {isSearching && (
+                <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                        <h2 className="text-lg font-semibold text-text-primary">Результаты поиска</h2>
+                        <span className="text-xs text-text-secondary">{searchResults.length} шт.</span>
+                    </div>
+                    {searchResults.length === 0 ? (
+                        <div className="bg-surface border border-border rounded-xl p-8 text-center text-text-secondary">
+                            Ничего не найдено. Попробуйте изменить запрос.
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {searchResults.map(article => {
+                                const cat = WIKI_CATEGORIES.find(c => c.id === article.categoryId);
+                                const sub = WIKI_SUBCATEGORIES.find(s => s.id === article.subcategoryId);
+                                return (
+                                    <button
+                                        key={article.id}
+                                        onClick={() => handleSearchArticleClick(article)}
+                                        className="group bg-surface border border-border rounded-xl p-5 text-left transition-all hover:border-primary/60 hover:shadow-lg hover:shadow-primary/5 focus:outline-none focus:ring-2 focus:ring-primary"
+                                    >
+                                        <div className="text-xs text-text-secondary/70 mb-1">
+                                            {cat?.icon} {cat?.name} → {sub?.name}
+                                        </div>
+                                        <div className="text-base font-semibold text-text-primary group-hover:text-primary transition-colors">
+                                            {article.title}
+                                        </div>
+                                        <div className="flex flex-wrap gap-1 mt-2">
+                                            {article.tags.slice(0, 3).map(tag => (
+                                                <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary/80">
+                                                    #{tag}
+                                                </span>
+                                            ))}
+                                        </div>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
-                {articles.length === 0 ? (
-                    <div className="bg-surface border border-border rounded-xl p-6 text-text-secondary">
-                        Ничего не найдено. Попробуйте изменить запрос.
-                    </div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {articles.map(article => (
-                            <button
-                                key={article.id}
-                                onClick={() => setSelectedArticle(article)}
-                                className="bg-surface border border-border rounded-xl p-5 text-left hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
-                            >
-                                <div className="text-sm text-text-secondary">
-                                    {WIKI_CATEGORIES.find(c => c.id === article.categoryId)?.name ?? 'Wiki'}
-                                </div>
-                                <div className="text-lg font-semibold text-text-primary mt-1">{article.title}</div>
-                                <div className="text-sm text-text-secondary mt-2">
-                                    {article.content}
-                                </div>
-                            </button>
-                        ))}
-                    </div>
-                )}
-            </div>
+            )}
 
-            {selectedArticle && (
-                <WikiArticle
-                    article={selectedArticle}
-                    category={WIKI_CATEGORIES.find(c => c.id === selectedArticle.categoryId) || null}
-                    onClose={() => setSelectedArticle(null)}
-                />
+            {/* Main navigation (hidden during search) */}
+            {!isSearching && (
+                <>
+                    {/* Breadcrumbs */}
+                    {level !== 'categories' && (
+                        <nav className="flex items-center gap-1 text-sm flex-wrap" aria-label="Навигация">
+                            <button
+                                onClick={goToCategories}
+                                className="text-primary hover:text-primary/80 transition-colors font-medium"
+                            >
+                                Все разделы
+                            </button>
+                            {selectedCategory && (
+                                <>
+                                    <span className="text-text-secondary/50 mx-1">›</span>
+                                    {level === 'subcategories' ? (
+                                        <span className="text-text-primary font-medium">
+                                            {selectedCategory.icon} {selectedCategory.name}
+                                        </span>
+                                    ) : (
+                                        <button
+                                            onClick={goToSubcategories}
+                                            className="text-primary hover:text-primary/80 transition-colors font-medium"
+                                        >
+                                            {selectedCategory.icon} {selectedCategory.name}
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                            {selectedSubcategory && level !== 'subcategories' && (
+                                <>
+                                    <span className="text-text-secondary/50 mx-1">›</span>
+                                    {level === 'articles' ? (
+                                        <span className="text-text-primary font-medium">
+                                            {selectedSubcategory.name}
+                                        </span>
+                                    ) : (
+                                        <button
+                                            onClick={goToArticles}
+                                            className="text-primary hover:text-primary/80 transition-colors font-medium"
+                                        >
+                                            {selectedSubcategory.name}
+                                        </button>
+                                    )}
+                                </>
+                            )}
+                            {selectedArticle && level === 'article' && (
+                                <>
+                                    <span className="text-text-secondary/50 mx-1">›</span>
+                                    <span className="text-text-primary font-medium truncate max-w-[200px]">
+                                        {selectedArticle.title}
+                                    </span>
+                                </>
+                            )}
+                        </nav>
+                    )}
+
+                    {/* Level: Categories */}
+                    {level === 'categories' && (
+                        <WikiCategories
+                            categories={WIKI_CATEGORIES}
+                            articleCounts={categoryCounts}
+                            onSelect={handleCategoryClick}
+                        />
+                    )}
+
+                    {/* Level: Subcategories */}
+                    {level === 'subcategories' && selectedCategory && (
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3">
+                                <span className="text-3xl">{selectedCategory.icon}</span>
+                                <div>
+                                    <h2 className="text-xl font-bold text-text-primary">{selectedCategory.name}</h2>
+                                    <p className="text-sm text-text-secondary">{selectedCategory.description}</p>
+                                </div>
+                            </div>
+                            <WikiSubcategories
+                                subcategories={subcategoriesForCategory}
+                                articleCounts={articleCounts}
+                                onSelect={handleSubcategoryClick}
+                            />
+                        </div>
+                    )}
+
+                    {/* Level: Articles list */}
+                    {level === 'articles' && selectedSubcategory && (
+                        <div className="space-y-4">
+                            <div className="flex items-center gap-3">
+                                <span className="text-2xl">{selectedSubcategory.icon}</span>
+                                <div>
+                                    <h2 className="text-xl font-bold text-text-primary">{selectedSubcategory.name}</h2>
+                                    <p className="text-sm text-text-secondary">{selectedSubcategory.description}</p>
+                                </div>
+                            </div>
+                            {articlesForSubcategory.length === 0 ? (
+                                <div className="bg-surface border border-border rounded-xl p-8 text-center text-text-secondary">
+                                    В этом разделе пока нет статей.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 gap-3">
+                                    {articlesForSubcategory.map((article, idx) => (
+                                        <button
+                                            key={article.id}
+                                            onClick={() => handleArticleClick(article)}
+                                            className="group bg-surface border border-border rounded-xl p-5 text-left transition-all hover:border-primary/60 hover:shadow-lg hover:shadow-primary/5 focus:outline-none focus:ring-2 focus:ring-primary"
+                                        >
+                                            <div className="flex items-start gap-4">
+                                                <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center text-sm font-bold text-primary">
+                                                    {idx + 1}
+                                                </div>
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-base font-semibold text-text-primary group-hover:text-primary transition-colors">
+                                                        {article.title}
+                                                    </div>
+                                                    <div className="text-sm text-text-secondary mt-1 line-clamp-2">
+                                                        {article.content.split('\n')[0]}
+                                                    </div>
+                                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                                        {article.tags.map(tag => (
+                                                            <span
+                                                                key={tag}
+                                                                className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary/80"
+                                                            >
+                                                                #{tag}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div className="flex-shrink-0 text-text-secondary/40 group-hover:text-primary transition-colors">
+                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                                    </svg>
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Level: Article view */}
+                    {level === 'article' && selectedArticle && (
+                        <WikiArticle
+                            article={selectedArticle}
+                            category={selectedCategory}
+                            subcategory={selectedSubcategory}
+                            onBack={goToArticles}
+                        />
+                    )}
+                </>
             )}
         </div>
     );
