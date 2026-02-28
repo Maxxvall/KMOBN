@@ -64,6 +64,8 @@ export const generateEstimateWithAI = async (
         enableAiPriceSearch?: boolean;
         referenceEstimateId?: string;
         selectedSections?: EstimateCategory[];
+        windowCount?: number;
+        doorCount?: number;
     },
 ): Promise<{ items: EstimateItem[]; total: number; suggestions?: string[]; warnings?: string[]; notInDbItems?: CatalogMismatchItem[] }> => {
     console.log("AI Generation triggered with params:", params);
@@ -82,6 +84,8 @@ export const generateEstimateWithAI = async (
                 enableAiPriceSearch: options?.enableAiPriceSearch,
                 referenceEstimateId: options?.referenceEstimateId,
                 selectedSections: options?.selectedSections,
+                windowCount: options?.windowCount,
+                doorCount: options?.doorCount,
                 historicalEstimates: historicalEstimates || [],
                 existingItems,
                 materials,

@@ -270,6 +270,10 @@ export type AIGenerationPayload = {
   area: number;
   buildingType: string;
   referenceEstimateId?: string;
+  /** Кол-во окон */
+  windowCount?: number;
+  /** Кол-во межкомнатных дверей */
+  doorCount?: number;
 };
 
 const AIGenerationModal = ({
@@ -303,6 +307,8 @@ const AIGenerationModal = ({
   const [customDescription, setCustomDescription] = useState(initialValue || '');
   const [enableAiPriceSearch, setEnableAiPriceSearch] = useState(Boolean(initialEnableAiPriceSearch));
   const [referenceEstimateId, setReferenceEstimateId] = useState<string | undefined>();
+  const [windowCount, setWindowCount] = useState(6);
+  const [doorCount, setDoorCount] = useState(4);
 
   const selectedPreset = useMemo(
     () => BUILDING_PRESETS.find(p => p.id === selectedPresetId) || null,
@@ -335,6 +341,10 @@ const AIGenerationModal = ({
     setCustomDescription(initialValue || '');
     setEnableAiPriceSearch(Boolean(initialEnableAiPriceSearch));
     setReferenceEstimateId(undefined);
+    // Smart defaults for doors/windows based on area
+    const defaultArea = currentArea || 120;
+    setWindowCount(Math.max(4, Math.ceil(defaultArea / 15)));
+    setDoorCount(Math.max(2, Math.ceil(defaultArea / 20)));
   }, [isOpen, initialValue, initialEnableAiPriceSearch, currentArea, currentBuildingType]);
 
   const handlePresetSelect = useCallback((preset: BuildingTypePreset) => {
@@ -380,8 +390,10 @@ const AIGenerationModal = ({
       area,
       buildingType,
       referenceEstimateId,
+      windowCount: selectedSections.includes(EstimateCategory.WINDOWS) ? windowCount : undefined,
+      doorCount: selectedSections.includes(EstimateCategory.WINDOWS) ? doorCount : undefined,
     });
-  }, [selectedPreset, customDescription, selectedSections, enableAiPriceSearch, area, buildingType, referenceEstimateId, onConfirm]);
+  }, [selectedPreset, customDescription, selectedSections, enableAiPriceSearch, area, buildingType, referenceEstimateId, windowCount, doorCount, onConfirm]);
 
   if (!isOpen) return null;
 
@@ -457,6 +469,34 @@ const AIGenerationModal = ({
             className="w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
             placeholder="Каркасный дом"
           />
+        </div>
+      </div>
+
+      {/* Doors & Windows counts */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm text-text-secondary mb-1">🪟 Кол-во окон</label>
+          <input
+            type="number"
+            value={windowCount}
+            onChange={e => setWindowCount(Math.max(0, Number(e.target.value) || 0))}
+            className="w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+            min={0}
+            max={50}
+          />
+          <span className="text-xs text-text-secondary mt-0.5 block">Для расчёта кол-ва окон и комплектующих</span>
+        </div>
+        <div>
+          <label className="block text-sm text-text-secondary mb-1">🚪 Кол-во дверей</label>
+          <input
+            type="number"
+            value={doorCount}
+            onChange={e => setDoorCount(Math.max(0, Number(e.target.value) || 0))}
+            className="w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+            min={0}
+            max={30}
+          />
+          <span className="text-xs text-text-secondary mt-0.5 block">Межкомнатные двери + входная</span>
         </div>
       </div>
 
@@ -555,6 +595,8 @@ const AIGenerationModal = ({
           <span className="text-text-primary">{selectedPreset?.icon} {buildingType}</span>
           <span className="text-text-secondary">Площадь:</span>
           <span className="text-text-primary">{area} м²</span>
+          <span className="text-text-secondary">Окна / Двери:</span>
+          <span className="text-text-primary">🪟 {windowCount} шт / 🚪 {doorCount} шт</span>
           <span className="text-text-secondary">Разделы:</span>
           <span className="text-text-primary">{selectedSections.length} из {ALL_SECTIONS.length}</span>
           <span className="text-text-secondary">Материалов в БД:</span>

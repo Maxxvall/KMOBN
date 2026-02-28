@@ -478,6 +478,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         buildingType?: string;
         selectedSections?: EstimateCategory[];
         referenceEstimateId?: string;
+        windowCount?: number;
+        doorCount?: number;
     }) => {
         if (aiAccessValue && !aiAccessValue.canUseAi) {
             alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
@@ -578,6 +580,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     enableAiPriceSearch,
                     referenceEstimateId: opts?.referenceEstimateId,
                     selectedSections: opts?.selectedSections,
+                    windowCount: opts?.windowCount,
+                    doorCount: opts?.doorCount,
                 },
             );
 
@@ -1192,6 +1196,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         buildingType: payload.buildingType,
                         selectedSections: payload.selectedSections,
                         referenceEstimateId: payload.referenceEstimateId,
+                        windowCount: payload.windowCount,
+                        doorCount: payload.doorCount,
                     });
                 }}
                 allEstimates={allEstimatesValue}

@@ -26,6 +26,10 @@ export interface AIEstimateRequest {
   referenceEstimateId?: string;
   /** Выбранные пользователем разделы (если не указаны — все) */
   selectedSections?: EstimateCategory[];
+  /** Кол-во окон, указанное пользователем в визарде */
+  windowCount?: number;
+  /** Кол-во дверей, указанное пользователем в визарде */
+  doorCount?: number;
 }
 
 export type CatalogMismatchItem = {
@@ -132,8 +136,8 @@ const inferUnitFromName = (name: string): string | null => {
 
 const parsePackAreaSqMFromName = (nameRaw: string): number | null => {
   const name = String(nameRaw || '');
-  // Matches: 25м2, 25 м2, 25м², 25 m2, 3 м², 3m²
-  const m = name.match(/(\d+(?:[\.,]\d+)?)\s*(?:м2|м²|m2|m²)\b/i);
+  // Matches: 25м2, 25 м2, 25м², 25 m2, 3 м², 3m², 70 кв.м, 70 кв м, 70кв.м
+  const m = name.match(/(\d+(?:[\.,]\d+)?)\s*(?:м2|м²|m2|m²|кв\.?\s*м)\b/i);
   if (!m) return null;
   const n = safeNumber(m[1], 0);
   return n > 0 ? n : null;
@@ -976,10 +980,58 @@ const applyAiPriceSearchForMissingMaterials = async (opts: {
   return { items, warnings };
 };
 
+// ─── Construction-aware area multipliers ─────────────────────────────────────
+
+/** Estimate total wall surface area from floor area (perimeter * wall height). */
+const estimateWallArea = (floorArea: number, wallHeight = 2.8): number => {
+  // Approximate perimeter from floor area assuming roughly square footprint
+  const side = Math.sqrt(Math.max(1, floorArea));
+  const perimeter = side * 4;
+  return Math.ceil(perimeter * wallHeight);
+};
+
+/** Estimate roof area from floor area (pitch factor ~1.3 for typical gable roof). */
+const estimateRoofArea = (floorArea: number, pitchFactor = 1.3): number => {
+  return Math.ceil(floorArea * pitchFactor);
+};
+
+/**
+ * Get the appropriate coverage area for a material based on its category.
+ * Walls use wall surface area, roof uses pitched roof area, others use floor area.
+ */
+const getCoverageArea = (category: EstimateCategory, floorArea: number): number => {
+  switch (category) {
+    case EstimateCategory.WALLS:
+      return estimateWallArea(floorArea);
+    case EstimateCategory.ROOF:
+      return estimateRoofArea(floorArea);
+    default:
+      return Math.max(1, floorArea);
+  }
+};
+
+/** Detect if a material name refers to doors/windows/similar countable items. */
+const isDoorOrWindowMaterial = (name: string): boolean => {
+  const n = String(name || '').toLowerCase();
+  return /\b(дверь|дверн|двер|окно|окон|стеклопакет|фурнитур|ручк|замок|петл|наличник|доборн|откос|подоконник)/.test(n);
+};
+
+/** Detect if a material is a fastener (screws, nails, etc). */
+const isFastener = (name: string): boolean => {
+  const n = String(name || '').toLowerCase();
+  return /\b(саморез|гвозд|шуруп|анкер|дюбел|болт|гайк|шайб|крепёж|крепеж|метиз)/.test(n);
+};
+
+/** Detect if a material is a sealant / foam / tape. */
+const isSealantOrFoam = (name: string): boolean => {
+  const n = String(name || '').toLowerCase();
+  return /\b(пен[аы]|герметик|лента|скотч|клей|мастик)/.test(n);
+};
+
 /**
  * Deterministic fallback: generates estimate items directly from catalogs
  * when AI is unavailable or returns empty results.
- * Picks ALL materials and works matching the selected sections.
+ * Uses construction-aware logic for quantities.
  */
 const generateItemsFromCatalog = (opts: {
   area: number;
@@ -988,9 +1040,15 @@ const generateItemsFromCatalog = (opts: {
   works: Work[];
   selectedSections?: EstimateCategory[];
   existingItems?: EstimateItem[];
+  /** Number of windows specified by user in wizard */
+  windowCount?: number;
+  /** Number of interior doors specified by user in wizard */
+  doorCount?: number;
 }): EstimateItem[] => {
   const now = Date.now();
-  const area = Math.max(1, opts.area || 100);
+  const floorArea = Math.max(1, opts.area || 100);
+  const windowCount = opts.windowCount ?? Math.max(4, Math.ceil(floorArea / 15));
+  const doorCount = opts.doorCount ?? Math.max(2, Math.ceil(floorArea / 20));
   const existingNames = new Set((opts.existingItems || []).map(i => normalizeKey(i.name)));
 
   // Determine which categories to include
@@ -1006,35 +1064,26 @@ const generateItemsFromCatalog = (opts: {
   const items: EstimateItem[] = [];
   let idx = 0;
 
-  // Add works from catalog matching sections
+  // ── Works: always quantity = 1 (work is a service, priced per-job) ──
   for (const w of (opts.works || [])) {
     if (!sections.includes(w.category)) continue;
     const k = normalizeKey(w.name);
     if (existingNames.has(k)) continue;
     existingNames.add(k);
 
-    // Estimate quantity based on area and inferred unit (Work type has no unit field)
-    const unit = normalizeUnitText(inferUnitFromName(w.name) || 'м2');
-    let quantity = 1;
-    if (unit === 'м2') quantity = Math.ceil(area * 1.1);
-    else if (unit === 'м/п') quantity = Math.ceil(area * 2);
-    else if (unit === 'м3') quantity = Math.round(area * 0.05 * 100) / 100;
-    else if (unit === 'шт') quantity = Math.max(1, Math.ceil(area * 0.1));
-    else quantity = Math.max(1, Math.ceil(area * 0.05));
-
     items.push({
       id: `cat-work-${now}-${idx++}`,
       name: w.name,
-      unit,
-      quantity,
+      unit: 'шт',
+      quantity: 1,
       price: w.price || 0,
-      total: quantity * (w.price || 0),
+      total: 1 * (w.price || 0),
       category: w.category,
       subgroup: EstimateSubgroup.WORKS,
     });
   }
 
-  // Add materials from catalog matching sections
+  // ── Materials: smart quantity based on category, name, pack size, area ──
   for (const m of (opts.materials || [])) {
     if (!sections.includes(m.category)) continue;
     const k = normalizeKey(m.name);
@@ -1043,22 +1092,66 @@ const generateItemsFromCatalog = (opts: {
 
     const unit = normalizeUnitText(inferUnitFromName(m.name) || 'шт');
     let quantity = 1;
-    // Smart quantity estimation based on unit and area
-    const packArea = parsePackAreaSqMFromName(m.name);
-    if (packArea && packArea > 0) {
-      quantity = computePackQuantityWithReserve(area, packArea);
-    } else if (unit === 'м2') {
-      quantity = Math.ceil(area * 1.15);
+
+    // Rule 1: Door/window related → use user-provided counts
+    if (isDoorOrWindowMaterial(m.name)) {
+      const n = String(m.name || '').toLowerCase();
+      if (/\b(окно|окон|стеклопакет)/.test(n)) {
+        quantity = windowCount;
+      } else {
+        quantity = doorCount;
+      }
+    }
+    // Rule 2: Material name contains pack area (e.g. "75 м2", "70 кв.м", "25м2")
+    else if (parsePackAreaSqMFromName(m.name)) {
+      const packArea = parsePackAreaSqMFromName(m.name)!;
+      const coverageArea = getCoverageArea(m.category, floorArea);
+      quantity = Math.max(1, Math.ceil(coverageArea / packArea)) + (coverageArea / packArea > 2 ? 1 : 0);
+    }
+    // Rule 3: Material name has dimensions (e.g. 50x50x6000) → compute from coverage
+    else if (parseProfileDimensionsFromName(m.name)) {
+      const dims = parseProfileDimensionsFromName(m.name)!;
+      if (dims.lengthMm && dims.widthMm) {
+        const pieceAreaM2 = (dims.lengthMm / 1000) * (dims.widthMm / 1000);
+        if (pieceAreaM2 > 0) {
+          const coverageArea = getCoverageArea(m.category, floorArea);
+          quantity = Math.max(1, Math.ceil(coverageArea / pieceAreaM2));
+        } else {
+          quantity = Math.max(1, Math.ceil(floorArea * 0.1));
+        }
+      } else if (dims.lengthMm) {
+        // Linear material (e.g. boards)
+        const pieceLenM = dims.lengthMm / 1000;
+        const coverageArea = getCoverageArea(m.category, floorArea);
+        const linearMeters = Math.ceil(Math.sqrt(coverageArea) * 4);
+        quantity = Math.max(1, Math.ceil(linearMeters / pieceLenM));
+      } else {
+        quantity = Math.max(1, Math.ceil(floorArea * 0.05));
+      }
+    }
+    // Rule 4: Fasteners → proportional to area
+    else if (isFastener(m.name)) {
+      if (unit === 'уп') quantity = Math.max(1, Math.ceil(floorArea / 30));
+      else quantity = Math.max(10, Math.ceil(floorArea * 3));
+    }
+    // Rule 5: Sealant / foam / tape
+    else if (isSealantOrFoam(m.name)) {
+      quantity = Math.max(1, Math.ceil(floorArea / 20));
+    }
+    // Rule 6: Unit-based estimation
+    else if (unit === 'м2') {
+      quantity = Math.ceil(getCoverageArea(m.category, floorArea) * 1.1);
     } else if (unit === 'м/п') {
-      quantity = Math.ceil(area * 2);
+      const perimeterIsh = Math.ceil(Math.sqrt(floorArea) * 4);
+      quantity = Math.ceil(perimeterIsh * 1.1);
     } else if (unit === 'м3') {
-      quantity = Math.round(area * 0.05 * 100) / 100;
-    } else if (unit === 'шт') {
-      quantity = Math.max(1, Math.ceil(area * 0.1));
+      quantity = Math.round(floorArea * 0.05 * 100) / 100 || 1;
     } else if (unit === 'уп') {
-      quantity = Math.max(1, Math.ceil(area * 0.03));
-    } else {
-      quantity = Math.max(1, Math.ceil(area * 0.05));
+      quantity = Math.max(1, Math.ceil(floorArea / 30));
+    }
+    // Rule 7: Default шт for unknown
+    else {
+      quantity = Math.max(1, Math.ceil(floorArea * 0.05));
     }
 
     items.push({
@@ -1095,6 +1188,7 @@ const buildCompactOneShotPrompt = (req: AIEstimateRequest, referenceContext?: st
   return `Создай строительную смету. Ответ — ТОЛЬКО JSON.
 
 Площадь: ${req.area} м². Тип: ${req.buildingType || 'не указан'}. Регион: ${req.region}.
+Окон: ${req.windowCount ?? 'авто'}. Дверей: ${req.doorCount ?? 'авто'}.
 ${req.scopeDescription ? `Описание: ${req.scopeDescription}` : ''}
 ${sectionsFilter || ''}
 ${referenceContext || ''}
@@ -1107,7 +1201,12 @@ ${workLines || 'нет данных'}
 
 Уже добавлено: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}
 
-Правила: используй ТОЛЬКО названия из списков выше. price=0. quantity масштабируй под площадь.
+Правила:
+- Используй ТОЛЬКО названия из списков выше.
+- price=0 (цены подтянет приложение).
+- Работы — всегда quantity=1 (это услуга, а не кв.м).
+- Материалы: масштабируй quantity под площадь. Если в названии указана площадь упаковки (напр. "75 м2") — рассчитай кол-во упаковок. Для стен учитывай площадь стен (периметр × высота ~2.8м), для кровли — площадь крыши (площадь × 1.3).
+- Окна/двери: используй указанное кол-во окон и дверей для соответствующих позиций.
 
 JSON формат:
 {"items":[{"name":"...","unit":"...","quantity":число,"price":0,"category":"КАТЕГОРИЯ","subgroup":"Работы|Материалы"}],"suggestions":[],"warnings":[]}`;
@@ -1187,7 +1286,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
   // --- Stage 1: structure ---
   try {
-    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n${templateContext}${scopeContext}${sectionsFilter}\n${referenceContext}\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
+    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n- Окон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${templateContext}${scopeContext}${sectionsFilter}\n${referenceContext}\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nВажные правила:\n- Работы (subgroup=Работы) ВСЕГДА quantity=1, это услуга.\n- Материалы: масштабируй под площадь. Если в названии указана площадь упаковки (75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек. Для стен — площадь стен = периметр × 2.8м. Для кровли — площадь × 1.3.\n- Окна/двери: используй указанное кол-во.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
 
     console.info('[AI] Stage 1: sending structure request to model');
     console.debug('[AI] Stage 1 prompt preview', stage1Prompt.slice(0, 1200));
@@ -1246,7 +1345,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         ? `\nЭТАЛОН для блока ${cat} (из выбранной пользователем сметы, площадь ${referenceEstimate!.area} м²):\n${JSON.stringify(refItemsForCat.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, subgroup: i.subgroup })), null, 0)}\nАдаптируй количества под площадь ${req.area} м².\n`
         : '';
 
-      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n${refContext}\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
+      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\nОкон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${scopeContext}\n${refContext}\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Работы — ВСЕГДА quantity=1 (это услуга, не кв.м)\n- Материалы: если в названии указана площадь упаковки (напр. 75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек от покрываемой площади. Для стен площадь = периметр × 2.8м, для кровли = площадь × 1.3\n- Окна/двери: используй указанное кол-во\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
 
       console.info('[AI] Stage 2: sending detail request for block', cat);
       console.debug('[AI] Stage 2 prompt preview for ' + String(cat), stage2Prompt.slice(0, 1200));
@@ -1348,6 +1447,8 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       works: req.works || [],
       selectedSections: req.selectedSections,
       existingItems: req.existingItems,
+      windowCount: req.windowCount,
+      doorCount: req.doorCount,
     });
     // Convert to the same shape as AI-parsed items
     parsedItems = catalogItems.map(ci => ({
