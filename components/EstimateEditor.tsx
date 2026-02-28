@@ -543,7 +543,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             const templateItems = selectedTemplate?.items || [];
             // Для AI-режима: масштабируем базу шаблона под введённую площадь (если у шаблона задана baseArea).
             const baseArea = selectedTemplate?.baseArea || 0;
-            const factor = baseArea > 0 && estimate.area > 0 ? (estimate.area / baseArea) : 1;
+            const factor = baseArea > 0 && wizardArea > 0 ? (wizardArea / baseArea) : 1;
 
             const baseItems: EstimateItem[] = templateItems.map(item => {
                 const quantity = Number(((item.quantity || 0) * factor).toFixed(2));
@@ -602,20 +602,22 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             // Cache key must match openRouterService.ts logic.
             const cacheKey = aiCache.generateKey(
                 'estimate',
-                genParams.area,
+                wizardArea,
                 genParams.region,
-                estimate.buildingType,
+                wizardBuildingType,
                 selectedTemplate?.id || genParams.projectTemplateId || null,
                 selectedTemplate?.name || null,
+                opts?.referenceEstimateId || null,
+                opts?.selectedSections?.sort() || null,
                 (baseItems || []).map(i => i.name).sort(),
             );
             aiSessionRef.current = {
                 baselineItems: merged,
                 cacheKey,
                 context: {
-                    area: genParams.area,
+                    area: wizardArea,
                     region: genParams.region,
-                    buildingType: estimate.buildingType,
+                    buildingType: wizardBuildingType,
                     projectTemplateId: selectedTemplate?.id,
                     projectTemplateName: selectedTemplate?.name,
                     scopeDescription,
@@ -624,6 +626,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
             if (suggestions && suggestions.length > 0) setAiTextSuggestions(suggestions);
             if (warnings && warnings.length > 0) setAiWarnings(warnings);
+
+            // Warn user if AI generated 0 items
+            if (aiItems.length === 0 && baseItems.length === 0) {
+                setAiWarnings(prev => [...prev, 'AI не смог сгенерировать позиции сметы. Попробуйте изменить параметры (тип объекта, площадь, описание) или добавить больше материалов/работ в справочники.']);
+            }
 
             // Show "Not in DB" items if any after generation
             if (generatedNotInDb && generatedNotInDb.length > 0) {

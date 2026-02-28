@@ -1189,20 +1189,34 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     }
   } catch (e) {
     // If multi-stage fails, fall back to the legacy one-shot prompt.
+    console.warn('[AI] Multi-stage generation failed, falling back to one-shot', e);
     parsedWarnings.push(`AI: не удалось выполнить многоэтапную генерацию, использую упрощённый режим. Причина: ${String(e)}`);
-    const data = await callOpenRouterWithRetry(
-      [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
-      { maxTokens: 4000, temperature: 0.7 },
-    );
-    const content = data?.choices?.[0]?.message?.content;
-    const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
-    parsedItems = parsed.items;
-    parsedSuggestions = parsed.suggestions;
-    parsedWarnings.push(...parsed.warnings);
+    parsedItems = [];
+  }
+
+  // Fallback: if multi-stage produced 0 items (empty blocks, filtered out, or failed), try one-shot
+  if (parsedItems.length === 0) {
+    console.warn('[AI] Multi-stage produced 0 items, falling back to one-shot prompt');
+    parsedWarnings.push('AI: многоэтапная генерация не вернула позиций, использую упрощённый режим.');
+    try {
+      const data = await callOpenRouterWithRetry(
+        [
+          { role: 'system', content: SYSTEM_PROMPT },
+          { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
+          { role: 'user', content: userPrompt },
+        ],
+        { maxTokens: 4000, temperature: 0.7 },
+      );
+      const content = data?.choices?.[0]?.message?.content;
+      const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
+      parsedItems = parsed.items;
+      parsedSuggestions.push(...(parsed.suggestions || []));
+      parsedWarnings.push(...(parsed.warnings || []));
+      console.info('[AI] One-shot fallback returned', parsedItems.length, 'items');
+    } catch (fallbackErr) {
+      console.error('[AI] One-shot fallback also failed', fallbackErr);
+      parsedWarnings.push(`AI: упрощённый режим тоже не смог сгенерировать позиции. Причина: ${String(fallbackErr)}`);
+    }
   }
 
   // Post-processing (packaging, catalog pricing) + deterministic validation
