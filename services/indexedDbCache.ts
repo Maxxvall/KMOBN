@@ -120,10 +120,6 @@ const clearHashCache = (table: CacheTableKey, id: string): void => {
   hashMemoryCache.delete(`${table}:${id}`);
 };
 
-const getCachedHash = (table: CacheTableKey, id: string): string | undefined => {
-  return hashMemoryCache.get(`${table}:${id}`);
-};
-
 const getAllEntriesByUser = async <T>(table: CacheTableKey, userId: string): Promise<CacheRecord<T>[]> => {
   if (!isIndexedDbAvailable()) return [];
   try {
