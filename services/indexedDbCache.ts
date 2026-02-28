@@ -50,9 +50,17 @@ const waitForTransaction = (tx: IDBTransaction): Promise<void> =>
     tx.onabort = () => reject(tx.error);
   });
 
-const openDb = (): Promise<IDBDatabase> =>
-  new Promise((resolve, reject) => {
+// Cached IndexedDB connection — reused across all calls
+let cachedDb: IDBDatabase | null = null;
+let cachedDbPromise: Promise<IDBDatabase> | null = null;
+
+const openDb = (): Promise<IDBDatabase> => {
+  if (cachedDb) return Promise.resolve(cachedDb);
+  if (cachedDbPromise) return cachedDbPromise;
+
+  cachedDbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     if (!isIndexedDbAvailable()) {
+      cachedDbPromise = null;
       reject(new Error('IndexedDB is not available'));
       return;
     }
@@ -67,9 +75,21 @@ const openDb = (): Promise<IDBDatabase> =>
         }
       });
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      cachedDb = request.result;
+      // Clear cached reference if the database is closed unexpectedly
+      cachedDb.onclose = () => { cachedDb = null; cachedDbPromise = null; };
+      cachedDb.onversionchange = () => { cachedDb?.close(); cachedDb = null; cachedDbPromise = null; };
+      resolve(cachedDb);
+    };
+    request.onerror = () => {
+      cachedDbPromise = null;
+      reject(request.error);
+    };
   });
+
+  return cachedDbPromise;
+};
 
 const stableStringify = (value: unknown): string => {
   if (Array.isArray(value)) {
@@ -85,6 +105,24 @@ const stableStringify = (value: unknown): string => {
 };
 
 const hashRecord = (record: unknown): string => fnv1aHash(stableStringify(record));
+
+// In-memory hash cache — avoids recomputing hashes for records that haven't changed
+const hashMemoryCache = new Map<string, string>();
+
+const getOrComputeHash = (table: CacheTableKey, id: string, record: unknown): string => {
+  const cacheKey = `${table}:${id}`;
+  const newHash = hashRecord(record);
+  hashMemoryCache.set(cacheKey, newHash);
+  return newHash;
+};
+
+const clearHashCache = (table: CacheTableKey, id: string): void => {
+  hashMemoryCache.delete(`${table}:${id}`);
+};
+
+const getCachedHash = (table: CacheTableKey, id: string): string | undefined => {
+  return hashMemoryCache.get(`${table}:${id}`);
+};
 
 const getAllEntriesByUser = async <T>(table: CacheTableKey, userId: string): Promise<CacheRecord<T>[]> => {
   if (!isIndexedDbAvailable()) return [];
@@ -136,7 +174,7 @@ export const syncCachedRecords = async <T extends { id: string }>(
       if (!record || !record.id) return;
       const id = record.id;
       nextIds.add(id);
-      const nextHash = hashRecord(record);
+      const nextHash = getOrComputeHash(table, id, record);
       const prevHash = existingMap.get(id);
       if (prevHash !== nextHash) {
         const payload: CacheRecord<T> = {
@@ -156,6 +194,7 @@ export const syncCachedRecords = async <T extends { id: string }>(
     existingEntries.forEach(entry => {
       if (!nextIds.has(entry.id)) {
         store.delete(entry.key);
+        clearHashCache(table, entry.id);
         changed = true;
       }
     });

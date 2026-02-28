@@ -114,7 +114,27 @@ const isActiveSubscription = (subscription: UserSubscriptionRow | null): boolean
 
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const RATE_LIMIT_MAX = 3;
+const RATE_LIMIT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 const rateLimitStore = new Map<string, RateLimitEntry>();
+
+// Periodic cleanup of expired rate-limit entries to prevent memory leaks
+const cleanupRateLimitStore = (): void => {
+    const now = Date.now();
+    for (const [key, entry] of rateLimitStore) {
+        if (entry.resetAt <= now) {
+            rateLimitStore.delete(key);
+        }
+    }
+};
+
+let rateLimitCleanupTimer: ReturnType<typeof setInterval> | null = null;
+if (typeof setInterval !== 'undefined' && !rateLimitCleanupTimer) {
+    rateLimitCleanupTimer = setInterval(cleanupRateLimitStore, RATE_LIMIT_CLEANUP_INTERVAL_MS);
+    // Allow process to exit without waiting for the timer
+    if (rateLimitCleanupTimer && typeof rateLimitCleanupTimer === 'object' && 'unref' in rateLimitCleanupTimer) {
+        (rateLimitCleanupTimer as NodeJS.Timeout).unref();
+    }
+}
 
 const resolveRateLimitKey = (payload: CreatePaymentPayload, headers: ApiRequest['headers']): string => {
     const userId = payload.userId.trim();

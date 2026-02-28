@@ -53,11 +53,28 @@ const dispatchCacheUpdate = <T>(key: CacheTableKey, data: T[]): void => {
   }
 };
 
+// Throttle: minimum 60 seconds between background refreshes per table
+const REFRESH_COOLDOWN_MS = 60_000;
+const lastRefreshTimestamps = new Map<string, number>();
+
+const isRefreshThrottled = (key: CacheTableKey, userId: string): boolean => {
+  const compositeKey = `${key}:${userId}`;
+  const lastTs = lastRefreshTimestamps.get(compositeKey) ?? 0;
+  return Date.now() - lastTs < REFRESH_COOLDOWN_MS;
+};
+
+const markRefreshed = (key: CacheTableKey, userId: string): void => {
+  const compositeKey = `${key}:${userId}`;
+  lastRefreshTimestamps.set(compositeKey, Date.now());
+};
+
 const refreshCacheInBackground = async <T extends { id: string }>(
   key: CacheTableKey,
   userId: string,
   fetcher: (uid: string) => Promise<{ data: unknown[] | null; error: unknown }>,
 ): Promise<void> => {
+  if (isRefreshThrottled(key, userId)) return;
+  markRefreshed(key, userId);
   try {
     const { data, error } = await fetcher(userId);
     if (error) {
@@ -264,6 +281,14 @@ export const saveSalaryCalculation = async (calculation: SalaryCalculation): Pro
 };
 
 export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
+  // Try to find in local cache first for fast path
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cached = await getCachedRecords<SalaryCalculation>('salary_calculations', cacheUserId);
+  const fromCache = cached.find(calc => calc.estimateId === estimateId);
+  if (fromCache) return fromCache;
+
+  // Fallback: load all and filter (server-side filter would require payload JSON query)
   const calculations = await readTableCached<SalaryCalculation>('salary_calculations', fetchSalaryCalculations);
   return calculations.find(calc => calc.estimateId === estimateId);
 };

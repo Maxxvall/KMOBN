@@ -7,6 +7,9 @@ export interface CacheEntry<T> {
   meta?: any;
 }
 
+const MAX_CACHE_SIZE = 500;
+const MAX_BAD_KEYS_SIZE = 200;
+
 class AICache {
   private cache = new Map<string, CacheEntry<any>>();
   private badKeys = new Map<string, { until: number; count: number; reason?: string }>();
@@ -21,6 +24,37 @@ class AICache {
     return true;
   }
 
+  /** Remove expired entries and evict oldest if cache exceeds maxSize */
+  private evict(): void {
+    const now = Date.now();
+    // First pass: remove expired entries
+    for (const [key, entry] of this.cache) {
+      if (now - entry.timestamp > entry.expiresIn) {
+        this.cache.delete(key);
+      }
+    }
+
+    // Second pass: if still over limit, remove oldest entries by timestamp
+    if (this.cache.size > MAX_CACHE_SIZE) {
+      const sorted = [...this.cache.entries()].sort(
+        ([, a], [, b]) => a.timestamp - b.timestamp,
+      );
+      const toRemove = sorted.slice(0, this.cache.size - MAX_CACHE_SIZE);
+      for (const [key] of toRemove) {
+        this.cache.delete(key);
+      }
+    }
+
+    // Clean up expired bad keys
+    if (this.badKeys.size > MAX_BAD_KEYS_SIZE) {
+      for (const [key, info] of this.badKeys) {
+        if (now >= info.until) {
+          this.badKeys.delete(key);
+        }
+      }
+    }
+  }
+
   get<T>(key: string): T | null {
     if (this.isBad(key)) return null;
     const entry = this.cache.get(key);
@@ -30,6 +64,10 @@ class AICache {
       this.cache.delete(key);
       return null;
     }
+
+    // Move to end for LRU ordering (Map preserves insertion order)
+    this.cache.delete(key);
+    this.cache.set(key, { ...entry, timestamp: Date.now() });
 
     return entry.result as T;
   }
@@ -44,6 +82,10 @@ class AICache {
       qualityScore: opts?.qualityScore,
       meta: opts?.meta,
     });
+    // Evict if exceeded max size
+    if (this.cache.size > MAX_CACHE_SIZE) {
+      this.evict();
+    }
   }
 
   setIfGood<T>(

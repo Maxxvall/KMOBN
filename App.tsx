@@ -207,6 +207,43 @@ const App: React.FC = () => {
     const saveQueuedRef = useRef(false);
     const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Dirty flags: track which data actually changed since last save
+    const dirtyTablesRef = useRef<Record<string, boolean>>({
+        estimates: false,
+        materials: false,
+        works: false,
+        bundles: false,
+    });
+    const prevEstimatesRef = useRef(estimates);
+    const prevMaterialsRef = useRef(materials);
+    const prevWorksRef = useRef(works);
+    const prevBundlesRef = useRef(bundles);
+
+    useEffect(() => {
+        if (prevEstimatesRef.current !== estimates) {
+            dirtyTablesRef.current.estimates = true;
+            prevEstimatesRef.current = estimates;
+        }
+    }, [estimates]);
+    useEffect(() => {
+        if (prevMaterialsRef.current !== materials) {
+            dirtyTablesRef.current.materials = true;
+            prevMaterialsRef.current = materials;
+        }
+    }, [materials]);
+    useEffect(() => {
+        if (prevWorksRef.current !== works) {
+            dirtyTablesRef.current.works = true;
+            prevWorksRef.current = works;
+        }
+    }, [works]);
+    useEffect(() => {
+        if (prevBundlesRef.current !== bundles) {
+            dirtyTablesRef.current.bundles = true;
+            prevBundlesRef.current = bundles;
+        }
+    }, [bundles]);
+
     const needsReload = useCallback((key: string, data: unknown): boolean => {
         const currentHash = hashData(data);
         const savedHash = dataHashes[key];
@@ -705,14 +742,22 @@ const App: React.FC = () => {
         setSaveError(null);
 
         try {
+            const dirty = dirtyTablesRef.current;
             const tasks: Promise<void>[] = [];
-            if (loadedFlags.estimates) tasks.push(saveEstimates(estimates));
-            if (loadedFlags.materials) tasks.push(saveMaterials(materials));
-            if (loadedFlags.works) tasks.push(saveWorks(works));
-            if (loadedFlags.bundles) tasks.push(saveBundles(bundles));
+            if (loadedFlags.estimates && dirty.estimates) tasks.push(saveEstimates(estimates));
+            if (loadedFlags.materials && dirty.materials) tasks.push(saveMaterials(materials));
+            if (loadedFlags.works && dirty.works) tasks.push(saveWorks(works));
+            if (loadedFlags.bundles && dirty.bundles) tasks.push(saveBundles(bundles));
             if (tasks.length) {
                 await Promise.all(tasks);
             }
+            // Reset dirty flags after successful save
+            dirtyTablesRef.current = {
+                estimates: false,
+                materials: false,
+                works: false,
+                bundles: false,
+            };
             const now = new Date();
             setLastSaved(now);
             if (savedIndicatorTimerRef.current) {
