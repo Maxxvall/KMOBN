@@ -36,6 +36,7 @@ import {
     canUseWiki,
     deriveSubscriptionUsage,
     getSubscriptionLimits,
+    getVisibleSubscriptionData,
     getUserSubscription,
     incrementAiUsage,
     incrementDeletedEstimates,
@@ -156,15 +157,22 @@ const App: React.FC = () => {
     const [currentEstimate, setCurrentEstimate] = useState<Estimate | null>(null);
     const subscriptionTier: SubscriptionTier = subscription?.subscription_tier ?? 'free';
     const subscriptionLimits: SubscriptionLimits = useMemo(() => getSubscriptionLimits(subscriptionTier), [subscriptionTier]);
+    const visibleSubscriptionData = useMemo(() => getVisibleSubscriptionData({
+        limits: subscriptionLimits,
+        estimates,
+        materials,
+        works,
+        bundles,
+    }), [subscriptionLimits, estimates, materials, works, bundles]);
     const subscriptionUsage: SubscriptionUsage = useMemo(() => {
         return deriveSubscriptionUsage({
             subscription,
-            estimates,
-            materials,
-            works,
-            bundles,
+            estimates: visibleSubscriptionData.estimates,
+            materials: visibleSubscriptionData.materials,
+            works: visibleSubscriptionData.works,
+            bundles: visibleSubscriptionData.bundles,
         });
-    }, [subscription, estimates, materials, works, bundles]);
+    }, [subscription, visibleSubscriptionData]);
     const headerSubscriptionSummary = useMemo(() => ({
         tier: subscriptionTier,
         usage: subscriptionUsage,
@@ -1376,7 +1384,8 @@ const App: React.FC = () => {
     const estimateContextValue = useMemo(() => ({
         view,
         setView,
-        estimates,
+        estimates: visibleSubscriptionData.estimates,
+        allEstimates: estimates,
         setEstimates,
         templates,
         setTemplates,
@@ -1398,6 +1407,7 @@ const App: React.FC = () => {
         },
     }), [
         view,
+        visibleSubscriptionData.estimates,
         estimates,
         templates,
         currentEstimate,
@@ -1416,9 +1426,9 @@ const App: React.FC = () => {
     ]);
 
     const catalogContextValue = useMemo(() => ({
-        materials,
-        works,
-        bundles,
+        materials: visibleSubscriptionData.materials,
+        works: visibleSubscriptionData.works,
+        bundles: visibleSubscriptionData.bundles,
         onAddMaterial: handleAddMaterial,
         onEditMaterialPrice: handleEditMaterialPrice,
         onEditMaterialLink: handleEditMaterialLink,
@@ -1430,9 +1440,9 @@ const App: React.FC = () => {
         onUpdateBundle: handleUpdateBundle,
         onDeleteBundle: handleDeleteBundle,
     }), [
-        materials,
-        works,
-        bundles,
+        visibleSubscriptionData.materials,
+        visibleSubscriptionData.works,
+        visibleSubscriptionData.bundles,
         handleAddMaterial,
         handleEditMaterialPrice,
         handleEditMaterialLink,
@@ -1593,12 +1603,12 @@ const App: React.FC = () => {
                         )}
                         {view === View.SALARY_CALCULATOR && (
                             <SalaryCalculator
-                                estimates={estimates}
+                                estimates={visibleSubscriptionData.estimates}
                             />
                         )}
                         {view === View.ANALYTICS && (
                             <Analytics
-                                estimates={estimates}
+                                estimates={visibleSubscriptionData.estimates}
                                 isLoading={isLoading}
                             />
                         )}

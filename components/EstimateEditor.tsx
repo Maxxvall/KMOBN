@@ -46,10 +46,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const initialEstimateValue = initialEstimate ?? estimateContext?.currentEstimate ?? null;
     const templatesValue = useMemo(() => templates ?? estimateContext?.templates ?? [], [templates, estimateContext?.templates]);
+    const visibleEstimatesValue = useMemo(() => estimateContext?.estimates ?? [], [estimateContext?.estimates]);
     const materialsValue = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
     const worksValue = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
     const bundlesValue = useMemo(() => bundles ?? catalogContext?.bundles ?? [], [bundles, catalogContext?.bundles]);
-    const allEstimatesValue = useMemo(() => allEstimates ?? estimateContext?.estimates ?? [], [allEstimates, estimateContext?.estimates]);
+    const allEstimatesValue = useMemo(() => allEstimates ?? estimateContext?.allEstimates ?? visibleEstimatesValue, [allEstimates, estimateContext?.allEstimates, visibleEstimatesValue]);
     const onRequestSaveAction = onRequestSave ?? estimateContext?.actions.onRequestSave;
     const onDraftChangeAction = onDraftChange ?? estimateContext?.actions.onDraftChange;
     const onDirtyChangeAction = onDirtyChange ?? estimateContext?.actions.onDirtyChange;
@@ -518,7 +519,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             aiAccessValue?.onConsume?.('generation');
             const latestOnlyEstimates = (() => {
                 const byRoot = new Map<string, Estimate>();
-                for (const e of (allEstimatesValue || [])) {
+                for (const e of (visibleEstimatesValue || [])) {
                     if (!e || e.isArchived) continue;
                     const rootId = e.parentId || e.id;
                     const prev = byRoot.get(rootId);
@@ -653,7 +654,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templatesValue, allEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, onUpgradeRequest]);
+    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, onUpgradeRequest]);
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
@@ -846,7 +847,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             setAiBusyMessage('Анализирую смету');
                             try {
                                     aiAccessValue?.onConsume?.('analysis');
-                                const similar = allEstimatesValue.filter(e =>
+                                const similar = visibleEstimatesValue.filter(e =>
                                     e.buildingType === estimate.buildingType &&
                                     estimate.area > 0 &&
                                     Math.abs(e.area - estimate.area) / estimate.area < 0.3,
@@ -1200,7 +1201,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         doorCount: payload.doorCount,
                     });
                 }}
-                allEstimates={allEstimatesValue}
+                allEstimates={visibleEstimatesValue}
                 materials={materialsValue}
                 works={worksValue}
                 currentArea={estimate.area}

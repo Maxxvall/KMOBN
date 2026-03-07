@@ -55,6 +55,19 @@ const Prices: React.FC<PricesProps> = ({
         setCurrentPage(1);
     }, [filterCategory]);
 
+    useEffect(() => {
+        if (totalPages <= 1) {
+            if (currentPage !== 1) {
+                setCurrentPage(1);
+            }
+            return;
+        }
+
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [currentPage, totalPages]);
+
     const handleEditPrice = (materialId: string, currentPrice: number) => {
         setEditingPrice({ id: materialId, price: currentPrice.toString() });
     };

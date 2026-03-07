@@ -20,6 +20,7 @@ type EstimateContextValue = {
   view: View;
   setView: React.Dispatch<React.SetStateAction<View>>;
   estimates: Estimate[];
+  allEstimates: Estimate[];
   setEstimates: React.Dispatch<React.SetStateAction<Estimate[]>>;
   templates: ProjectTemplate[];
   setTemplates: React.Dispatch<React.SetStateAction<ProjectTemplate[]>>;

@@ -4,6 +4,13 @@ import { SUBSCRIPTION_LIMITS } from './subscriptionConfig';
 
 export const getSubscriptionLimits = (tier: SubscriptionTier): SubscriptionLimits => SUBSCRIPTION_LIMITS[tier];
 
+type VisibleSubscriptionData = {
+    estimates: Estimate[];
+    materials: Material[];
+    works: Work[];
+    bundles: WorkBundle[];
+};
+
 export const formatDateKey = (date = new Date()): string => {
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -168,6 +175,54 @@ export const updateUserSubscription = async (
     }
 
     return data as UserSubscription;
+};
+
+const sliceByLimit = <T,>(items: T[], max: number | null): T[] => {
+    if (max == null || items.length <= max) return items;
+    return items.slice(0, max);
+};
+
+const getEstimateGroupKey = (estimate: Estimate): string => {
+    const estimateNumber = String(estimate.estimateNumber || '').trim();
+    if (estimateNumber) return estimateNumber;
+
+    const parentId = String(estimate.parentId || '').trim();
+    if (parentId) return parentId;
+
+    return String(estimate.id || '').trim();
+};
+
+const sliceEstimateGroupsByLimit = (estimates: Estimate[], max: number | null): Estimate[] => {
+    if (max == null) return estimates;
+    if (max <= 0 || estimates.length === 0) return [];
+
+    const allowedGroupKeys = new Set<string>();
+
+    for (const estimate of estimates) {
+        const groupKey = getEstimateGroupKey(estimate);
+        if (!groupKey || allowedGroupKeys.has(groupKey)) continue;
+        allowedGroupKeys.add(groupKey);
+        if (allowedGroupKeys.size >= max) break;
+    }
+
+    return estimates.filter(estimate => allowedGroupKeys.has(getEstimateGroupKey(estimate)));
+};
+
+export const getVisibleSubscriptionData = (params: {
+    limits: SubscriptionLimits;
+    estimates: Estimate[];
+    materials: Material[];
+    works: Work[];
+    bundles: WorkBundle[];
+}): VisibleSubscriptionData => {
+    const { limits, estimates, materials, works, bundles } = params;
+
+    return {
+        estimates: sliceEstimateGroupsByLimit(estimates, limits.estimates.max),
+        materials: sliceByLimit(materials, limits.materials.max),
+        works: sliceByLimit(works, limits.works.max),
+        bundles: sliceByLimit(bundles, limits.bundles.max),
+    };
 };
 
 export const deriveSubscriptionUsage = (params: {

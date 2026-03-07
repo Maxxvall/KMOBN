@@ -42,6 +42,19 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
         setCurrentPage(1);
     }, [filterCategory]);
 
+    useEffect(() => {
+        if (totalPages <= 1) {
+            if (currentPage !== 1) {
+                setCurrentPage(1);
+            }
+            return;
+        }
+
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [currentPage, totalPages]);
+
     const handleAdd = () => {
         const price = parseFloat(newWorkPrice);
         if (newWorkName.trim() && !isNaN(price) && price > 0) {
