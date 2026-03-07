@@ -25,6 +25,8 @@ const Prices: React.FC<PricesProps> = ({
 }) => {
     const catalogContext = useOptionalCatalogContext();
     const materialList = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
+    const totalMaterialCount = materials ? materialList.length : (catalogContext?.materialsTotalCount ?? materialList.length);
+    const hiddenMaterialCount = Math.max(0, totalMaterialCount - materialList.length);
     const addMaterialAction = onAddMaterial ?? catalogContext?.onAddMaterial;
     const deleteMaterialAction = onDeleteMaterial ?? catalogContext?.onDeleteMaterial;
     const editMaterialPriceAction = onEditMaterialPrice ?? catalogContext?.onEditMaterialPrice;
@@ -149,6 +151,12 @@ const Prices: React.FC<PricesProps> = ({
                 ]}
             />
             <h2 className="text-2xl font-bold text-text-primary mb-6">Цены материалов</h2>
+
+            {hiddenMaterialCount > 0 && (
+                <div className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    Показана часть данных по текущему тарифу: {materialList.length} из {totalMaterialCount} материалов. Остальные записи не удалены и снова появятся после повышения лимита подписки.
+                </div>
+            )}
 
             {/* Добавление нового материала */}
             <div className="flex gap-4 mb-3">

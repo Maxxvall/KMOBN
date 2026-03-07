@@ -3,8 +3,11 @@ import { EstimateCategory, Material, Work, WorkBundle } from '../types';
 
 type CatalogContextValue = {
   materials: Material[];
+  materialsTotalCount: number;
   works: Work[];
+  worksTotalCount: number;
   bundles: WorkBundle[];
+  bundlesTotalCount: number;
   onAddMaterial: (name: string, category: EstimateCategory, price?: number, link?: string) => Promise<void>;
   onEditMaterialPrice: (materialId: string, newPrice: number) => Promise<void>;
   onEditMaterialLink: (materialId: string, link?: string) => Promise<void>;

@@ -619,7 +619,7 @@ const App: React.FC = () => {
     const loadMaterialsData = useCallback(async () => {
         if (loadedFlags.materials) return;
         try {
-            const loaded = await loadMaterials();
+            const loaded = await loadMaterials({ limit: subscriptionLimits.materials.max ?? undefined });
             setMaterials(loaded || []);
             setLoadedFlags(prev => ({ ...prev, materials: true }));
             setDataHashes(prev => ({ ...prev, materials: hashData(loaded || []) }));
@@ -627,12 +627,12 @@ const App: React.FC = () => {
             console.error('Failed to load materials:', error);
             setMaterials([]);
         }
-    }, [loadedFlags.materials]);
+    }, [loadedFlags.materials, subscriptionLimits.materials.max]);
 
     const loadWorksData = useCallback(async () => {
         if (loadedFlags.works) return;
         try {
-            const loaded = await loadWorks();
+            const loaded = await loadWorks({ limit: subscriptionLimits.works.max ?? undefined });
             setWorks(loaded || []);
             setLoadedFlags(prev => ({ ...prev, works: true }));
             setDataHashes(prev => ({ ...prev, works: hashData(loaded || []) }));
@@ -640,12 +640,12 @@ const App: React.FC = () => {
             console.error('Failed to load works:', error);
             setWorks([]);
         }
-    }, [loadedFlags.works]);
+    }, [loadedFlags.works, subscriptionLimits.works.max]);
 
     const loadBundlesData = useCallback(async () => {
         if (loadedFlags.bundles) return;
         try {
-            const loaded = await loadBundles();
+            const loaded = await loadBundles({ limit: subscriptionLimits.bundles.max ?? undefined });
             setBundles(loaded || []);
             setLoadedFlags(prev => ({ ...prev, bundles: true }));
             setDataHashes(prev => ({ ...prev, bundles: hashData(loaded || []) }));
@@ -653,7 +653,16 @@ const App: React.FC = () => {
             console.error('Failed to load bundles:', error);
             setBundles([]);
         }
-    }, [loadedFlags.bundles]);
+    }, [loadedFlags.bundles, subscriptionLimits.bundles.max]);
+
+    useEffect(() => {
+        setLoadedFlags(prev => ({
+            ...prev,
+            materials: false,
+            works: false,
+            bundles: false,
+        }));
+    }, [subscriptionTier]);
 
     useEffect(() => {
         if (loadedFlags.estimates) {
@@ -1197,6 +1206,7 @@ const App: React.FC = () => {
             category,
             isManualPrice: true,
             link,
+            sortOrder: Date.now(),
         };
         try {
             await addMaterial(newMaterial);
@@ -1260,6 +1270,7 @@ const App: React.FC = () => {
             name,
             price,
             category,
+            sortOrder: Date.now(),
         };
         try {
             await addWork(newWork);
@@ -1298,9 +1309,13 @@ const App: React.FC = () => {
             openAccessModal('Лимит комплектов исчерпан', 'Перейдите на платный план, чтобы создавать больше комплектов.');
             return;
         }
+        const nextBundle: WorkBundle = {
+            ...bundle,
+            sortOrder: bundle.sortOrder ?? Date.now(),
+        };
         try {
-            await addBundle(bundle);
-            setBundles(prev => [...prev, bundle]);
+            await addBundle(nextBundle);
+            setBundles(prev => [...prev, nextBundle]);
         } catch (error) {
             console.error('Failed to add bundle:', error);
             alert('Не удалось добавить комплект.');
@@ -1427,8 +1442,11 @@ const App: React.FC = () => {
 
     const catalogContextValue = useMemo(() => ({
         materials: visibleSubscriptionData.materials,
+        materialsTotalCount: materials.length,
         works: visibleSubscriptionData.works,
+        worksTotalCount: works.length,
         bundles: visibleSubscriptionData.bundles,
+        bundlesTotalCount: bundles.length,
         onAddMaterial: handleAddMaterial,
         onEditMaterialPrice: handleEditMaterialPrice,
         onEditMaterialLink: handleEditMaterialLink,
@@ -1441,8 +1459,11 @@ const App: React.FC = () => {
         onDeleteBundle: handleDeleteBundle,
     }), [
         visibleSubscriptionData.materials,
+        materials.length,
         visibleSubscriptionData.works,
+        works.length,
         visibleSubscriptionData.bundles,
+        bundles.length,
         handleAddMaterial,
         handleEditMaterialPrice,
         handleEditMaterialLink,

@@ -13,6 +13,8 @@ interface WorksProps {
 const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteWork }) => {
     const catalogContext = useOptionalCatalogContext();
     const worksList = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
+    const totalWorksCount = works ? worksList.length : (catalogContext?.worksTotalCount ?? worksList.length);
+    const hiddenWorksCount = Math.max(0, totalWorksCount - worksList.length);
     const addWorkAction = onAddWork ?? catalogContext?.onAddWork;
     const updateWorkAction = onUpdateWork ?? catalogContext?.onUpdateWork;
     const deleteWorkAction = onDeleteWork ?? catalogContext?.onDeleteWork;
@@ -128,6 +130,12 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 ]}
             />
             <h2 className="text-2xl font-bold text-text-primary mb-6">Виды работ</h2>
+
+            {hiddenWorksCount > 0 && (
+                <div className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    Показана часть данных по текущему тарифу: {worksList.length} из {totalWorksCount} работ. Остальные записи не удалены и снова появятся после повышения лимита подписки.
+                </div>
+            )}
 
             {/* Добавление новой работы */}
             <div className="flex gap-4 mb-6">

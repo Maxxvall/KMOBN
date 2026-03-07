@@ -23,6 +23,57 @@ const ensureSupabase = () => {
   return supabase;
 };
 
+type LoadTableOptions = {
+  limit?: number;
+};
+
+const parseTimestamp = (value?: string | null): number | null => {
+  if (!value) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const inferStableSortOrder = (record: Record<string, unknown>, fallbackIndex: number): number => {
+  if (typeof record.sortOrder === 'number' && Number.isFinite(record.sortOrder)) {
+    return record.sortOrder;
+  }
+
+  const createdAtTs = parseTimestamp(typeof record.created_at === 'string' ? record.created_at : null);
+  if (createdAtTs != null) return createdAtTs;
+
+  const updatedAtTs = parseTimestamp(typeof record.updated_at === 'string' ? record.updated_at : null);
+  if (updatedAtTs != null) return updatedAtTs;
+
+  const lastUpdatedTs = parseTimestamp(typeof record.lastUpdated === 'string' ? record.lastUpdated : null);
+  if (lastUpdatedTs != null) return lastUpdatedTs;
+
+  const dateTs = parseTimestamp(typeof record.date === 'string' ? record.date : null);
+  if (dateTs != null) return dateTs;
+
+  const idText = typeof record.id === 'string' ? record.id : '';
+  const numericIdPart = Number((idText.match(/(\d{8,})/) || [])[1]);
+  if (Number.isFinite(numericIdPart)) return numericIdPart;
+
+  return fallbackIndex;
+};
+
+const compareByStableOrder = <T extends { id: string }>(left: T, right: T): number => {
+  const leftSortOrder = inferStableSortOrder(left as unknown as Record<string, unknown>, 0);
+  const rightSortOrder = inferStableSortOrder(right as unknown as Record<string, unknown>, 0);
+  if (leftSortOrder !== rightSortOrder) return leftSortOrder - rightSortOrder;
+
+  const leftCreatedAt = parseTimestamp((left as unknown as { created_at?: string | null }).created_at ?? null) ?? 0;
+  const rightCreatedAt = parseTimestamp((right as unknown as { created_at?: string | null }).created_at ?? null) ?? 0;
+  if (leftCreatedAt !== rightCreatedAt) return leftCreatedAt - rightCreatedAt;
+
+  return String(left.id).localeCompare(String(right.id));
+};
+
+const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
+  if (records.length <= 1) return records;
+  return [...records].sort(compareByStableOrder);
+};
+
 const getAuthenticatedUserId = async (): Promise<string | null> => {
   if (!isSupabaseConfigured()) {
     return null;
@@ -71,17 +122,18 @@ const markRefreshed = (key: CacheTableKey, userId: string): void => {
 const refreshCacheInBackground = async <T extends { id: string }>(
   key: CacheTableKey,
   userId: string,
-  fetcher: (uid: string) => Promise<{ data: unknown[] | null; error: unknown }>,
+  fetcher: (uid: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
+  options?: LoadTableOptions,
 ): Promise<void> => {
   if (isRefreshThrottled(key, userId)) return;
   markRefreshed(key, userId);
   try {
-    const { data, error } = await fetcher(userId);
+    const { data, error } = await fetcher(userId, options);
     if (error) {
       console.error('Supabase fetch error:', error);
       return;
     }
-    const records = (data ?? []) as T[];
+    const records = normalizeStableOrder((data ?? []) as T[]);
     const cacheUserId = getCacheUserId(userId);
     const result = await syncCachedRecords(key, cacheUserId, records);
     if (result.changed) {
@@ -94,32 +146,34 @@ const refreshCacheInBackground = async <T extends { id: string }>(
 
 const readTableCached = async <T extends { id: string }>(
   key: CacheTableKey,
-  fetcher: (userId: string) => Promise<{ data: unknown[] | null; error: unknown }>,
+  fetcher: (userId: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
+  options?: LoadTableOptions,
 ): Promise<T[]> => {
   const userId = await getAuthenticatedUserId();
   const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<T>(key, cacheUserId);
+  const cached = normalizeStableOrder(await getCachedRecords<T>(key, cacheUserId));
   const canFetch = isSupabaseConfigured() && !!userId;
+  const limitedCached = typeof options?.limit === 'number' ? cached.slice(0, options.limit) : cached;
 
   if (cached.length > 0) {
     if (canFetch) {
-      void refreshCacheInBackground<T>(key, userId as string, fetcher);
+      void refreshCacheInBackground<T>(key, userId as string, fetcher, options);
     }
-    return cached;
+    return limitedCached;
   }
 
   if (!canFetch) {
-    return cached;
+    return limitedCached;
   }
 
-  const { data, error } = await fetcher(userId as string);
+  const { data, error } = await fetcher(userId as string, options);
   if (error) {
     console.error('Supabase fetch error:', error);
-    return cached;
+    return limitedCached;
   }
-  const records = (data ?? []) as T[];
+  const records = normalizeStableOrder((data ?? []) as T[]);
   await syncCachedRecords(key, cacheUserId, records);
-  return records;
+  return typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
 };
 
 const deleteRecord = async (table: string, id: string) => {
@@ -162,7 +216,7 @@ export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
   await upsertRecords(upsertEstimates, changedEstimates);
 };
 
-export const loadEstimates = async (): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates);
+export const loadEstimates = async (options?: LoadTableOptions): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates, options);
 
 export const deleteEstimatesByNumber = async (estimateNumber: string | number): Promise<void> => {
   if (!isSupabaseConfigured()) return;
@@ -196,7 +250,7 @@ export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void>
   ]);
 };
 
-export const loadTemplates = async (): Promise<ProjectTemplate[]> => readTableCached<ProjectTemplate>('templates', fetchTemplates);
+export const loadTemplates = async (options?: LoadTableOptions): Promise<ProjectTemplate[]> => readTableCached<ProjectTemplate>('templates', fetchTemplates, options);
 
 export const addTemplate = async (template: ProjectTemplate): Promise<void> => {
   await upsertRecords(upsertTemplates, [template]);
@@ -214,7 +268,7 @@ export const saveMaterials = async (materials: Material[]): Promise<void> => {
   ]);
 };
 
-export const loadMaterials = async (): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials);
+export const loadMaterials = async (options?: LoadTableOptions): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials, options);
 
 export const addMaterial = async (material: Material): Promise<void> => {
   await upsertRecords(upsertMaterials, [material]);
@@ -236,7 +290,7 @@ export const saveWorks = async (works: Work[]): Promise<void> => {
   ]);
 };
 
-export const loadWorks = async (): Promise<Work[]> => readTableCached<Work>('works', fetchWorks);
+export const loadWorks = async (options?: LoadTableOptions): Promise<Work[]> => readTableCached<Work>('works', fetchWorks, options);
 
 export const addWork = async (work: Work): Promise<void> => {
   await upsertRecords(upsertWorks, [work]);
@@ -258,7 +312,7 @@ export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
   ]);
 };
 
-export const loadBundles = async (): Promise<WorkBundle[]> => readTableCached<WorkBundle>('bundles', fetchBundles);
+export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundle[]> => readTableCached<WorkBundle>('bundles', fetchBundles, options);
 
 export const addBundle = async (bundle: WorkBundle): Promise<void> => {
   await upsertRecords(upsertBundles, [bundle]);
@@ -333,6 +387,8 @@ export const importData = async (jsonData: string): Promise<void> => {
     const data = JSON.parse(jsonData);
     const randomSuffix = () => Math.random().toString(36).slice(2, 8);
     const generateId = (prefix: string): string => `${prefix}-${Date.now()}-${randomSuffix()}`;
+    const baseSortOrder = Date.now();
+    const makeSortOrder = (index: number): number => baseSortOrder + index;
     const asArray = <T>(value: unknown): T[] => Array.isArray(value) ? (value as T[]) : [];
 
     const rawEstimates = asArray<Estimate>(data.estimates);
@@ -346,33 +402,38 @@ export const importData = async (jsonData: string): Promise<void> => {
     rawEstimates.forEach(e => {
       estimateIdMap.set(e.id, generateId('sm-id'));
     });
-    const estimates = rawEstimates.map(e => ({
+    const estimates = rawEstimates.map((e, index) => ({
       ...e,
       id: estimateIdMap.get(e.id) as string,
       parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
       items: Array.isArray(e.items) ? e.items : [],
+      sortOrder: typeof e.sortOrder === 'number' ? e.sortOrder : makeSortOrder(index),
     }));
 
-    const templates = rawTemplates.map(t => ({
+    const templates = rawTemplates.map((t, index) => ({
       ...t,
       id: generateId('template'),
       items: Array.isArray(t.items) ? t.items : [],
+      sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : makeSortOrder(index),
     }));
 
-    const materials = rawMaterials.map(m => ({
+    const materials = rawMaterials.map((m, index) => ({
       ...m,
       id: generateId('material'),
+      sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : makeSortOrder(index),
     }));
 
-    const works = rawWorks.map(w => ({
+    const works = rawWorks.map((w, index) => ({
       ...w,
       id: generateId('work'),
+      sortOrder: typeof w.sortOrder === 'number' ? w.sortOrder : makeSortOrder(index),
     }));
 
-    const bundles = rawBundles.map(b => ({
+    const bundles = rawBundles.map((b, index) => ({
       ...b,
       id: generateId('bundle'),
       items: Array.isArray(b.items) ? b.items : [],
+      sortOrder: typeof b.sortOrder === 'number' ? b.sortOrder : makeSortOrder(index),
     }));
 
     const salaryCalculations = rawSalaryCalculations.map(s => {

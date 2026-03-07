@@ -130,6 +130,7 @@ export const useEstimateCrud = ({
             version: existing.version,
             parentId: existing.parentId,
             date: new Date().toISOString().split('T')[0],
+            sortOrder: existing.sortOrder,
           };
           const updatedEstimates = [...prevEstimates];
           updatedEstimates[existingIndex] = updated;
@@ -142,6 +143,7 @@ export const useEstimateCrud = ({
           version: existing.version + 1,
           parentId: existing.parentId || existing.id,
           isArchived: false,
+          sortOrder: existing.sortOrder,
         };
         const updatedEstimates = [...prevEstimates];
         updatedEstimates[existingIndex] = archivedEstimate;
@@ -281,6 +283,7 @@ export const useEstimateCrud = ({
         name: templateName,
         baseArea: estimate.area,
         items: estimate.items,
+        sortOrder: Date.now(),
       };
       try {
         await addTemplateToDb(newTemplate);

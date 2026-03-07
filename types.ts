@@ -36,6 +36,9 @@ export interface Estimate {
     buildingType: string;
     area: number;
     needsPriceUpdate?: boolean;
+    sortOrder?: number;
+    created_at?: string | null;
+    updated_at?: string | null;
 }
 
 export enum EstimateStatus {
@@ -123,6 +126,9 @@ export interface ProjectTemplate {
     name: string;
     baseArea: number;
     items?: EstimateItem[]; // Элементы сметы из шаблона
+    sortOrder?: number;
+    created_at?: string | null;
+    updated_at?: string | null;
 }
 
 export enum EstimateSubgroup {
@@ -146,6 +152,9 @@ export interface Material {
     category: EstimateCategory;
     isManualPrice?: boolean;
     link?: string;
+    sortOrder?: number;
+    created_at?: string | null;
+    updated_at?: string | null;
 }
 
 export interface Work {
@@ -153,6 +162,9 @@ export interface Work {
     name: string;
     price: number;
     category: EstimateCategory;
+    sortOrder?: number;
+    created_at?: string | null;
+    updated_at?: string | null;
 }
 
 export interface WorkBundle {
@@ -161,6 +173,9 @@ export interface WorkBundle {
     mainWorkId?: string; // ID основной работы, если есть
     items: EstimateItem[]; // Работы и материалы в комплекте
     category: EstimateCategory; // Категория блока, куда добавлять
+    sortOrder?: number;
+    created_at?: string | null;
+    updated_at?: string | null;
 }
 
 export interface WikiCategory {

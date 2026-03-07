@@ -17,6 +17,8 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
     const bundleList = useMemo(() => bundles ?? catalogContext?.bundles ?? [], [bundles, catalogContext?.bundles]);
     const worksList = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
     const materialList = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
+    const totalBundlesCount = bundles ? bundleList.length : (catalogContext?.bundlesTotalCount ?? bundleList.length);
+    const hiddenBundlesCount = Math.max(0, totalBundlesCount - bundleList.length);
     const addBundleAction = onAddBundle ?? catalogContext?.onAddBundle;
     const updateBundleAction = onUpdateBundle ?? catalogContext?.onUpdateBundle;
     const deleteBundleAction = onDeleteBundle ?? catalogContext?.onDeleteBundle;
@@ -43,6 +45,7 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 name: newBundleName.trim(),
                 items: [],
                 category: selectedCategory,
+                sortOrder: Date.now(),
             };
             if (addBundleAction) {
                 void addBundleAction(newBundle);
@@ -168,6 +171,12 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 ]}
             />
             <h2 className="text-2xl font-bold text-text-primary mb-6">Комплекты работ</h2>
+
+            {hiddenBundlesCount > 0 && (
+                <div className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    Показана часть данных по текущему тарифу: {bundleList.length} из {totalBundlesCount} комплектов. Остальные записи не удалены и снова появятся после повышения лимита подписки.
+                </div>
+            )}
 
             {/* Добавление нового комплекта */}
             <div className="flex gap-4 mb-6">
