@@ -503,4 +503,4 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
     );
 };
 
-export default SalaryCalculator;
+export default React.memo(SalaryCalculator);

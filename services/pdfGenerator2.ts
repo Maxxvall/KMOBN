@@ -3,54 +3,13 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
 import { ESTIMATE_CATEGORIES } from '../constants';
-import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
-import logoUrl from '../logo/acetone-2025920-104546-498.png?url';
-
-const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
-    let binary = '';
-    const bytes = new Uint8Array(buffer);
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) {
-        binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
-    }
-    return btoa(binary);
-}
+import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 
 export const generatePdf = async (estimate: Estimate) => {
     const doc = new jsPDF();
-
-    const FONT_NAME = 'LiberationSans';
-
-    // --- Parallel resource setup (font + logo) ---
-    let logoBase64 = '';
-    const [fontResult, logoResult] = await Promise.allSettled([
-        fetch(LiberationFontUrl).then(r => r.arrayBuffer()),
-        fetch(logoUrl).then(r => r.arrayBuffer()),
-    ]);
-
-    if (fontResult.status === 'fulfilled') {
-        try {
-            const b64 = arrayBufferToBase64(fontResult.value);
-            doc.addFileToVFS('LiberationSans-Regular.ttf', b64);
-            doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'normal');
-            doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'bold');
-            doc.setFont(FONT_NAME, 'normal');
-        } catch (e) {
-            console.error('Failed to setup LiberationSans font for PDF generation:', e);
-        }
-    } else {
-        console.error('Failed to load LiberationSans font for PDF generation:', fontResult.reason);
-    }
-
-    if (logoResult.status === 'fulfilled') {
-        try {
-            logoBase64 = arrayBufferToBase64(logoResult.value);
-        } catch (e) {
-            console.error('Failed to decode logo for PDF generation:', e);
-        }
-    } else {
-        console.error('Failed to load logo for PDF generation:', logoResult.reason);
-    }
+    const FONT_NAME = PDF_FONT_NAME;
+    const { fontBase64, logoBase64 } = await loadPdfResources();
+    registerPdfFont(doc, fontBase64);
 
     const pageHeight = doc.internal.pageSize.getHeight();
     const pageWidth = doc.internal.pageSize.getWidth();

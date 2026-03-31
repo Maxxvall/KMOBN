@@ -403,4 +403,4 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     );
 };
 
-export default EstimateHistory;
+export default React.memo(EstimateHistory);

@@ -269,4 +269,4 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
     );
 };
 
-export default Header;
+export default React.memo(Header);

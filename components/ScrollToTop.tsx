@@ -55,4 +55,4 @@ const ScrollToTop: React.FC = () => {
     );
 };
 
-export default ScrollToTop;
+export default React.memo(ScrollToTop);

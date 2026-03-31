@@ -57,6 +57,7 @@ export const generateEstimateWithAI = async (
     existingItems?: EstimateItem[],
     options?: {
         buildingType?: string;
+        signal?: AbortSignal;
         projectTemplateId?: string;
         projectTemplateName?: string;
         templateItems?: EstimateItem[];
@@ -77,6 +78,7 @@ export const generateEstimateWithAI = async (
                 area: params.area,
                 region: params.region,
                 buildingType: options?.buildingType || '',
+                signal: options?.signal,
                 projectTemplateId: options?.projectTemplateId || params.projectTemplateId,
                 projectTemplateName: options?.projectTemplateName,
                 templateItems: options?.templateItems,

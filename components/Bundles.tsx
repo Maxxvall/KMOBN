@@ -393,4 +393,4 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
     );
 };
 
-export default Bundles;
+export default React.memo(Bundles);

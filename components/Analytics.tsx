@@ -1363,4 +1363,4 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
     );
 };
 
-export default Analytics;
+export default React.memo(Analytics);

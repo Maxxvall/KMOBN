@@ -371,4 +371,4 @@ const Prices: React.FC<PricesProps> = ({
     );
 };
 
-export default Prices;
+export default React.memo(Prices);

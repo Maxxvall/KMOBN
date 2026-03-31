@@ -39,6 +39,115 @@ interface EstimateEditorProps {
     onUpgradeRequest?: () => void;
 }
 
+type NonUrgentTaskHandle =
+    | { kind: 'idle'; id: number }
+    | { kind: 'timeout'; id: number };
+
+const MAX_RENDERED_SUBITEMS = 50;
+
+const isAbortError = (error: unknown): boolean => {
+    return error instanceof DOMException
+        ? error.name === 'AbortError'
+        : error instanceof Error && error.name === 'AbortError';
+};
+
+const hashText = (seed: number, value: string): number => {
+    let next = seed;
+    for (let index = 0; index < value.length; index += 1) {
+        next = (next * 31 + value.charCodeAt(index)) | 0;
+    }
+    return (next * 31 + 124) | 0;
+};
+
+const hashNumber = (seed: number, value: number): number => {
+    return (seed * 31 + Math.round(value * 1000)) | 0;
+};
+
+const hashBoolean = (seed: number, value: boolean): number => {
+    return (seed * 31 + (value ? 1 : 0)) | 0;
+};
+
+const buildEstimateDirtySignature = (value: Estimate): number => {
+    let hash = 17;
+    hash = hashText(hash, value.client);
+    hash = hashText(hash, value.date);
+    hash = hashText(hash, value.status);
+    hash = hashText(hash, value.buildingType);
+    hash = hashNumber(hash, value.area || 0);
+    hash = hashNumber(hash, value.total || 0);
+    hash = hashBoolean(hash, Boolean(value.needsPriceUpdate));
+
+    for (const item of value.items) {
+        hash = hashText(hash, item.name);
+        hash = hashText(hash, item.unit);
+        hash = hashNumber(hash, item.quantity || 0);
+        hash = hashNumber(hash, item.price || 0);
+        hash = hashNumber(hash, item.total || 0);
+        hash = hashText(hash, item.category);
+        hash = hashText(hash, item.subgroup || EstimateSubgroup.WORKS);
+    }
+
+    return hash;
+};
+
+const groupCatalogByCategory = <T extends Material | Work>(items: T[]): Map<EstimateCategory, T[]> => {
+    const grouped = new Map<EstimateCategory, T[]>();
+    const generalItems: T[] = [];
+
+    for (const item of items) {
+        if (item.category === EstimateCategory.GENERAL) {
+            generalItems.push(item);
+            continue;
+        }
+
+        const existing = grouped.get(item.category) ?? [];
+        existing.push(item);
+        grouped.set(item.category, existing);
+    }
+
+    for (const category of Object.values(EstimateCategory)) {
+        const existing = grouped.get(category) ?? [];
+        grouped.set(category, generalItems.length > 0 ? [...existing, ...generalItems] : existing);
+    }
+
+    return grouped;
+};
+
+const isMaterialCatalogItem = (item: Material | Work | undefined): item is Material => {
+    return Boolean(item && 'lastUpdated' in item);
+};
+
+const scheduleNonUrgentTask = (task: () => void): NonUrgentTaskHandle => {
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        return {
+            kind: 'idle',
+            id: window.requestIdleCallback(() => {
+                task();
+            }, { timeout: 2000 }),
+        };
+    }
+
+    return {
+        kind: 'timeout',
+        id: window.setTimeout(task, 250),
+    };
+};
+
+const cancelNonUrgentTask = (handle?: NonUrgentTaskHandle): void => {
+    if (!handle) {
+        return;
+    }
+
+    if (handle.kind === 'idle') {
+        if (typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+            window.cancelIdleCallback(handle.id);
+        }
+        return;
+    }
+
+    clearTimeout(handle.id);
+};
+
 const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates, validationResult, aiAccess, onUpgradeRequest }) => {
     const estimateContext = useOptionalEstimateContext();
     const catalogContext = useOptionalCatalogContext();
@@ -99,14 +208,19 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiAddedToCatalogNames, setAiAddedToCatalogNames] = useState<Set<string>>(new Set());
     const [showComparison, setShowComparison] = useState(false);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
+    const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
     // Typeahead / debounce state
     const TYPEAHEAD_THRESHOLD = 10; // show typeahead only if more than 10 items
     const DEBOUNCE_MS = 700; // increased to reduce AI calls and UI jank
     const [suggestions, setSuggestions] = useState<Record<string, (Material | Work)[]>>({});
     const [showSuggestions, setShowSuggestions] = useState<Record<string, boolean>>({});
-    const debounceTimers = useRef<Record<string, any>>({});
+    const debounceTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
     const suggestionPoolCacheRef = useRef<Record<string, { poolRef: (Material | Work)[]; entries: Array<{ item: Material | Work; key: string }> }>>({});
-    const hideTimeouts = useRef<Record<string, any>>({});
+    const hideTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+    const scheduledAutocompleteTasksRef = useRef<Record<string, NonUrgentTaskHandle>>({});
+    const autocompleteAbortControllerRef = useRef<AbortController | null>(null);
+    const generationAbortControllerRef = useRef<AbortController | null>(null);
+    const analysisAbortControllerRef = useRef<AbortController | null>(null);
     const [loadingPrices, _setLoadingPrices] = useState<Record<string, boolean>>({});
 
     const aiSessionRef = useRef<null | {
@@ -114,6 +228,27 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         cacheKey: string;
         context: { area: number; region?: string; buildingType?: string; projectTemplateId?: string; projectTemplateName?: string; scopeDescription?: string };
     }>(null);
+
+    useEffect(() => {
+        return () => {
+            Object.values(debounceTimers.current).forEach(timerId => clearTimeout(timerId));
+            debounceTimers.current = {};
+
+            Object.values(hideTimeouts.current).forEach(timerId => clearTimeout(timerId));
+            hideTimeouts.current = {};
+
+            Object.values(scheduledAutocompleteTasksRef.current).forEach(handle => cancelNonUrgentTask(handle));
+            scheduledAutocompleteTasksRef.current = {};
+
+            autocompleteAbortControllerRef.current?.abort();
+            generationAbortControllerRef.current?.abort();
+            analysisAbortControllerRef.current?.abort();
+        };
+    }, []);
+
+    useEffect(() => {
+        setExpandedSubgroups({});
+    }, [baselineEstimate]);
 
     // Update genParams if selected template is deleted
     useEffect(() => {
@@ -130,9 +265,19 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }
     };
 
-    const baselineSnapshot = useMemo(() => JSON.stringify(baselineEstimate), [baselineEstimate]);
+    const clearScheduledAutocompleteTask = (itemId: string) => {
+        const handle = scheduledAutocompleteTasksRef.current[itemId];
+        if (!handle) {
+            return;
+        }
+
+        cancelNonUrgentTask(handle);
+        delete scheduledAutocompleteTasksRef.current[itemId];
+    };
+
+    const baselineSnapshot = useMemo(() => buildEstimateDirtySignature(baselineEstimate), [baselineEstimate]);
     useEffect(() => {
-        const currentSnapshot = JSON.stringify(estimate);
+        const currentSnapshot = buildEstimateDirtySignature(estimate);
         const dirty = currentSnapshot !== baselineSnapshot;
         onDirtyChangeAction?.(dirty);
     }, [baselineSnapshot, estimate, onDirtyChangeAction]);
@@ -153,24 +298,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         return index;
     }, [worksValue]);
 
-    const filteredMaterialsByCategory = useMemo(() => {
-        const map = new Map<EstimateCategory, Material[]>();
-        Object.values(EstimateCategory).forEach(category => {
-            map.set(category, materialsValue.filter(material => material.category === category || material.category === EstimateCategory.GENERAL));
-        });
-        return map;
-    }, [materialsValue]);
+    const filteredMaterialsByCategory = useMemo(() => groupCatalogByCategory(materialsValue), [materialsValue]);
 
-    const filteredWorksByCategory = useMemo(() => {
-        const map = new Map<EstimateCategory, Work[]>();
-        Object.values(EstimateCategory).forEach(category => {
-            map.set(category, worksValue.filter(work => work.category === category || work.category === EstimateCategory.GENERAL));
-        });
-        return map;
-    }, [worksValue]);
+    const filteredWorksByCategory = useMemo(() => groupCatalogByCategory(worksValue), [worksValue]);
 
     const scheduleSuggestions = (itemId: string, query: string, pool: (Material | Work)[]) => {
         clearDebounce(itemId);
+        clearScheduledAutocompleteTask(itemId);
+        autocompleteAbortControllerRef.current?.abort();
+        autocompleteAbortControllerRef.current = null;
         if (!query) {
             setSuggestions(prev => ({ ...prev, [itemId]: [] }));
             setShowSuggestions(prev => ({ ...prev, [itemId]: false }));
@@ -201,13 +337,19 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 }
                 // run AI autocomplete in idle time to avoid blocking typing/render
                 const runAi = () => {
+                    delete scheduledAutocompleteTasksRef.current[itemId];
                     (async () => {
+                        const controller = new AbortController();
+                        autocompleteAbortControllerRef.current?.abort();
+                        autocompleteAbortControllerRef.current = controller;
+
                         try {
                             aiAccessValue?.onConsume?.('autocomplete');
-                            const isMaterialPool = pool.length > 0 && (pool[0] as any).lastUpdated !== undefined;
+                            const isMaterialPool = isMaterialCatalogItem(pool[0]);
                             const category = estimate.items.find(i => i.id === itemId)?.category;
                             if (!category) return;
-                            const aiItems = await aiAutocomplete(query, category, estimate.items, materialsValue, worksValue, estimate.area);
+                            const aiItems = await aiAutocomplete(query, category, estimate.items, materialsValue, worksValue, estimate.area, controller.signal);
+                            if (controller.signal.aborted) return;
                             if (!aiItems || aiItems.length === 0) return;
 
                             const mapped = aiItems.map((it, idx) => {
@@ -235,17 +377,19 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             setSuggestions(prev => ({ ...prev, [itemId]: mapped }));
                             setShowSuggestions(prev => ({ ...prev, [itemId]: mapped.length > 0 }));
                         } catch (e) {
+                            if (isAbortError(e)) {
+                                return;
+                            }
                             console.debug('[EstimateEditor] aiAutocomplete failed', e);
+                        } finally {
+                            if (autocompleteAbortControllerRef.current === controller) {
+                                autocompleteAbortControllerRef.current = null;
+                            }
                         }
                     })();
                 };
 
-                if (typeof (window as any).requestIdleCallback === 'function') {
-                    (window as any).requestIdleCallback(runAi, { timeout: 2000 });
-                } else {
-                    // fallback
-                    setTimeout(runAi, 250);
-                }
+                scheduledAutocompleteTasksRef.current[itemId] = scheduleNonUrgentTask(runAi);
             }
             delete debounceTimers.current[itemId];
         }, DEBOUNCE_MS);
@@ -275,12 +419,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         const listEl = (
             <ul style={style} className="typeahead-portal-list">
                 {list.map(it => (
-                    <li key={(it as any).id}
+                    <li key={it.id}
                         onMouseDown={e => { e.preventDefault(); if (hideTimeouts.current[itemId]) { clearTimeout(hideTimeouts.current[itemId]); delete hideTimeouts.current[itemId]; } clearDebounce(itemId); onSelect(it); }}
                         className="p-2 hover:bg-gray-700 cursor-pointer text-sm text-white"
                         style={{ color: 'var(--text-primary, #fff)' }}
                     >
-                        {(it as any).name}
+                        {it.name}
                     </li>
                 ))}
             </ul>
@@ -376,7 +520,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         const material = materialsIndex.get(materialName);
         if (!material) {
             // Allow AI suggestions that are not in the catalog
-            const aiSuggested = (suggestions[itemId] as any[] | undefined)?.find(s => s?.name === materialName);
+            const aiSuggested = suggestions[itemId]?.find(suggestion => suggestion.name === materialName);
             if (aiSuggested && typeof aiSuggested.price === 'number') {
                 console.info('[EstimateEditor] applying AI-suggested material', { itemId, name: materialName, price: aiSuggested.price });
                 updateItemFields(itemId, { name: materialName, price: aiSuggested.price, unit: 'шт' });
@@ -414,7 +558,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         const work = worksIndex.get(workName);
         if (!work) {
             // Allow AI suggestions that are not in the catalog
-            const aiSuggested = (suggestions[itemId] as any[] | undefined)?.find(s => s?.name === workName);
+            const aiSuggested = suggestions[itemId]?.find(suggestion => suggestion.name === workName);
             if (aiSuggested && typeof aiSuggested.price === 'number') {
                 updateItemFields(itemId, { name: workName, price: aiSuggested.price, unit: 'шт' });
             }
@@ -511,6 +655,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 ...(opts.buildingType ? { buildingType: opts.buildingType } : {}),
             }));
         }
+        generationAbortControllerRef.current?.abort();
+        const generationController = new AbortController();
+        generationAbortControllerRef.current = generationController;
         setIsLoading(true);
         setAiBusyMessage('Генерирую смету с помощью AI');
         setAiWarnings([]);
@@ -574,6 +721,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 baseItems,
                 {
                     buildingType: wizardBuildingType,
+                    signal: generationController.signal,
                     projectTemplateId: selectedTemplate?.id,
                     projectTemplateName: selectedTemplate?.name,
                     templateItems: baseItems,
@@ -648,13 +796,81 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 setAiAnalysisReasoning([`AI-генерация завершена. ${generatedNotInDb.length} позиций не найдено в справочниках.`]);
             }
         } catch (error) {
+            if (isAbortError(error)) {
+                return;
+            }
             console.error('Failed to generate estimate with AI', error);
             alert('Произошла ошибка при AI-генерации сметы.');
         } finally {
+            if (generationAbortControllerRef.current === generationController) {
+                generationAbortControllerRef.current = null;
+            }
             setAiBusyMessage(null);
             setIsLoading(false);
         }
     }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, onUpgradeRequest]);
+
+    const handleAnalyzeEstimate = useCallback(async () => {
+        if (aiAccessValue && !aiAccessValue.canUseAi) {
+            alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
+            if (onUpgradeRequest) onUpgradeRequest();
+            return;
+        }
+
+        analysisAbortControllerRef.current?.abort();
+        const analysisController = new AbortController();
+        analysisAbortControllerRef.current = analysisController;
+
+        setIsLoading(true);
+        setAiBusyMessage('Анализирую смету');
+
+        try {
+            aiAccessValue?.onConsume?.('analysis');
+            const similar = visibleEstimatesValue.filter(e =>
+                e.buildingType === estimate.buildingType &&
+                estimate.area > 0 &&
+                Math.abs(e.area - estimate.area) / estimate.area < 0.3,
+            );
+
+            const presentCategories = Array.from(new Set((estimate.items || []).map(item => item.category)));
+            const analysis = await analyzeMissingItems(
+                estimate,
+                similar,
+                materialsValue,
+                worksValue,
+                presentCategories,
+                analysisController.signal,
+            );
+
+            if (analysisController.signal.aborted) {
+                return;
+            }
+
+            setAiAnalysisMissing(analysis.missing);
+            setAiAnalysisOptional(analysis.optional);
+            setAiAnalysisReasoning(analysis.reasoning);
+            setAiAnalysisOpen(true);
+        } catch (error) {
+            if (isAbortError(error)) {
+                return;
+            }
+            console.error('[EstimateEditor] AI analysis failed', error);
+            alert('Не удалось выполнить AI-анализ сметы.');
+        } finally {
+            if (analysisAbortControllerRef.current === analysisController) {
+                analysisAbortControllerRef.current = null;
+            }
+            setAiBusyMessage(null);
+            setIsLoading(false);
+        }
+    }, [aiAccessValue, estimate, materialsValue, onUpgradeRequest, visibleEstimatesValue, worksValue]);
+
+    const toggleSubgroupExpansion = (subgroupKey: string) => {
+        setExpandedSubgroups(prev => ({
+            ...prev,
+            [subgroupKey]: !prev[subgroupKey],
+        }));
+    };
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
@@ -838,36 +1054,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
                 <div className="flex gap-2 mb-4">
                     <button
-                        onClick={async () => {
-                                if (aiAccessValue && !aiAccessValue.canUseAi) {
-                                    alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
-                                    if (onUpgradeRequest) onUpgradeRequest();
-                                    return;
-                                }
-                            setIsLoading(true);
-                            setAiBusyMessage('Анализирую смету');
-                            try {
-                                    aiAccessValue?.onConsume?.('analysis');
-                                const similar = visibleEstimatesValue.filter(e =>
-                                    e.buildingType === estimate.buildingType &&
-                                    estimate.area > 0 &&
-                                    Math.abs(e.area - estimate.area) / estimate.area < 0.3,
-                                );
-
-                                const presentCategories = Array.from(new Set((estimate.items || []).map(i => i.category)));
-                                const analysis = await analyzeMissingItems(estimate, similar, materialsValue, worksValue, presentCategories);
-                                setAiAnalysisMissing(analysis.missing);
-                                setAiAnalysisOptional(analysis.optional);
-                                setAiAnalysisReasoning(analysis.reasoning);
-                                setAiAnalysisOpen(true);
-                            } catch (e) {
-                                console.error('[EstimateEditor] AI analysis failed', e);
-                                alert('Не удалось выполнить AI-анализ сметы.');
-                            } finally {
-                                setAiBusyMessage(null);
-                                setIsLoading(false);
-                            }
-                        }}
+                        onClick={handleAnalyzeEstimate}
                         disabled={isLoading}
                         className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-4 rounded transition-colors disabled:bg-gray-500"
                     >
@@ -974,6 +1161,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                         return (category === EstimateCategory.LOGISTICS) ? [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY] : [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS];
                                     })(category).map((subgroup) => {
                                         const subItems = items.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
+                                        const subgroupKey = `${category}:${subgroup}`;
+                                        const isSubgroupExpanded = Boolean(expandedSubgroups[subgroupKey]);
+                                        const renderedSubItems = isSubgroupExpanded ? subItems : subItems.slice(0, MAX_RENDERED_SUBITEMS);
                                         const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
                                         return (
                                             <div key={subgroup} className="border border-border rounded-md bg-background/20">
@@ -999,7 +1189,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                     <td className="p-2 text-sm text-text-secondary" colSpan={6}>Нет позиций</td>
                                                                 </tr>
                                                             )}
-                                                            {subItems.map((item) => {
+                                                            {renderedSubItems.map((item) => {
                                                                 const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                                 const filteredWorks = filteredWorksByCategory.get(category) || [];
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
@@ -1111,6 +1301,22 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         </tbody>
                                                     </table>
                                                 </div>
+                                                {subItems.length > MAX_RENDERED_SUBITEMS && (
+                                                    <div className="px-2 pt-2 text-sm text-text-secondary flex items-center justify-between gap-3">
+                                                        <span>
+                                                            {isSubgroupExpanded
+                                                                ? `Показаны все ${subItems.length} позиций.`
+                                                                : `Показано ${renderedSubItems.length} из ${subItems.length} позиций.`}
+                                                        </span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleSubgroupExpansion(subgroupKey)}
+                                                            className="font-semibold text-primary hover:text-primary-hover transition-colors"
+                                                        >
+                                                            {isSubgroupExpanded ? 'Свернуть список' : `Показать все ${subItems.length}`}
+                                                        </button>
+                                                    </div>
+                                                )}
                                                 <div className="p-2 bg-gray-900/30 border-t border-border rounded-b-md flex justify-end">
                                                     <button onClick={() => addItem(category, subgroup)} className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-1 px-3 rounded transition-colors">+ Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : subgroup === EstimateSubgroup.DELIVERY ? 'позицию (Доставка)' : 'позицию (Материалы)'}</button>
                                                 </div>
@@ -1219,4 +1425,4 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     );
 };
 
-export default EstimateEditor;
+export default React.memo(EstimateEditor);

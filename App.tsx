@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef, useReducer, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
 import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage } from './types';
@@ -118,19 +118,246 @@ const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; cha
     return { normalized, changed };
 };
 
-const App: React.FC = () => {
-    const [supabaseUser, setSupabaseUser] = useState<User | null>(null);
-    const useSupabaseAuth = isSupabaseConfigured();
-    const [subscription, setSubscription] = useState<UserSubscription | null>(null);
-    const [subscriptionLoading, setSubscriptionLoading] = useState(false);
-    const [paymentLoading, setPaymentLoading] = useState(false);
-    const [recoveryRequired, setRecoveryRequired] = useState(() => {
+type SyncState = { visible: boolean; message: string; type: 'success' | 'error' | 'info' };
+type AccessModalState = { title: string; description: string } | null;
+type EditorValidationState = ReturnType<typeof validateEstimate> | null;
+
+type UiState = {
+    view: View;
+    sync: SyncState;
+    showPasswordRecoveryModal: boolean;
+    showLoginModal: boolean;
+    showPdfStyleModal: boolean;
+    showContractNameModal: boolean;
+    showSaveOptions: boolean;
+    showUnsavedModal: boolean;
+    pendingView: View | null;
+    accessModal: AccessModalState;
+};
+
+type AuthState = {
+    supabaseUser: User | null;
+    subscription: UserSubscription | null;
+    subscriptionLoading: boolean;
+    paymentLoading: boolean;
+    recoveryRequired: boolean;
+    recoveryPassword: string;
+    recoverySubmitting: boolean;
+};
+
+type EditorState = {
+    currentEstimate: Estimate | null;
+    pendingExportEstimate: Estimate | null;
+    editorValidationResult: EditorValidationState;
+    editorDirty: boolean;
+    editorDraft: Estimate | null;
+    viewAfterSave: View;
+};
+
+type SaveState = {
+    isSaving: boolean;
+    lastSaved: Date | null;
+    saveError: string | null;
+};
+
+type FieldAction<S> = {
+    [K in keyof S]: {
+        type: 'set';
+        field: K;
+        value: React.SetStateAction<S[K]>;
+    }
+}[keyof S];
+
+const resolveStateAction = <T,>(current: T, value: React.SetStateAction<T>): T => {
+    return typeof value === 'function'
+        ? (value as (previous: T) => T)(current)
+        : value;
+};
+
+const createFieldReducer = <S extends Record<string, unknown>>() => {
+    return (state: S, action: FieldAction<S>): S => {
+        const currentValue = state[action.field];
+        const nextValue = resolveStateAction(currentValue, action.value as React.SetStateAction<typeof currentValue>);
+
+        if (Object.is(currentValue, nextValue)) {
+            return state;
+        }
+
+        return {
+            ...state,
+            [action.field]: nextValue,
+        };
+    };
+};
+
+const makeFieldSetter = <S extends Record<string, unknown>, K extends keyof S>(
+    dispatch: React.Dispatch<FieldAction<S>>,
+    field: K,
+): React.Dispatch<React.SetStateAction<S[K]>> => {
+    return (value) => {
+        dispatch({ type: 'set', field, value } as FieldAction<S>);
+    };
+};
+
+const uiReducer = createFieldReducer<UiState>();
+const authReducer = createFieldReducer<AuthState>();
+const editorReducer = createFieldReducer<EditorState>();
+const saveReducer = createFieldReducer<SaveState>();
+
+const initialSyncState: SyncState = { visible: false, message: '', type: 'info' };
+
+const initialUiState: UiState = {
+    view: View.HISTORY,
+    sync: initialSyncState,
+    showPasswordRecoveryModal: false,
+    showLoginModal: false,
+    showPdfStyleModal: false,
+    showContractNameModal: false,
+    showSaveOptions: false,
+    showUnsavedModal: false,
+    pendingView: null,
+    accessModal: null,
+};
+
+const initialEditorState: EditorState = {
+    currentEstimate: null,
+    pendingExportEstimate: null,
+    editorValidationResult: null,
+    editorDirty: false,
+    editorDraft: null,
+    viewAfterSave: View.HISTORY,
+};
+
+const initialSaveState: SaveState = {
+    isSaving: false,
+    lastSaved: null,
+    saveError: null,
+};
+
+const createInitialAuthState = (): AuthState => ({
+    supabaseUser: null,
+    subscription: null,
+    subscriptionLoading: false,
+    paymentLoading: false,
+    recoveryRequired: (() => {
         try {
             return localStorage.getItem(RECOVERY_STORAGE_KEY) === 'true' || hasRecoveryFlagInUrl();
         } catch {
             return hasRecoveryFlagInUrl();
         }
-    });
+    })(),
+    recoveryPassword: '',
+    recoverySubmitting: false,
+});
+
+const App: React.FC = () => {
+    const useSupabaseAuth = isSupabaseConfigured();
+    const [authState, dispatchAuth] = useReducer(authReducer, undefined, createInitialAuthState);
+    const [uiState, dispatchUi] = useReducer(uiReducer, initialUiState);
+    const [editorState, dispatchEditor] = useReducer(editorReducer, initialEditorState);
+    const [saveState, dispatchSave] = useReducer(saveReducer, initialSaveState);
+    const {
+        supabaseUser,
+        subscription,
+        subscriptionLoading,
+        paymentLoading,
+        recoveryRequired,
+        recoveryPassword,
+        recoverySubmitting,
+    } = authState;
+    const {
+        view,
+        sync,
+        showPasswordRecoveryModal,
+        showLoginModal,
+        showPdfStyleModal,
+        showContractNameModal,
+        showSaveOptions,
+        showUnsavedModal,
+        pendingView,
+        accessModal,
+    } = uiState;
+    const {
+        currentEstimate,
+        pendingExportEstimate,
+        editorValidationResult,
+        editorDirty,
+        editorDraft,
+        viewAfterSave,
+    } = editorState;
+    const {
+        isSaving,
+        lastSaved,
+        saveError,
+    } = saveState;
+    const authSetters = useMemo(() => ({
+        setSupabaseUser: makeFieldSetter(dispatchAuth, 'supabaseUser'),
+        setSubscription: makeFieldSetter(dispatchAuth, 'subscription'),
+        setSubscriptionLoading: makeFieldSetter(dispatchAuth, 'subscriptionLoading'),
+        setPaymentLoading: makeFieldSetter(dispatchAuth, 'paymentLoading'),
+        setRecoveryRequired: makeFieldSetter(dispatchAuth, 'recoveryRequired'),
+        setRecoveryPassword: makeFieldSetter(dispatchAuth, 'recoveryPassword'),
+        setRecoverySubmitting: makeFieldSetter(dispatchAuth, 'recoverySubmitting'),
+    }), []);
+    const uiSetters = useMemo(() => ({
+        setView: makeFieldSetter(dispatchUi, 'view'),
+        setSync: makeFieldSetter(dispatchUi, 'sync'),
+        setShowPasswordRecoveryModal: makeFieldSetter(dispatchUi, 'showPasswordRecoveryModal'),
+        setShowLoginModal: makeFieldSetter(dispatchUi, 'showLoginModal'),
+        setShowPdfStyleModal: makeFieldSetter(dispatchUi, 'showPdfStyleModal'),
+        setShowContractNameModal: makeFieldSetter(dispatchUi, 'showContractNameModal'),
+        setShowSaveOptions: makeFieldSetter(dispatchUi, 'showSaveOptions'),
+        setShowUnsavedModal: makeFieldSetter(dispatchUi, 'showUnsavedModal'),
+        setPendingView: makeFieldSetter(dispatchUi, 'pendingView'),
+        setAccessModal: makeFieldSetter(dispatchUi, 'accessModal'),
+    }), []);
+    const editorSetters = useMemo(() => ({
+        setCurrentEstimate: makeFieldSetter(dispatchEditor, 'currentEstimate'),
+        setPendingExportEstimate: makeFieldSetter(dispatchEditor, 'pendingExportEstimate'),
+        setEditorValidationResult: makeFieldSetter(dispatchEditor, 'editorValidationResult'),
+        setEditorDirty: makeFieldSetter(dispatchEditor, 'editorDirty'),
+        setEditorDraft: makeFieldSetter(dispatchEditor, 'editorDraft'),
+        setViewAfterSave: makeFieldSetter(dispatchEditor, 'viewAfterSave'),
+    }), []);
+    const saveSetters = useMemo(() => ({
+        setIsSaving: makeFieldSetter(dispatchSave, 'isSaving'),
+        setLastSaved: makeFieldSetter(dispatchSave, 'lastSaved'),
+        setSaveError: makeFieldSetter(dispatchSave, 'saveError'),
+    }), []);
+    const {
+        setSupabaseUser,
+        setSubscription,
+        setSubscriptionLoading,
+        setPaymentLoading,
+        setRecoveryRequired,
+        setRecoveryPassword,
+        setRecoverySubmitting,
+    } = authSetters;
+    const {
+        setView,
+        setSync,
+        setShowPasswordRecoveryModal,
+        setShowLoginModal,
+        setShowPdfStyleModal,
+        setShowContractNameModal,
+        setShowSaveOptions,
+        setShowUnsavedModal,
+        setPendingView,
+        setAccessModal,
+    } = uiSetters;
+    const {
+        setCurrentEstimate,
+        setPendingExportEstimate,
+        setEditorValidationResult,
+        setEditorDirty,
+        setEditorDraft,
+        setViewAfterSave,
+    } = editorSetters;
+    const {
+        setIsSaving,
+        setLastSaved,
+        setSaveError,
+    } = saveSetters;
     const recoveryIntent = recoveryRequired || hasRecoveryFlagInUrl();
     const isAuthenticated = useMemo(() => {
         return Boolean(supabaseUser) && !recoveryIntent;
@@ -148,13 +375,11 @@ const App: React.FC = () => {
         }
         return null;
     }, [supabaseUser]);
-    const [view, setView] = useState<View>(View.HISTORY);
     const [estimates, setEstimates] = useState<Estimate[]>([]);
     const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
     const [materials, setMaterials] = useState<Material[]>([]);
     const [works, setWorks] = useState<Work[]>([]);
     const [bundles, setBundles] = useState<WorkBundle[]>([]);
-    const [currentEstimate, setCurrentEstimate] = useState<Estimate | null>(null);
     const subscriptionTier: SubscriptionTier = subscription?.subscription_tier ?? 'free';
     const subscriptionLimits: SubscriptionLimits = useMemo(() => getSubscriptionLimits(subscriptionTier), [subscriptionTier]);
     const visibleSubscriptionData = useMemo(() => getVisibleSubscriptionData({
@@ -188,27 +413,7 @@ const App: React.FC = () => {
     });
     const [wikiLoaded, setWikiLoaded] = useState(false);
     const [dataHashes, setDataHashes] = useState<Record<string, string>>({});
-    const [sync, setSync] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>({ visible: false, message: '', type: 'info' });
     const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const [showPasswordRecoveryModal, setShowPasswordRecoveryModal] = useState(false);
-    const [showLoginModal, setShowLoginModal] = useState(false);
-    const [recoveryPassword, setRecoveryPassword] = useState('');
-    const [recoverySubmitting, setRecoverySubmitting] = useState(false);
-    const [showPdfStyleModal, setShowPdfStyleModal] = useState(false);
-    const [showContractNameModal, setShowContractNameModal] = useState(false);
-    const [pendingExportEstimate, setPendingExportEstimate] = useState<Estimate | null>(null);
-    const [editorValidationResult, setEditorValidationResult] = useState<ReturnType<typeof validateEstimate> | null>(null);
-    const [editorDirty, setEditorDirty] = useState(false);
-    const [editorDraft, setEditorDraft] = useState<Estimate | null>(null);
-    const [showSaveOptions, setShowSaveOptions] = useState(false);
-    const [viewAfterSave, setViewAfterSave] = useState<View>(View.HISTORY);
-    const [showUnsavedModal, setShowUnsavedModal] = useState(false);
-    const [pendingView, setPendingView] = useState<View | null>(null);
-    const [accessModal, setAccessModal] = useState<{ title: string; description: string } | null>(null);
-
-    const [isSaving, setIsSaving] = useState(false);
-    const [lastSaved, setLastSaved] = useState<Date | null>(null);
-    const [saveError, setSaveError] = useState<string | null>(null);
     const autosaveSuppressedRef = useRef(false);
     const didHydrateRef = useRef(false);
     const saveInFlightRef = useRef(false);
@@ -358,7 +563,7 @@ const App: React.FC = () => {
         return () => {
             isMounted = false;
         };
-    }, [supabaseUser]);
+    }, [supabaseUser, setSubscription, setSubscriptionLoading]);
 
     const handleGoogleLogin = useCallback(async () => {
         if (!supabase) {
@@ -435,7 +640,7 @@ const App: React.FC = () => {
 
     const handleOpenPasswordChange = useCallback(() => {
         setShowPasswordRecoveryModal(true);
-    }, []);
+    }, [setShowPasswordRecoveryModal]);
 
     const handleLogout = useCallback(async () => {
         try {
@@ -451,7 +656,7 @@ const App: React.FC = () => {
             localStorage.removeItem(RECOVERY_STORAGE_KEY);
         } catch {
         }
-    }, []);
+    }, [setRecoveryRequired, setSupabaseUser]);
 
     useEffect(() => {
         if (!supabase || !useSupabaseAuth) return;
@@ -534,13 +739,13 @@ const App: React.FC = () => {
             isMounted = false;
             data.subscription.unsubscribe();
         };
-    }, [useSupabaseAuth]);
+    }, [useSupabaseAuth, setRecoveryRequired, setShowPasswordRecoveryModal, setSupabaseUser]);
 
     useEffect(() => {
         if (recoveryIntent) {
             setShowPasswordRecoveryModal(true);
         }
-    }, [recoveryIntent]);
+    }, [recoveryIntent, setShowPasswordRecoveryModal]);
 
     const handleUpdatePassword = useCallback(async () => {
         if (!supabase) return;
@@ -573,7 +778,7 @@ const App: React.FC = () => {
         } finally {
             setRecoverySubmitting(false);
         }
-    }, [recoveryPassword]);
+    }, [recoveryPassword, setRecoveryPassword, setRecoveryRequired, setRecoverySubmitting, setShowPasswordRecoveryModal, setSync]);
 
     const loadHistoryData = useCallback(async (showToast: boolean) => {
         if (loadedFlags.estimates && loadedFlags.templates) return;
@@ -614,7 +819,7 @@ const App: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [estimates, loadedFlags.estimates, loadedFlags.templates, templates]);
+    }, [estimates, loadedFlags.estimates, loadedFlags.templates, setSync, templates]);
 
     const loadMaterialsData = useCallback(async () => {
         if (loadedFlags.materials) return;
@@ -795,7 +1000,7 @@ const App: React.FC = () => {
                 void saveAllToDatabase();
             }
         }
-    }, [bundles, estimates, isLoading, loadedFlags.bundles, loadedFlags.estimates, loadedFlags.materials, loadedFlags.works, materials, works]);
+    }, [bundles, estimates, isLoading, loadedFlags.bundles, loadedFlags.estimates, loadedFlags.materials, loadedFlags.works, materials, setIsSaving, setLastSaved, setSaveError, works]);
 
     const debouncedSaveAll = useDebouncedSave(saveAllToDatabase, AUTOSAVE_DELAY_MS);
 
@@ -848,16 +1053,16 @@ const App: React.FC = () => {
 
     const openAccessModal = useCallback((title: string, description: string) => {
         setAccessModal({ title, description });
-    }, []);
+    }, [setAccessModal]);
 
     const closeAccessModal = useCallback(() => {
         setAccessModal(null);
-    }, []);
+    }, [setAccessModal]);
 
     const confirmAccessModal = useCallback(() => {
         setAccessModal(null);
         goToView(View.SUBSCRIPTIONS);
-    }, [goToView]);
+    }, [goToView, setAccessModal]);
 
     const handleUpgradeClick = useCallback(() => {
         goToView(View.SUBSCRIPTIONS);
@@ -915,7 +1120,7 @@ const App: React.FC = () => {
         }
 
         goToView(target);
-    }, [view, editorDirty, goToView, subscriptionLimits, openAccessModal]);
+    }, [view, editorDirty, goToView, subscriptionLimits, openAccessModal, setPendingView, setShowUnsavedModal]);
 
     const handleBackToHistory = useCallback(() => {
         handleNavigationAttempt(View.HISTORY);
@@ -953,7 +1158,7 @@ const App: React.FC = () => {
             estimates_deleted_this_month: next.estimates_deleted_this_month ?? 0,
             limits_reset_date: next.limits_reset_date ?? null,
         });
-    }, [subscription, supabaseUser]);
+    }, [subscription, supabaseUser, setSubscription]);
 
     const consumeAiLimit = useCallback(() => {
         if (!subscription || !supabaseUser) return;
@@ -963,7 +1168,7 @@ const App: React.FC = () => {
             ai_requests_today: next.ai_requests_today ?? 0,
             last_ai_request_date: next.last_ai_request_date ?? null,
         });
-    }, [subscription, supabaseUser]);
+    }, [subscription, supabaseUser, setSubscription]);
 
     const aiAccess = useMemo(() => {
         const canUse = canUseAi(subscriptionUsage, subscriptionLimits);
@@ -1007,11 +1212,11 @@ const App: React.FC = () => {
 
     const handleDraftChange = useCallback((draft: Estimate) => {
         setEditorDraft(draft);
-    }, []);
+    }, [setEditorDraft]);
 
     const handleDirtyChange = useCallback((dirty: boolean) => {
         setEditorDirty(dirty);
-    }, []);
+    }, [setEditorDirty]);
 
     const handleSaveRequest = useCallback((draft: Estimate) => {
         setEditorDraft(draft);
@@ -1019,7 +1224,7 @@ const App: React.FC = () => {
         setShowSaveOptions(true);
         setShowUnsavedModal(false);
         setPendingView(null);
-    }, []);
+    }, [setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
 
     const handleConfirmSave = useCallback((mode: SaveMode) => {
         if (!editorDraft) return;
@@ -1031,7 +1236,7 @@ const App: React.FC = () => {
         setViewAfterSave(target);
         setShowUnsavedModal(false);
         setShowSaveOptions(true);
-    }, [pendingView]);
+    }, [pendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
 
     const handleUnsavedDiscard = useCallback(() => {
         const target = pendingView ?? View.HISTORY;
@@ -1040,19 +1245,19 @@ const App: React.FC = () => {
         setEditorDirty(false);
         setEditorDraft(null);
         goToView(target);
-    }, [pendingView, goToView]);
+    }, [pendingView, goToView, setEditorDirty, setEditorDraft, setPendingView, setShowUnsavedModal]);
 
     const handleSaveOptionsKeyDown = useCallback((event: React.KeyboardEvent) => {
         if (event.key === 'Escape') {
             setShowSaveOptions(false);
         }
-    }, []);
+    }, [setShowSaveOptions]);
 
     const handleUnsavedKeyDown = useCallback((event: React.KeyboardEvent) => {
         if (event.key === 'Escape') {
             setShowUnsavedModal(false);
         }
-    }, []);
+    }, [setShowUnsavedModal]);
 
     useEffect(() => {
         if (view !== View.EDITOR) {
@@ -1062,7 +1267,7 @@ const App: React.FC = () => {
             setEditorDraft(null);
             setPendingView(null);
         }
-    }, [view]);
+    }, [view, setEditorDirty, setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal]);
 
     const handleGeneratePdf = useCallback((estimate: Estimate) => {
         let exportEstimate = estimate;
@@ -1095,7 +1300,7 @@ const App: React.FC = () => {
 
         setPendingExportEstimate(exportEstimate);
         setShowPdfStyleModal(true);
-    }, [goToView, recalculateEstimatePrices, currentEstimate, setEstimates]);
+    }, [goToView, recalculateEstimatePrices, currentEstimate, setCurrentEstimate, setEditorDirty, setEditorDraft, setEditorValidationResult, setEstimates, setPendingExportEstimate, setPendingView, setShowPdfStyleModal, setShowSaveOptions, setShowUnsavedModal]);
 
     const handlePdfStyleSelect = useCallback((style: 'simple' | 'colored' | 'word-contract') => {
         if (!pendingExportEstimate) return;
@@ -1119,7 +1324,7 @@ const App: React.FC = () => {
             setShowPdfStyleModal(false);
             setPendingExportEstimate(null);
         }
-    }, [pendingExportEstimate]);
+    }, [pendingExportEstimate, setPendingExportEstimate, setShowContractNameModal, setShowPdfStyleModal]);
 
     const handleContractNameConfirm = useCallback(async (contractName: string) => {
         if (!pendingExportEstimate) return;
@@ -1133,7 +1338,7 @@ const App: React.FC = () => {
             setShowContractNameModal(false);
             setPendingExportEstimate(null);
         }
-    }, [pendingExportEstimate]);
+    }, [pendingExportEstimate, setPendingExportEstimate, setShowContractNameModal]);
 
     const markDraftEstimatesWithPriceChange = useCallback((params: { materialName?: string; workName?: string }) => {
         const { materialName, workName } = params;
@@ -1394,7 +1599,7 @@ const App: React.FC = () => {
         } finally {
             setPaymentLoading(false);
         }
-    }, [showToast, supabaseUser]);
+    }, [showToast, supabaseUser, setPaymentLoading]);
 
     const estimateContextValue = useMemo(() => ({
         view,
@@ -1426,6 +1631,8 @@ const App: React.FC = () => {
         estimates,
         templates,
         currentEstimate,
+        setView,
+        setCurrentEstimate,
         editorValidationResult,
         handleCreateNew,
         handleEdit,
@@ -1505,7 +1712,7 @@ const App: React.FC = () => {
         lastSaved,
         saveError,
         showToast,
-    }), [sync, isSaving, lastSaved, saveError, showToast]);
+    }), [sync, setSync, isSaving, lastSaved, saveError, showToast]);
 
     const passwordRecoveryModal = showPasswordRecoveryModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">

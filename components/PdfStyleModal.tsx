@@ -64,4 +64,4 @@ const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle })
     );
 };
 
-export default PdfStyleModal;
+export default React.memo(PdfStyleModal);

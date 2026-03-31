@@ -89,4 +89,4 @@ const ContractNameModal: React.FC<ContractNameModalProps> = ({ onClose, onConfir
     );
 };
 
-export default ContractNameModal;
+export default React.memo(ContractNameModal);

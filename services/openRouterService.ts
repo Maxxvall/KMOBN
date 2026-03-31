@@ -10,6 +10,7 @@ export interface AIEstimateRequest {
   area: number;
   buildingType: string;
   region: string;
+  signal?: AbortSignal;
   projectTemplateId?: string;
   projectTemplateName?: string;
   templateItems?: EstimateItem[];
@@ -85,7 +86,33 @@ const MATERIAL_KEYWORDS = [
 
 const DELIVERY_KEYWORDS = ['достав', 'доставка', 'транспорт', 'перевоз', 'курьер'];
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const createAbortError = () => new DOMException('The operation was aborted.', 'AbortError');
+
+const isAbortError = (error: unknown): boolean => {
+  return error instanceof DOMException
+    ? error.name === 'AbortError'
+    : error instanceof Error && error.name === 'AbortError';
+};
+
+const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) {
+    reject(createAbortError());
+    return;
+  }
+
+  const timeoutId = setTimeout(() => {
+    signal?.removeEventListener('abort', handleAbort);
+    resolve();
+  }, ms);
+
+  const handleAbort = () => {
+    clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', handleAbort);
+    reject(createAbortError());
+  };
+
+  signal?.addEventListener('abort', handleAbort, { once: true });
+});
 
 const safeNumber = (v: any, fallback = 0): number => {
   const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
@@ -640,9 +667,13 @@ const buildWorksCatalog = (works: Work[]): string => {
   return out;
 };
 
-async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number }) {
+async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number; signal?: AbortSignal }) {
   if (!hasOpenRouterKey()) {
     throw new Error('OpenRouter API key is not configured (VITE_OPENROUTER_API_KEY)');
+  }
+
+  if (opts?.signal?.aborted) {
+    throw createAbortError();
   }
 
   const cacheKey = opts?.cacheKey;
@@ -651,11 +682,15 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
     if (cached) return cached;
   }
 
-  let lastError: any;
+  let lastError: unknown;
   const maxRetries = 3;
 
   for (let i = 0; i < maxRetries; i++) {
     try {
+      if (opts?.signal?.aborted) {
+        throw createAbortError();
+      }
+
       const headers: Record<string, string> = {
         Authorization: `Bearer ${AI_CONFIG.apiKey}`,
         'Content-Type': 'application/json',
@@ -672,10 +707,11 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
           temperature: opts?.temperature ?? 0.7,
           max_tokens: opts?.maxTokens ?? 4000,
         }),
+        signal: opts?.signal,
       });
 
       if (res.status === 429) {
-        await sleep(Math.pow(2, i) * 1000);
+        await sleep(Math.pow(2, i) * 1000, opts?.signal);
         continue;
       }
 
@@ -702,8 +738,14 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
       }
       return data;
     } catch (e) {
+      if (isAbortError(e) || opts?.signal?.aborted) {
+        throw createAbortError();
+      }
+
       lastError = e;
-      if (i < maxRetries - 1) await sleep(800);
+      if (i < maxRetries - 1) {
+        await sleep(800, opts?.signal);
+      }
     }
   }
 
@@ -1359,7 +1401,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
         { role: 'user', content: stage1Prompt },
       ],
-      { maxTokens: 1600, temperature: 0.2 },
+      { maxTokens: 1600, temperature: 0.2, signal: req.signal },
     );
     const s1Content = String(s1?.choices?.[0]?.message?.content || '');
     console.info('[AI] Stage 1: received response (length:', String((s1Content || '').length) + ')');
@@ -1418,7 +1460,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
           { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
           { role: 'user', content: stage2Prompt },
         ],
-        { maxTokens: 2200, temperature: 0.35 },
+        { maxTokens: 2200, temperature: 0.35, signal: req.signal },
       );
 
       const s2Content = String(s2?.choices?.[0]?.message?.content || '');
@@ -1453,7 +1495,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
         { role: 'user', content: stage3Prompt },
       ],
-      { maxTokens: 2600, temperature: 0.2 },
+      { maxTokens: 2600, temperature: 0.2, signal: req.signal },
     );
 
     const s3Content = String(s3?.choices?.[0]?.message?.content || '');
@@ -1484,7 +1526,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
           { role: 'system', content: 'Ты эксперт по строительным сметам. Отвечай ТОЛЬКО валидным JSON без пояснений.' },
           { role: 'user', content: compactPrompt },
         ],
-        { maxTokens: 4000, temperature: 0.7 },
+        { maxTokens: 4000, temperature: 0.7, signal: req.signal },
       );
       const content = data?.choices?.[0]?.message?.content;
       console.warn('[AI] Compact one-shot raw response (first 800 chars):', String(content || '').slice(0, 800));
@@ -1582,6 +1624,7 @@ export async function aiAutocomplete(
   materials: Material[],
   works: Work[],
   area?: number,
+  signal?: AbortSignal,
 ): Promise<EstimateItem[]> {
   if (!hasOpenRouterKey()) return [];
   const q = (partialName || '').trim();
@@ -1596,7 +1639,7 @@ export async function aiAutocomplete(
       { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
       { role: 'user', content: prompt },
     ],
-    { cacheKey, ttlMs: 10 * 60 * 1000, maxTokens: 1600, temperature: 0.3 },
+    { cacheKey, ttlMs: 10 * 60 * 1000, maxTokens: 1600, temperature: 0.3, signal },
   );
 
   const content = String(data?.choices?.[0]?.message?.content || '');
@@ -1623,6 +1666,7 @@ export async function analyzeMissingItems(
   materials: Material[],
   works: Work[],
   allowedCategories?: EstimateCategory[],
+  signal?: AbortSignal,
 ): Promise<{ missing: EstimateItem[]; optional: EstimateItem[]; reasoning: string[] }> {
   const allowed = (allowedCategories && allowedCategories.length > 0)
     ? allowedCategories
@@ -1805,7 +1849,7 @@ export async function analyzeMissingItems(
         { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
         { role: 'user', content: prompt },
       ],
-      { maxTokens: 2500, temperature: 0.2 },
+      { maxTokens: 2500, temperature: 0.2, signal },
     );
 
   if (!cached && !isCacheKeyBad(cacheKey)) {

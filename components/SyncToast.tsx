@@ -126,4 +126,4 @@ const SyncToast: React.FC<Props> = ({
   );
 };
 
-export default SyncToast;
+export default React.memo(SyncToast);

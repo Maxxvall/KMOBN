@@ -308,4 +308,4 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     );
 };
 
-export default Works;
+export default React.memo(Works);
