@@ -659,7 +659,8 @@ const App: React.FC = () => {
     }, [setRecoveryRequired, setSupabaseUser]);
 
     useEffect(() => {
-        if (!supabase || !useSupabaseAuth) return;
+        const sb = supabase;
+        if (!sb || !useSupabaseAuth) return;
 
         let isMounted = true;
 
@@ -696,7 +697,7 @@ const App: React.FC = () => {
         };
 
         const initSession = async () => {
-            const { data, error } = await supabase.auth.getSession();
+            const { data, error } = await sb.auth.getSession();
             if (error) {
                 console.error('Supabase getSession error:', error);
                 return;
@@ -715,7 +716,7 @@ const App: React.FC = () => {
 
         void initSession();
 
-        const { data } = supabase.auth.onAuthStateChange((event, session) => {
+        const { data } = sb.auth.onAuthStateChange((event, session) => {
             setSupabaseUser(session?.user ?? null);
             if (!session?.user) {
                 clearRecoveryRequired();
@@ -1934,7 +1935,7 @@ const App: React.FC = () => {
                         setPendingExportEstimate(null);
                     }}
                     onConfirm={handleContractNameConfirm}
-                    defaultContractName={`КМ ${pendingExportEstimate.estimateNumber}`}
+                    defaultContractName={`Приложение № 1 к договору КМ ${pendingExportEstimate.estimateNumber}`}
                 />
             )}
             {accessModal && (

@@ -136,7 +136,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     doc.setFontSize(16);
     doc.setFont(FONT_NAME, 'bold');
     doc.setFontSize(16);
-    doc.text(`Приложение №1 к договору ${normalizedContractName}`, pageWidth / 2, 20, { align: 'center' });
+    doc.text(normalizedContractName, pageWidth / 2, 20, { align: 'center' });
 
     doc.setFont(FONT_NAME, 'normal');
     doc.setFontSize(12);
@@ -290,7 +290,6 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
         y += agreeLineHeight;
     });
 
-    const safeContractName = sanitizeFileName(normalizedContractName);
-    const fileName = `Приложение_№1_к_договору_${safeContractName}_Смета_${estimate.estimateNumber}.pdf`;
+    const fileName = `${sanitizeFileName(normalizedContractName).replace(/\s+/g, '_')}_Смета_${estimate.estimateNumber}.pdf`;
     doc.save(fileName);
 };

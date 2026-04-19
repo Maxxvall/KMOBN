@@ -17,7 +17,7 @@ const ContractNameModal: React.FC<ContractNameModalProps> = ({ onClose, onConfir
     }, [defaultContractName]);
 
     const trimmed = useMemo(() => value.trim(), [value]);
-    const error = touched && !trimmed ? 'Введите название договора.' : '';
+    const error = touched && !trimmed ? 'Введите заголовок документа.' : '';
 
     const handleSubmit = (event: React.FormEvent) => {
         event.preventDefault();
@@ -42,12 +42,12 @@ const ContractNameModal: React.FC<ContractNameModalProps> = ({ onClose, onConfir
         >
             <FocusLock returnFocus>
                 <div className="bg-surface rounded-lg shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-                    <h2 className="text-2xl font-bold text-text-primary mb-2">Название договора</h2>
-                    <p className="text-text-secondary mb-4">Введите название договора, которое будет указано в PDF документе.</p>
+                    <h2 className="text-2xl font-bold text-text-primary mb-2">Заголовок документа</h2>
+                    <p className="text-text-secondary mb-4">Введите заголовок, который будет указан в первой строке PDF документа.</p>
 
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div>
-                            <label htmlFor="contractName" className="block text-sm font-semibold text-text-primary mb-2">Название договора</label>
+                            <label htmlFor="contractName" className="block text-sm font-semibold text-text-primary mb-2">Заголовок документа</label>
                             <input
                                 id="contractName"
                                 value={value}
@@ -60,7 +60,7 @@ const ContractNameModal: React.FC<ContractNameModalProps> = ({ onClose, onConfir
                                 }}
                                 onBlur={() => setTouched(true)}
                                 className="w-full bg-background border border-border rounded-md px-3 py-2 text-text-primary focus:ring-primary focus:border-primary"
-                                placeholder="Например, КМ 2026-01"
+                                placeholder="Приложение № 1 к договору КМ 2026-01"
                                 autoFocus
                             />
                             {error && <div className="text-sm text-red-400 mt-2">{error}</div>}
