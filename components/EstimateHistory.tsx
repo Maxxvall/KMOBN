@@ -176,9 +176,23 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     };
 
     const filteredEstimates = useMemo(() => {
+        if (filterStatus === EstimateStatus.ARCHIVED) {
+            // Show only archived estimates when "В архиве" is selected
+            return estimateList
+                .filter(e => e.isArchived || e.status === EstimateStatus.ARCHIVED)
+                .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
+                .filter(e => filterBuildingType === '' || e.buildingType.toLowerCase().includes(filterBuildingType.toLowerCase()))
+                .filter(e => {
+                    const min = filterAreaMin === '' ? 0 : parseFloat(filterAreaMin);
+                    const max = filterAreaMax === '' ? Infinity : parseFloat(filterAreaMax);
+                    return e.area >= min && e.area <= max;
+                })
+                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }
+        // Normal non-archived view
         const latestEstimates = filterToLatestEstimateVersions(estimateList);
         return latestEstimates
-            .filter(e => e.status !== EstimateStatus.ARCHIVED && !e.isArchived)
+            .filter(e => !e.isArchived && e.status !== EstimateStatus.ARCHIVED)
             .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
             .filter(e => filterStatus === 'all' || e.status === filterStatus)
             .filter(e => filterBuildingType === '' || e.buildingType.toLowerCase().includes(filterBuildingType.toLowerCase()))
@@ -306,7 +320,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         onChange={(e) => setFilterStatus(e.target.value as EstimateStatus | 'all')}
                     >
                         <option value="all">Все статусы</option>
-                        {Object.values(EstimateStatus).filter(s => s !== EstimateStatus.ARCHIVED).map(status => (
+                        {Object.values(EstimateStatus).map(status => (
                             <option key={status} value={status}>{status}</option>
                         ))}
                     </select>
