@@ -31,7 +31,10 @@ const normalizeExpiredSubscription = (subscription: UserSubscription, now = new 
     if (!subscription.expires_at) return { subscription, updates: {} };
     const expiresMs = Date.parse(subscription.expires_at);
     if (!Number.isFinite(expiresMs)) return { subscription, updates: {} };
-    if (expiresMs > now.getTime()) return { subscription, updates: {} };
+
+    // Grace period: 1 hour to avoid false expiry from clock drift between server and client
+    const GRACE_MS = 60 * 60 * 1000;
+    if (expiresMs + GRACE_MS > now.getTime()) return { subscription, updates: {} };
     if (subscription.status !== 'active') return { subscription, updates: {} };
 
     const nowIso = now.toISOString();

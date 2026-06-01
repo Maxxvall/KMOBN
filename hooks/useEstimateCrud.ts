@@ -10,6 +10,7 @@ type UseEstimateCrudParams = {
   estimates: Estimate[];
   subscriptionUsage: SubscriptionUsage;
   subscriptionLimits: SubscriptionLimits;
+  subscriptionLoading: boolean;
   goToView: (view: View) => void;
   openAccessModal: (title: string, description: string) => void;
   recalculateEstimatePrices: (estimate: Estimate) => Estimate;
@@ -31,6 +32,7 @@ export const useEstimateCrud = ({
   estimates,
   subscriptionUsage,
   subscriptionLimits,
+  subscriptionLoading,
   goToView,
   openAccessModal,
   recalculateEstimatePrices,
@@ -48,7 +50,8 @@ export const useEstimateCrud = ({
   setSync,
 }: UseEstimateCrudParams) => {
   const handleCreateNew = useCallback(() => {
-    if (!canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
+    // Don't block action while subscription is loading — allow creation with subsequent check
+    if (!subscriptionLoading && !canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
       openAccessModal('Лимит смет исчерпан', 'Перейдите на платный план, чтобы создавать больше смет.');
       return;
     }
@@ -63,6 +66,7 @@ export const useEstimateCrud = ({
   }, [
     subscriptionUsage,
     subscriptionLimits,
+    subscriptionLoading,
     openAccessModal,
     setCurrentEstimate,
     setEditorValidationResult,
@@ -136,11 +140,33 @@ export const useEstimateCrud = ({
           updatedEstimates[existingIndex] = updated;
           return updatedEstimates;
         }
+        // Compute max version from ALL records with the same estimateNumber (not just the current one)
+        const allVersions = prevEstimates.filter(e => e.estimateNumber === existing.estimateNumber);
+        const maxVersion = Math.max(...allVersions.map(e => e.version), 0);
+        const nextVersion = maxVersion + 1;
+
+        // Duplicate protection: if a version with the same number already exists, update it instead
+        const duplicate = allVersions.find(e => e.version === nextVersion && e.id !== existing.id);
+        if (duplicate) {
+          const updatedEstimates = [...prevEstimates];
+          const dupIdx = updatedEstimates.findIndex(e => e.id === duplicate.id);
+          updatedEstimates[dupIdx] = {
+            ...duplicate,
+            ...draft,
+            id: duplicate.id,
+            version: nextVersion,
+            isArchived: false,
+          };
+          // Also archive the old current estimate
+          updatedEstimates[existingIndex] = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
+          return updatedEstimates;
+        }
+
         const archivedEstimate = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
         const newVersion: Estimate = {
           ...draft,
           id: `sm-id-${Date.now()}`,
-          version: existing.version + 1,
+          version: nextVersion,
           parentId: existing.parentId || existing.id,
           isArchived: false,
           sortOrder: existing.sortOrder,

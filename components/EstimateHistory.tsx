@@ -178,6 +178,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const filteredEstimates = useMemo(() => {
         const latestEstimates = filterToLatestEstimateVersions(estimateList);
         return latestEstimates
+            .filter(e => e.status !== EstimateStatus.ARCHIVED && !e.isArchived)
             .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
             .filter(e => filterStatus === 'all' || e.status === filterStatus)
             .filter(e => filterBuildingType === '' || e.buildingType.toLowerCase().includes(filterBuildingType.toLowerCase()))
@@ -379,8 +380,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                         />
                                     </td>
                                     <td className="text-center py-3 px-4">
-                                        <span className={`py-1 px-3 rounded-full text-xs font-semibold ${statusColors[estimate.status]}`}>
-                                            {estimate.status}
+                                        <span className={`py-1 px-3 rounded-full text-xs font-semibold ${statusColors[selectedEstimate.status]}`}>
+                                            {selectedEstimate.status}
                                         </span>
                                     </td>
                                     <td className="text-center py-2 px-3">{estimate.buildingType}</td>

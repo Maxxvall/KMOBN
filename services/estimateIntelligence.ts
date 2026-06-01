@@ -59,8 +59,9 @@ const parseDateMs = (v: any): number => {
 export function filterToLatestEstimateVersions(estimates: Estimate[]): Estimate[] {
   const latestByRoot = new Map<string, Estimate>();
   for (const e of (estimates || [])) {
-    if (!e || (e as any).isArchived) continue;
-    const rootId = e.parentId || (e.estimateNumber ? `num:${e.estimateNumber}` : e.id);
+    if (!e || e.isArchived === true) continue;
+    // Unified grouping key: prefer estimateNumber, then parentId, then id
+    const rootId = e.estimateNumber ? `num:${e.estimateNumber}` : (e.parentId || e.id);
     const prev = latestByRoot.get(rootId);
     if (!prev) {
       latestByRoot.set(rootId, e);

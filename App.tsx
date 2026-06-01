@@ -80,8 +80,34 @@ const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; cha
     const normalized: Estimate[] = [];
 
     byNumber.forEach(list => {
-        if (list.length === 1) {
-            const only = list[0];
+        // Deduplicate entries with the same version number: keep the one with the most recent date
+        const deduped: Estimate[] = [];
+        const seenVersions = new Map<number, Estimate[]>();
+        for (const e of list) {
+            const v = typeof e.version === 'number' ? e.version : 0;
+            const existing = seenVersions.get(v);
+            if (existing) {
+                existing.push(e);
+            } else {
+                seenVersions.set(v, [e]);
+            }
+        }
+        seenVersions.forEach((entries, _v) => {
+            if (entries.length === 1) {
+                deduped.push(entries[0]);
+            } else {
+                // Keep the most recent by date, archive the rest
+                const sorted = [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                deduped.push(sorted[0]);
+                // Mark extras for removal (will be replaced with duplicates below)
+                for (let i = 1; i < sorted.length; i++) {
+                    deduped.push({ ...sorted[i], isArchived: true, status: EstimateStatus.ARCHIVED } as Estimate);
+                }
+            }
+        });
+
+        if (deduped.length === 1) {
+            const only = deduped[0];
             const fixed = {
                 ...only,
                 parentId: undefined,
@@ -92,8 +118,10 @@ const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; cha
             return;
         }
 
-        const sorted = [...list].sort((a, b) => {
-            if (b.version !== a.version) return b.version - a.version;
+        const sorted = [...deduped].sort((a, b) => {
+            const vA = typeof a.version === 'number' ? a.version : 0;
+            const vB = typeof b.version === 'number' ? b.version : 0;
+            if (vB !== vA) return vB - vA;
             return new Date(b.date).getTime() - new Date(a.date).getTime();
         });
         const latest = sorted[0];
@@ -380,7 +408,9 @@ const App: React.FC = () => {
     const [materials, setMaterials] = useState<Material[]>([]);
     const [works, setWorks] = useState<Work[]>([]);
     const [bundles, setBundles] = useState<WorkBundle[]>([]);
-    const subscriptionTier: SubscriptionTier = subscription?.subscription_tier ?? 'free';
+    const subscriptionTier: SubscriptionTier = subscriptionLoading
+        ? (subscription?.subscription_tier ?? 'premium') // Don't downgrade during loading
+        : (subscription?.subscription_tier ?? 'free');
     const subscriptionLimits: SubscriptionLimits = useMemo(() => getSubscriptionLimits(subscriptionTier), [subscriptionTier]);
     const visibleSubscriptionData = useMemo(() => getVisibleSubscriptionData({
         limits: subscriptionLimits,
@@ -540,28 +570,53 @@ const App: React.FC = () => {
         let isMounted = true;
         setSubscriptionLoading(true);
 
-        const loadSubscription = async () => {
-            const data = await getUserSubscription(supabaseUser.id);
-            if (!isMounted) return;
-            if (!data) {
-                setSubscription(null);
+        const loadSubscription = async (retries = 2) => {
+            try {
+                const data = await getUserSubscription(supabaseUser.id);
+                if (!isMounted) return;
+                if (!data && retries > 0) {
+                    // Retry after a short delay if no data returned
+                    setTimeout(() => {
+                        if (isMounted) void loadSubscription(retries - 1);
+                    }, 2000);
+                    return;
+                }
+                if (!data) {
+                    setSubscription(null);
+                    setSubscriptionLoading(false);
+                    return;
+                }
+
+                const normalized = normalizeSubscriptionUsage(data);
+                setSubscription(normalized.subscription);
                 setSubscriptionLoading(false);
-                return;
-            }
 
-            const normalized = normalizeSubscriptionUsage(data);
-            setSubscription(normalized.subscription);
-            setSubscriptionLoading(false);
-
-            if (Object.keys(normalized.updates).length > 0) {
-                void updateUserSubscription(supabaseUser.id, normalized.updates);
+                if (Object.keys(normalized.updates).length > 0) {
+                    void updateUserSubscription(supabaseUser.id, normalized.updates);
+                }
+            } catch (err) {
+                console.error('Failed to load subscription:', err);
+                if (retries > 0) {
+                    setTimeout(() => {
+                        if (isMounted) void loadSubscription(retries - 1);
+                    }, 2000);
+                } else {
+                    if (!isMounted) return;
+                    // Keep subscriptionLoading true — we use premium fallback during loading
+                }
             }
         };
 
         void loadSubscription();
 
+        // Periodic refresh every 60 seconds to pick up webhook updates
+        const pollInterval = setInterval(() => {
+            if (isMounted) void loadSubscription(0);
+        }, 60_000);
+
         return () => {
             isMounted = false;
+            clearInterval(pollInterval);
         };
     }, [supabaseUser, setSubscription, setSubscriptionLoading]);
 
@@ -1194,6 +1249,7 @@ const App: React.FC = () => {
         estimates,
         subscriptionUsage,
         subscriptionLimits,
+        subscriptionLoading,
         goToView,
         openAccessModal,
         recalculateEstimatePrices,
