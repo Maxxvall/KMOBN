@@ -158,11 +158,7 @@ export const useEstimateCrud = ({
       // NEW VERSION: archive the current latest, create next version
       if (chainLatest) {
         const nextVersion = chainMaxVersion + 1;
-        const archived = {
-          ...chainLatest,
-          isArchived: true,
-          status: EstimateStatus.ARCHIVED,
-        };
+        // Не архивируем старую версию автоматически — оставляем её оригинальный статус
         const newVersion: Estimate = {
           ...draft,
           id: `sm-id-${Date.now()}`,
@@ -172,7 +168,7 @@ export const useEstimateCrud = ({
           isArchived: false,
           sortOrder: chainLatest.sortOrder,
         };
-        updatedEstimates = estimates.map(e => e.id === chainLatest.id ? archived : e);
+        updatedEstimates = estimates.map(e => e.id === chainLatest.id ? { ...chainLatest } : e);
         updatedEstimates.push(newVersion);
       } else {
         // No chain exists yet — create v1
@@ -285,8 +281,9 @@ export const useEstimateCrud = ({
             return {
               ...e,
               parentId: isNewRoot ? undefined : newRoot.id,
-              isArchived: isNewRoot ? false : true,
-              status: isNewRoot ? e.status : EstimateStatus.ARCHIVED,
+              // Не трогаем isArchived и status — оставляем оригинальные значения
+              // Для нового корня снимаем isArchived если он был (на случай если пользователь архивировал)
+              ...(isNewRoot ? { isArchived: false } : {}),
             };
           });
 

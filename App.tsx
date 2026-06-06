@@ -134,10 +134,9 @@ const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; cha
                 const fixed = {
                     ...e,
                     parentId: latest.id,
-                    isArchived: true,
-                    status: EstimateStatus.ARCHIVED,
+                    // Не трогаем isArchived и status — оставляем оригинальные значения
                 };
-                if (e.parentId !== latest.id || !e.isArchived || e.status !== EstimateStatus.ARCHIVED) changed = true;
+                if (e.parentId !== latest.id) changed = true;
                 normalized.push(fixed);
             }
         });
