@@ -1113,14 +1113,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </select>
                     </div>
                     <div className="p-3 bg-background/60 border border-border rounded-lg flex items-center justify-between md:col-span-5 min-h-[60px]">
-                        <div className="flex gap-6 items-center">
-                            <span className="text-sm text-text-secondary">Работы: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')} ₽</span></span>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1 items-center text-xs">
+                            <span className="text-text-secondary whitespace-nowrap">Работы: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="text-text-border">|</span>
-                            <span className="text-sm text-text-secondary">Материалы: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')} ₽</span></span>
+                            <span className="text-text-secondary whitespace-nowrap">Материалы: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="text-text-border">|</span>
-                            <span className="text-sm text-text-secondary">Доставка: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')} ₽</span></span>
+                            <span className="text-text-secondary whitespace-nowrap">Доставка: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="text-text-border">|</span>
-                            <span className="text-lg font-bold text-primary">ИТОГ: {estimate.total.toLocaleString('ru-RU')} ₽</span>
+                            <span className="text-sm font-bold text-primary whitespace-nowrap">ИТОГ: {estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
                         </div>
                         <button onClick={handleSave} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 ml-4 whitespace-nowrap">
                             Сохранить
