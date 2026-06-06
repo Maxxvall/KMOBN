@@ -15,6 +15,7 @@ type UseEstimateCrudParams = {
   openAccessModal: (title: string, description: string) => void;
   recalculateEstimatePrices: (estimate: Estimate) => Estimate;
   consumeDeleteLimit: () => void;
+  flushSave: () => void;
   setEstimates: React.Dispatch<React.SetStateAction<Estimate[]>>;
   setTemplates: React.Dispatch<React.SetStateAction<ProjectTemplate[]>>;
   setCurrentEstimate: React.Dispatch<React.SetStateAction<Estimate | null>>;
@@ -37,6 +38,7 @@ export const useEstimateCrud = ({
   openAccessModal,
   recalculateEstimatePrices,
   consumeDeleteLimit,
+  flushSave,
   setEstimates,
   setTemplates,
   setCurrentEstimate,
@@ -133,7 +135,7 @@ export const useEstimateCrud = ({
             ...draft,
             version: existing.version,
             parentId: existing.parentId,
-            date: new Date().toISOString().split('T')[0],
+            date: new Date().toISOString(),
             sortOrder: existing.sortOrder,
           };
           const updatedEstimates = [...prevEstimates];
@@ -155,6 +157,7 @@ export const useEstimateCrud = ({
             ...draft,
             id: duplicate.id,
             version: nextVersion,
+            date: new Date().toISOString(),
             isArchived: false,
           };
           // Also archive the old current estimate
@@ -167,6 +170,7 @@ export const useEstimateCrud = ({
           ...draft,
           id: `sm-id-${Date.now()}`,
           version: nextVersion,
+          date: new Date().toISOString(),
           parentId: existing.parentId || existing.id,
           isArchived: false,
           sortOrder: existing.sortOrder,
@@ -184,8 +188,11 @@ export const useEstimateCrud = ({
     setShowUnsavedModal(false);
     setViewAfterSave(View.HISTORY);
     goToView(afterSaveView);
+    // Flush immediately to DB to avoid race condition with cache events
+    setTimeout(() => flushSave(), 0);
   }, [
     goToView,
+    flushSave,
     setEstimates,
     setEditorValidationResult,
     setShowSaveOptions,
@@ -250,10 +257,11 @@ export const useEstimateCrud = ({
 
     try {
       if (isOnlyVersion) {
-        await deleteEstimatesByNumber(estimateToDelete.estimateNumber);
-        setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateToDelete.estimateNumber));
+        await deleteEstimateById(estimateToDelete.id);
+        setEstimates(prevEstimates => prevEstimates.filter(e => e.id !== estimateToDelete.id));
         consumeDeleteLimit();
         setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
+        setTimeout(() => flushSave(), 0);
       } else {
         const remainingVersions = versionHistory.filter(e => e.id !== estimateToDelete.id);
         const hasChildren = remainingVersions.some(e => e.parentId === estimateToDelete.id);
@@ -286,11 +294,13 @@ export const useEstimateCrud = ({
           });
           consumeDeleteLimit();
           setSync({ visible: true, message: 'Версия удалена, главная обновлена', type: 'success' });
+          setTimeout(() => flushSave(), 0);
         } else {
           await deleteEstimateById(estimateToDelete.id);
           setEstimates(prevEstimates => prevEstimates.filter(e => e.id !== estimateToDelete.id));
           consumeDeleteLimit();
           setSync({ visible: true, message: 'Версия сметы удалена', type: 'success' });
+          setTimeout(() => flushSave(), 0);
         }
       }
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
@@ -299,7 +309,7 @@ export const useEstimateCrud = ({
       setSync({ visible: true, message: 'Ошибка удаления версии в БД', type: 'error' });
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
     }
-  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit, setSync]);
+  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, flushSave, setEstimates, consumeDeleteLimit, setSync]);
 
   const handleSaveAsTemplate = useCallback(async (estimate: Estimate) => {
     const templateName = prompt('Введите название шаблона:');

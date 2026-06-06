@@ -209,6 +209,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [showComparison, setShowComparison] = useState(false);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
+    const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
     // Typeahead / debounce state
     const TYPEAHEAD_THRESHOLD = 10; // show typeahead only if more than 10 items
     const DEBOUNCE_MS = 700; // increased to reduce AI calls and UI jank
@@ -1066,7 +1067,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 <div className="flex gap-4 mt-4">
                     <div className="p-2 flex items-center justify-between bg-background border border-border rounded-md">
                         <div className="flex items-center gap-4">
-                            <span className="font-semibold text-text-secondary">Версия: {estimate.version}</span>
+                            <span className="font-semibold text-text-secondary">Версия: {estimate.version} | Изменено: {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                             {getPreviousVersion() && (
                                 <button onClick={() => setShowComparison(true)} className="text-sm text-blue-400 hover:underline">Сравнить с v{estimate.version - 1}</button>
                             )}
@@ -1176,6 +1177,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         <thead className="bg-gray-900/30">
                                                             <tr>
                                                                 <th className="p-2 text-left font-semibold text-sm text-text-secondary w-2/5">Наименование</th>
+                                                                <th className="p-2 w-10"></th>
                                                                 <th className="p-2 text-left font-semibold text-sm text-text-secondary">Ед. изм.</th>
                                                                 <th className="p-2 text-right font-semibold text-sm text-text-secondary">Кол-во</th>
                                                                 <th className="p-2 text-right font-semibold text-sm text-text-secondary">Цена</th>
@@ -1186,7 +1188,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         <tbody>
                                                             {subItems.length === 0 && (
                                                                 <tr>
-                                                                    <td className="p-2 text-sm text-text-secondary" colSpan={6}>Нет позиций</td>
+                                                                    <td className="p-2 text-sm text-text-secondary" colSpan={7}>Нет позиций</td>
                                                                 </tr>
                                                             )}
                                                             {renderedSubItems.map((item) => {
@@ -1195,7 +1197,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                                 return (
-                                                                <tr key={item.id} className={"border-b border-border last:border-b-0" + (validationResultValue?.invalidItemIds?.has(item.id) ? " bg-red-500/5" : "")}>
+                                                                <React.Fragment key={item.id}>
+                                                                <tr className={"border-b border-border last:border-b-0" + (validationResultValue?.invalidItemIds?.has(item.id) ? " bg-red-500/5" : "")}>
                                                                     <td className="p-1">
                                                                         { (subgroup === EstimateSubgroup.MATERIALS || subgroup === EstimateSubgroup.DELIVERY) ? (
                                                                             useTypeaheadMaterials ? (
@@ -1283,6 +1286,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             </div>
                                                                         )}
                                                                     </td>
+                                                                    <td className="p-1 w-10 text-center">
+                                                                        <button
+                                                                            onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                                                            className="relative text-text-secondary hover:text-primary transition-colors"
+                                                                            title={item.note || 'Добавить примечание'}
+                                                                        >
+                                                                            📝
+                                                                            {item.note && <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full inline-block" />}
+                                                                        </button>
+                                                                    </td>
                                                                     <td className="p-1 w-24">
                                                                         <select value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)} className={inputStyles + " text-sm"}>
                                                                             <option value="м2">м2</option>
@@ -1297,6 +1310,20 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                     <td className="p-1 w-32 text-right font-medium text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</td>
                                                                     <td className="p-1 text-center"><button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-400 transition-colors">✖</button></td>
                                                                 </tr>
+                                                                {openNotes[item.id] && (
+                                                                    <tr>
+                                                                        <td colSpan={7} className="p-1 bg-gray-900/20">
+                                                                            <textarea
+                                                                                value={item.note || ''}
+                                                                                onChange={e => updateItem(item.id, 'note', e.target.value)}
+                                                                                placeholder="Примечание..."
+                                                                                className="w-full p-1 text-xs bg-background border border-border rounded text-text-primary resize-none"
+                                                                                rows={2}
+                                                                            />
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                                </React.Fragment>
                                                             ) })}
                                                         </tbody>
                                                     </table>

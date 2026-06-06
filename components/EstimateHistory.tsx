@@ -66,7 +66,7 @@ const VersionDropdown: React.FC<{
                 aria-expanded={open}
             >
                 <span className="truncate">
-                    {selected ? `v${selected.version} (${new Date(selected.date).toLocaleDateString()})` : 'Выбрать версию'}
+                    {selected ? `v${selected.version} (${new Date(selected.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })})` : 'Выбрать версию'}
                 </span>
                 <span className="text-text-secondary">▾</span>
             </button>
@@ -97,7 +97,7 @@ const VersionDropdown: React.FC<{
                                     }}
                                 >
                                     <span className="font-semibold">v{v.version}</span>{' '}
-                                    <span className="text-text-secondary">({new Date(v.date).toLocaleDateString()})</span>
+                                    <span className="text-text-secondary">({new Date(v.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })})</span>
                                 </button>
                                 <button
                                     type="button"
@@ -384,7 +384,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                 <tr key={estimate.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
                                     <td className="text-left py-2 px-3">{estimate.estimateNumber}</td>
                                     <td className="text-left py-2 px-3">{estimate.client}</td>
-                                    <td className="text-left py-2 px-3">{new Date(estimate.date).toLocaleDateString()}</td>
+                                    <td className="text-left py-2 px-3">{new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
                                     <td className="text-center py-2 px-3">
                                         <VersionDropdown
                                             versions={versionHistory}

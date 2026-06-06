@@ -20,6 +20,7 @@ export interface EstimateItem {
     category: EstimateCategory;
     // Подгруппа внутри раздела: работы или материалы
     subgroup?: EstimateSubgroup;
+    note?: string;
 }
 
 export interface Estimate {

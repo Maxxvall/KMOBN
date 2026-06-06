@@ -498,6 +498,7 @@ const App: React.FC = () => {
         if (dataHashes[detail.key] === nextHash) return;
 
         if (detail.key === 'estimates') {
+            if (saveInFlightRef.current) return; // Skip cache updates while saving to avoid race condition
             const loaded = detail.data as Estimate[];
             const { normalized, changed } = normalizeEstimateChains(loaded);
             setEstimates(normalized);
@@ -1254,6 +1255,7 @@ const App: React.FC = () => {
         openAccessModal,
         recalculateEstimatePrices,
         consumeDeleteLimit,
+        flushSave: () => debouncedSaveAll.flush(),
         setEstimates,
         setTemplates,
         setCurrentEstimate,
