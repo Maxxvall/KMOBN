@@ -15,7 +15,6 @@ type UseEstimateCrudParams = {
   openAccessModal: (title: string, description: string) => void;
   recalculateEstimatePrices: (estimate: Estimate) => Estimate;
   consumeDeleteLimit: () => void;
-  flushSave: () => void;
   setEstimates: React.Dispatch<React.SetStateAction<Estimate[]>>;
   setTemplates: React.Dispatch<React.SetStateAction<ProjectTemplate[]>>;
   setCurrentEstimate: React.Dispatch<React.SetStateAction<Estimate | null>>;
@@ -38,7 +37,6 @@ export const useEstimateCrud = ({
   openAccessModal,
   recalculateEstimatePrices,
   consumeDeleteLimit,
-  flushSave,
   setEstimates,
   setTemplates,
   setCurrentEstimate,
@@ -126,73 +124,78 @@ export const useEstimateCrud = ({
       return;
     }
 
-    setEstimates(prevEstimates => {
-      const existingIndex = prevEstimates.findIndex(e => e.id === draft.id);
-      if (existingIndex !== -1) {
-        const existing = prevEstimates[existingIndex];
-        if (saveMode === 'overwrite') {
-          const updated = {
-            ...draft,
-            version: existing.version,
-            parentId: existing.parentId,
-            date: new Date().toISOString(),
-            sortOrder: existing.sortOrder,
-          };
-          const updatedEstimates = [...prevEstimates];
-          updatedEstimates[existingIndex] = updated;
-          return updatedEstimates;
-        }
-        // Compute max version from ALL records with the same estimateNumber (not just the current one)
-        const allVersions = prevEstimates.filter(e => e.estimateNumber === existing.estimateNumber);
+    // Compute the new array using current state (not prevEstimates inside setter)
+    const now = new Date().toISOString();
+    let updatedEstimates: Estimate[];
+    const existingIndex = estimates.findIndex(e => e.id === draft.id);
+    if (existingIndex !== -1) {
+      const existing = estimates[existingIndex];
+      if (saveMode === 'overwrite') {
+        const updated = {
+          ...draft,
+          version: existing.version,
+          parentId: existing.parentId,
+          date: now,
+          sortOrder: existing.sortOrder,
+        };
+        updatedEstimates = [...estimates];
+        updatedEstimates[existingIndex] = updated;
+      } else {
+        const allVersions = estimates.filter(e => e.estimateNumber === existing.estimateNumber);
         const maxVersion = Math.max(...allVersions.map(e => e.version), 0);
         const nextVersion = maxVersion + 1;
 
-        // Duplicate protection: if a version with the same number already exists, update it instead
         const duplicate = allVersions.find(e => e.version === nextVersion && e.id !== existing.id);
         if (duplicate) {
-          const updatedEstimates = [...prevEstimates];
+          updatedEstimates = [...estimates];
           const dupIdx = updatedEstimates.findIndex(e => e.id === duplicate.id);
           updatedEstimates[dupIdx] = {
             ...duplicate,
             ...draft,
             id: duplicate.id,
             version: nextVersion,
-            date: new Date().toISOString(),
+            date: now,
             isArchived: false,
           };
-          // Also archive the old current estimate
           updatedEstimates[existingIndex] = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
-          return updatedEstimates;
+        } else {
+          const archivedEstimate = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
+          const newVersion: Estimate = {
+            ...draft,
+            id: `sm-id-${Date.now()}`,
+            version: nextVersion,
+            date: now,
+            parentId: existing.parentId || existing.id,
+            isArchived: false,
+            sortOrder: existing.sortOrder,
+          };
+          updatedEstimates = [...estimates];
+          updatedEstimates[existingIndex] = archivedEstimate;
+          updatedEstimates.push(newVersion);
         }
-
-        const archivedEstimate = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
-        const newVersion: Estimate = {
-          ...draft,
-          id: `sm-id-${Date.now()}`,
-          version: nextVersion,
-          date: new Date().toISOString(),
-          parentId: existing.parentId || existing.id,
-          isArchived: false,
-          sortOrder: existing.sortOrder,
-        };
-        const updatedEstimates = [...prevEstimates];
-        updatedEstimates[existingIndex] = archivedEstimate;
-        return [...updatedEstimates, newVersion];
       }
-      return [...prevEstimates, draft];
+    } else {
+      updatedEstimates = [...estimates, draft];
+    }
+
+    // Save directly to DB immediately — no debounce, no race condition
+    void saveEstimates(updatedEstimates).then(() => {
+      setEstimates(updatedEstimates);
+      setEditorDirty(false);
+      setEditorDraft(null);
+      setShowSaveOptions(false);
+      setPendingView(null);
+      setShowUnsavedModal(false);
+      setViewAfterSave(View.HISTORY);
+      goToView(afterSaveView);
+    }).catch((error) => {
+      console.error('Failed to save estimate to DB:', error);
+      setSync({ visible: true, message: 'Ошибка сохранения сметы в БД', type: 'error' });
+      setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
     });
-    setEditorDirty(false);
-    setEditorDraft(null);
-    setShowSaveOptions(false);
-    setPendingView(null);
-    setShowUnsavedModal(false);
-    setViewAfterSave(View.HISTORY);
-    goToView(afterSaveView);
-    // Flush immediately to DB to avoid race condition with cache events
-    setTimeout(() => flushSave(), 0);
   }, [
+    estimates,
     goToView,
-    flushSave,
     setEstimates,
     setEditorValidationResult,
     setShowSaveOptions,
@@ -201,6 +204,7 @@ export const useEstimateCrud = ({
     setEditorDirty,
     setEditorDraft,
     setViewAfterSave,
+    setSync,
   ]);
 
   const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
@@ -258,10 +262,11 @@ export const useEstimateCrud = ({
     try {
       if (isOnlyVersion) {
         await deleteEstimateById(estimateToDelete.id);
-        setEstimates(prevEstimates => prevEstimates.filter(e => e.id !== estimateToDelete.id));
+        const updatedEstimates = estimates.filter(e => e.id !== estimateToDelete.id);
+        await saveEstimates(updatedEstimates);
+        setEstimates(updatedEstimates);
         consumeDeleteLimit();
         setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
-        setTimeout(() => flushSave(), 0);
       } else {
         const remainingVersions = versionHistory.filter(e => e.id !== estimateToDelete.id);
         const hasChildren = remainingVersions.some(e => e.parentId === estimateToDelete.id);
@@ -284,23 +289,20 @@ export const useEstimateCrud = ({
           });
 
           await deleteEstimateById(estimateToDelete.id);
-          await saveEstimates(reparented);
-
-          setEstimates(prevEstimates => {
-            const updatedById = new Map(reparented.map(e => [e.id, e]));
-            return prevEstimates
-              .filter(e => e.id !== estimateToDelete.id)
-              .map(e => updatedById.get(e.id) ?? e);
-          });
+          const updatedEstimates = estimates
+            .filter(e => e.id !== estimateToDelete.id)
+            .map(e => reparented.find(r => r.id === e.id) ?? e);
+          await saveEstimates(updatedEstimates);
+          setEstimates(updatedEstimates);
           consumeDeleteLimit();
           setSync({ visible: true, message: 'Версия удалена, главная обновлена', type: 'success' });
-          setTimeout(() => flushSave(), 0);
         } else {
           await deleteEstimateById(estimateToDelete.id);
-          setEstimates(prevEstimates => prevEstimates.filter(e => e.id !== estimateToDelete.id));
+          const updatedEstimates = estimates.filter(e => e.id !== estimateToDelete.id);
+          await saveEstimates(updatedEstimates);
+          setEstimates(updatedEstimates);
           consumeDeleteLimit();
           setSync({ visible: true, message: 'Версия сметы удалена', type: 'success' });
-          setTimeout(() => flushSave(), 0);
         }
       }
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
@@ -309,7 +311,7 @@ export const useEstimateCrud = ({
       setSync({ visible: true, message: 'Ошибка удаления версии в БД', type: 'error' });
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
     }
-  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, flushSave, setEstimates, consumeDeleteLimit, setSync]);
+  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit, setSync]);
 
   const handleSaveAsTemplate = useCallback(async (estimate: Estimate) => {
     const templateName = prompt('Введите название шаблона:');

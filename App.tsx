@@ -1255,7 +1255,6 @@ const App: React.FC = () => {
         openAccessModal,
         recalculateEstimatePrices,
         consumeDeleteLimit,
-        flushSave: () => debouncedSaveAll.flush(),
         setEstimates,
         setTemplates,
         setCurrentEstimate,
