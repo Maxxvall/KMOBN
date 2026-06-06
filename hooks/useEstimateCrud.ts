@@ -124,61 +124,63 @@ export const useEstimateCrud = ({
       return;
     }
 
-    // Compute the new array using current state (not prevEstimates inside setter)
     const now = new Date().toISOString();
     let updatedEstimates: Estimate[];
-    const existingIndex = estimates.findIndex(e => e.id === draft.id);
-    if (existingIndex !== -1) {
-      const existing = estimates[existingIndex];
-      if (saveMode === 'overwrite') {
+
+    // Find existing chain by estimateNumber (stable business key, unlike id which can mismatch)
+    const chainAll = estimates.filter(e => e.estimateNumber === draft.estimateNumber);
+    const chainLatest = chainAll.length > 0
+      ? chainAll.reduce((best, e) => e.version > best.version ? e : best)
+      : null;
+    const chainMaxVersion = chainAll.length > 0
+      ? Math.max(...chainAll.map(e => e.version))
+      : 0;
+
+    if (saveMode === 'overwrite') {
+      if (chainLatest) {
+        // OVERWRITE: replace the latest version in-place, update date
         const updated = {
           ...draft,
-          version: existing.version,
-          parentId: existing.parentId,
+          id: chainLatest.id,
+          version: chainLatest.version,
+          parentId: chainLatest.parentId,
           date: now,
-          sortOrder: existing.sortOrder,
+          sortOrder: chainLatest.sortOrder,
+          isArchived: false,
+          status: chainLatest.status,
         };
-        updatedEstimates = [...estimates];
-        updatedEstimates[existingIndex] = updated;
+        updatedEstimates = estimates.map(e => e.id === chainLatest.id ? updated : e);
       } else {
-        const allVersions = estimates.filter(e => e.estimateNumber === existing.estimateNumber);
-        const maxVersion = Math.max(...allVersions.map(e => e.version), 0);
-        const nextVersion = maxVersion + 1;
-
-        const duplicate = allVersions.find(e => e.version === nextVersion && e.id !== existing.id);
-        if (duplicate) {
-          updatedEstimates = [...estimates];
-          const dupIdx = updatedEstimates.findIndex(e => e.id === duplicate.id);
-          updatedEstimates[dupIdx] = {
-            ...duplicate,
-            ...draft,
-            id: duplicate.id,
-            version: nextVersion,
-            date: now,
-            isArchived: false,
-          };
-          updatedEstimates[existingIndex] = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
-        } else {
-          const archivedEstimate = { ...existing, isArchived: true, status: EstimateStatus.ARCHIVED };
-          const newVersion: Estimate = {
-            ...draft,
-            id: `sm-id-${Date.now()}`,
-            version: nextVersion,
-            date: now,
-            parentId: existing.parentId || existing.id,
-            isArchived: false,
-            sortOrder: existing.sortOrder,
-          };
-          updatedEstimates = [...estimates];
-          updatedEstimates[existingIndex] = archivedEstimate;
-          updatedEstimates.push(newVersion);
-        }
+        // First save of a brand-new estimate — no existing chain
+        updatedEstimates = [...estimates, { ...draft, date: now }];
       }
     } else {
-      updatedEstimates = [...estimates, draft];
+      // NEW VERSION: archive the current latest, create next version
+      if (chainLatest) {
+        const nextVersion = chainMaxVersion + 1;
+        const archived = {
+          ...chainLatest,
+          isArchived: true,
+          status: EstimateStatus.ARCHIVED,
+        };
+        const newVersion: Estimate = {
+          ...draft,
+          id: `sm-id-${Date.now()}`,
+          version: nextVersion,
+          date: now,
+          parentId: chainLatest.parentId || chainLatest.id,
+          isArchived: false,
+          sortOrder: chainLatest.sortOrder,
+        };
+        updatedEstimates = estimates.map(e => e.id === chainLatest.id ? archived : e);
+        updatedEstimates.push(newVersion);
+      } else {
+        // No chain exists yet — create v1
+        updatedEstimates = [...estimates, { ...draft, version: 1, date: now }];
+      }
     }
 
-    // Save directly to DB immediately — no debounce, no race condition
+    // Save directly to DB first, then update state — prevents cache event from overwriting stale data
     void saveEstimates(updatedEstimates).then(() => {
       setEstimates(updatedEstimates);
       setEditorDirty(false);
