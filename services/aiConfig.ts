@@ -46,7 +46,7 @@ const resolveEnv = (key: string, fallback?: string): string | undefined => {
 export const AI_CONFIG: OpenRouterConfig = {
   apiKey: resolveEnv('VITE_OPENROUTER_API_KEY') || '',
   baseUrl: resolveEnv('VITE_OPENROUTER_BASE_URL') || 'https://openrouter.ai/api/v1/chat/completions',
-  model: resolveEnv('VITE_OPENROUTER_MODEL') || 'stepfun/step-3.5-flash:free',
+  model: resolveEnv('VITE_OPENROUTER_MODEL') || 'nvidia/nemotron-3-ultra-550b-a55b:free',
   siteUrl: resolveEnv('VITE_OPENROUTER_SITE_URL'),
   siteName: resolveEnv('VITE_OPENROUTER_SITE_NAME'),
 };
