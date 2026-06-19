@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
-import { WorkBundle, EstimateCategory, EstimateItem, EstimateSubgroup, Work, Material } from '../types';
+import React, { useState, useMemo, useCallback } from 'react';
+import { WorkBundle, EstimateCategory, EstimateItem, Work, Material } from '../types';
 import TabDescription from './TabDescription';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import BundleItemPickerModal from './BundleItemPickerModal';
 
 interface BundlesProps {
     bundles?: WorkBundle[];
@@ -32,112 +33,79 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
     const [newBundleName, setNewBundleName] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
-    const [editingBundleId, setEditingBundleId] = useState<string | null>(null);
-    const [editingName, setEditingName] = useState('');
-    const [currentBundleItems, setCurrentBundleItems] = useState<EstimateItem[]>([]);
-    const [showAddItem, setShowAddItem] = useState(false);
     const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set());
-    const [newItemName, setNewItemName] = useState('');
-    const [newItemSubgroup, setNewItemSubgroup] = useState<EstimateSubgroup>(EstimateSubgroup.WORKS);
+    const [editingBundleName, setEditingBundleName] = useState<{ id: string; name: string } | null>(null);
+
+    const [pickerOpen, setPickerOpen] = useState(false);
+    const [pickerCategory, setPickerCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
+    const [pickerBundleId, setPickerBundleId] = useState<string | null>(null);
 
     const filteredBundles = useMemo(() => {
         return filterCategory === 'all' ? bundleList : bundleList.filter(b => b.category === filterCategory);
     }, [bundleList, filterCategory]);
 
-    const handleAddBundle = () => {
-        if (newBundleName.trim()) {
-            const newBundle: WorkBundle = {
-                id: `bundle-${Date.now()}`,
-                name: newBundleName.trim(),
-                items: [],
-                category: selectedCategory,
-                sortOrder: Date.now(),
-            };
-            if (addBundleAction) {
-                void addBundleAction(newBundle);
-            }
-            setNewBundleName('');
+    const handleAddBundle = useCallback(() => {
+        if (!newBundleName.trim()) return;
+        const newBundle: WorkBundle = {
+            id: `bundle-${Date.now()}`,
+            name: newBundleName.trim(),
+            items: [],
+            category: selectedCategory,
+            sortOrder: Date.now(),
+        };
+        if (addBundleAction) {
+            void addBundleAction(newBundle);
         }
-    };
+        setNewBundleName('');
+        setPickerCategory(selectedCategory);
+        setPickerBundleId(newBundle.id);
+        setPickerOpen(true);
+    }, [newBundleName, selectedCategory, addBundleAction]);
 
-    const handleEditBundle = (bundle: WorkBundle) => {
-        setEditingBundleId(bundle.id);
-        setEditingName(bundle.name);
-        setCurrentBundleItems([...bundle.items]);
-    };
+    const handleOpenPicker = useCallback((bundle: WorkBundle) => {
+        setPickerCategory(bundle.category);
+        setPickerBundleId(bundle.id);
+        setPickerOpen(true);
+    }, []);
 
-    const handleSaveBundle = () => {
-        if (editingBundleId) {
-            const bundle = bundleList.find(b => b.id === editingBundleId);
-            if (bundle) {
-                if (updateBundleAction) {
-                    void updateBundleAction({ ...bundle, name: editingName, items: currentBundleItems });
-                }
-            }
-            setEditingBundleId(null);
-            setEditingName('');
-            setCurrentBundleItems([]);
+    const handlePickerConfirm = useCallback((newItems: EstimateItem[]) => {
+        if (!pickerBundleId || newItems.length === 0) return;
+        const bundle = bundleList.find(b => b.id === pickerBundleId);
+        if (!bundle) return;
+        const merged = [...(bundle.items ?? []), ...newItems];
+        if (updateBundleAction) {
+            void updateBundleAction({ ...bundle, items: merged });
         }
-    };
+        setPickerOpen(false);
+        setPickerBundleId(null);
+    }, [pickerBundleId, bundleList, updateBundleAction]);
 
-    const handleCancelEdit = () => {
-        setEditingBundleId(null);
-        setEditingName('');
-        setCurrentBundleItems([]);
-        setShowAddItem(false);
-    };
+    const handleDeleteItem = useCallback((bundleId: string, itemId: string) => {
+        const bundle = bundleList.find(b => b.id === bundleId);
+        if (!bundle) return;
+        const updated = (bundle.items ?? []).filter(item => item.id !== itemId);
+        if (updateBundleAction) {
+            void updateBundleAction({ ...bundle, items: updated });
+        }
+    }, [bundleList, updateBundleAction]);
 
-    const toggleBundleExpansion = (bundleId: string) => {
+    const handleSaveBundleName = useCallback(() => {
+        if (!editingBundleName) return;
+        const bundle = bundleList.find(b => b.id === editingBundleName.id);
+        if (!bundle) return;
+        if (updateBundleAction && editingBundleName.name.trim()) {
+            void updateBundleAction({ ...bundle, name: editingBundleName.name.trim() });
+        }
+        setEditingBundleName(null);
+    }, [editingBundleName, bundleList, updateBundleAction]);
+
+    const toggleBundleExpansion = useCallback((bundleId: string) => {
         setExpandedBundles(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(bundleId)) {
-                newSet.delete(bundleId);
-            } else {
-                newSet.add(bundleId);
-            }
-            return newSet;
+            const next = new Set(prev);
+            if (next.has(bundleId)) next.delete(bundleId); else next.add(bundleId);
+            return next;
         });
-    };
-
-    const handleAddItem = () => {
-        if (newItemName.trim()) {
-            const quantity = 1; // По умолчанию
-            const price = 0; // Цена не важна в комплекте
-            const newItem: EstimateItem = {
-                id: `item-${Date.now()}`,
-                name: newItemName.trim(),
-                unit: 'шт', // По умолчанию
-                quantity,
-                price,
-                total: quantity * price,
-                category: selectedCategory,
-                subgroup: newItemSubgroup,
-            };
-            setCurrentBundleItems([...currentBundleItems, newItem]);
-            setNewItemName('');
-            setShowAddItem(false);
-        }
-    };
-
-    const handleDeleteItem = (itemId: string) => {
-        setCurrentBundleItems(currentBundleItems.filter(item => item.id !== itemId));
-    };
-
-    const handleSelectWork = (workName: string) => {
-        const work = worksList.find(w => w.name === workName);
-        if (work) {
-            setNewItemName(work.name);
-            setNewItemSubgroup(EstimateSubgroup.WORKS);
-        }
-    };
-
-    const handleSelectMaterial = (materialName: string) => {
-        const material = materialList.find(m => m.name === materialName);
-        if (material) {
-            setNewItemName(material.name);
-            setNewItemSubgroup(EstimateSubgroup.MATERIALS);
-        }
-    };
+    }, []);
 
     return (
         <div className="bg-surface p-6 rounded-lg shadow-2xl">
@@ -162,42 +130,31 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                     'Создайте набор для типовой отделки и используйте его в проектах.',
                 ]}
                 quickLinks={[
-                    {
-                        id: 'bundles-windows',
-                        label: 'Монтаж окон по уровню',
-                        description: 'Сформируйте комплект работ и материалов.',
-                        wikiArticleId: 'windows-1',
-                    },
-                    {
-                        id: 'bundles-finishing',
-                        label: 'Подготовка стен под чистовую отделку',
-                        description: 'Добавьте отделочные этапы в комплект.',
-                        wikiArticleId: 'finishing-1',
-                    },
+                    { id: 'bundles-windows', label: 'Монтаж окон по уровню', description: 'Сформируйте комплект работ и материалов.', wikiArticleId: 'windows-1' },
+                    { id: 'bundles-finishing', label: 'Подготовка стен под чистовую отделку', description: 'Добавьте отделочные этапы в комплект.', wikiArticleId: 'finishing-1' },
                 ]}
             />
             <h2 className="text-2xl font-bold text-text-primary mb-6">Комплекты работ</h2>
 
             {hiddenBundlesCount > 0 && (
                 <div className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                    Показана часть данных по текущему тарифу: {bundleList.length} из {totalBundlesCount} комплектов. Остальные записи не удалены и снова появятся после повышения лимита подписки.
+                    Показана часть данных по текущему тарифу: {bundleList.length} из {totalBundlesCount} комплектов.
                 </div>
             )}
 
-            {/* Добавление нового комплекта */}
             <div className="flex gap-4 mb-6">
                 <input
                     type="text"
                     placeholder="Название комплекта"
                     className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={newBundleName}
-                    onChange={(e) => setNewBundleName(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAddBundle()}
+                    onChange={e => setNewBundleName(e.target.value)}
+                    onKeyPress={e => e.key === 'Enter' && handleAddBundle()}
                 />
                 <select
                     className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value as EstimateCategory)}
+                    onChange={e => setSelectedCategory(e.target.value as EstimateCategory)}
                 >
                     {Object.values(EstimateCategory).map(category => (
                         <option key={category} value={category}>{category}</option>
@@ -207,16 +164,15 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                     onClick={handleAddBundle}
                     className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
                 >
-                    Добавить
+                    Создать
                 </button>
             </div>
 
-            {/* Фильтр по категориям */}
             <div className="flex gap-4 mb-6">
                 <select
                     className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={filterCategory}
-                    onChange={(e) => setFilterCategory(e.target.value as EstimateCategory | 'all')}
+                    onChange={e => setFilterCategory(e.target.value as EstimateCategory | 'all')}
                 >
                     <option value="all">Все категории</option>
                     {Object.values(EstimateCategory).map(category => (
@@ -225,176 +181,104 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 </select>
             </div>
 
-            {/* Список комплектов */}
             <div className="space-y-4">
-                {filteredBundles.map(bundle => (
-                    <div key={bundle.id} className="border border-border rounded-lg bg-background/30">
-                        <div className="flex justify-between items-center p-4 cursor-pointer" onClick={() => toggleBundleExpansion(bundle.id)}>
-                            {editingBundleId === bundle.id ? (
-                                <input
-                                    type="text"
-                                    value={editingName}
-                                    onChange={(e) => setEditingName(e.target.value)}
-                                    className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary mr-4"
-                                />
-                            ) : (
-                                <div className="flex items-center">
-                                    <span className={`mr-2 transform transition-transform ${expandedBundles.has(bundle.id) ? 'rotate-90' : ''}`}>▶</span>
-                                    <div>
-                                        <h3 className="text-lg font-bold text-text-primary">{bundle.name}</h3>
-                                        <p className="text-sm text-text-secondary">Категория: {bundle.category} | Элементов: {bundle.items.length}</p>
-                                    </div>
-                                </div>
-                            )}
-                            <div className="flex gap-2">
-                                {editingBundleId === bundle.id ? (
-                                    <>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleSaveBundle(); }}
-                                            className="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
-                                        >
-                                            Сохранить
-                                        </button>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleCancelEdit(); }}
-                                            className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
-                                        >
-                                            Отмена
-                                        </button>
-                                    </>
-                                ) : (
-                                    <>
-                                        <button
-                                            onClick={(e) => { e.stopPropagation(); handleEditBundle(bundle); }}
-                                            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
-                                        >
-                                            Изменить
-                                        </button>
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                if (deleteBundleAction) {
-                                                    void deleteBundleAction(bundle.id);
-                                                }
-                                            }}
-                                            className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md shadow-md transition duration-300"
-                                        >
-                                            Удалить
-                                        </button>
-                                    </>
-                                )}
-                            </div>
-                        </div>
+                {filteredBundles.map(bundle => {
+                    const isExpanded = expandedBundles.has(bundle.id);
+                    const isEditing = editingBundleName?.id === bundle.id;
+                    const itemCount = (bundle.items ?? []).length;
 
-                        {expandedBundles.has(bundle.id) && (
-                            <div className="p-4 border-t border-border">
-                                {editingBundleId === bundle.id ? (
-                                    <div className="mb-4">
-                                        <h4 className="text-md font-semibold text-text-primary mb-2">Элементы комплекта:</h4>
-                                        <div className="space-y-2 mb-4">
-                                            {currentBundleItems.map(item => (
-                                                <div key={item.id} className="flex items-center gap-4 p-2 bg-background/50 rounded-md">
-                                                    <span className="flex-1">{item.name} ({item.subgroup})</span>
+                    return (
+                        <div key={bundle.id} className="border border-border rounded-lg bg-background/30">
+                            <div className="flex justify-between items-center p-4">
+                                {isEditing ? (
+                                    <input
+                                        type="text"
+                                        value={editingBundleName?.name ?? ''}
+                                        onChange={e => setEditingBundleName(prev => prev ? { ...prev, name: e.target.value } : null)}
+                                        onKeyDown={e => { if (e.key === 'Enter') handleSaveBundleName(); if (e.key === 'Escape') setEditingBundleName(null); }}
+                                        className="flex-1 p-1 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary mr-4"
+                                        autoFocus
+                                    />
+                                ) : (
+                                    <div className="flex items-center cursor-pointer flex-1" onClick={() => toggleBundleExpansion(bundle.id)}>
+                                        <span className={`mr-2 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                                        <div>
+                                            <h3 className="text-lg font-bold text-text-primary">{bundle.name}</h3>
+                                            <p className="text-sm text-text-secondary">Категория: {bundle.category} | Элементов: {itemCount}</p>
+                                        </div>
+                                    </div>
+                                )}
+                                <div className="flex gap-2">
+                                    {isEditing ? (
+                                        <>
+                                            <button onClick={handleSaveBundleName} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-md transition">Сохранить</button>
+                                            <button onClick={() => setEditingBundleName(null)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-md transition">Отмена</button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <button
+                                                onClick={() => handleOpenPicker(bundle)}
+                                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-md transition"
+                                            >
+                                                + Элементы
+                                            </button>
+                                            <button
+                                                onClick={() => setEditingBundleName({ id: bundle.id, name: bundle.name })}
+                                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-md transition"
+                                            >
+                                                Название
+                                            </button>
+                                            <button
+                                                onClick={() => deleteBundleAction && void deleteBundleAction(bundle.id)}
+                                                className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md transition"
+                                            >
+                                                Удалить
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+
+                            {isExpanded && (
+                                <div className="p-4 border-t border-border">
+                                    <h4 className="text-md font-semibold text-text-primary mb-2">Элементы ({itemCount}):</h4>
+                                    {itemCount === 0 ? (
+                                        <div className="text-sm text-text-secondary py-2">Нет элементов. Нажмите "+ Элементы" чтобы добавить.</div>
+                                    ) : (
+                                        <div className="space-y-1">
+                                            {(bundle.items ?? []).map(item => (
+                                                <div key={item.id} className="flex items-center justify-between p-2 bg-background/50 rounded-md">
+                                                    <span className="text-sm text-text-primary">
+                                                        {item.name} <span className="text-text-secondary">({item.subgroup})</span>
+                                                    </span>
                                                     <button
-                                                        onClick={() => handleDeleteItem(item.id)}
-                                                        className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-2 rounded-md"
+                                                        onClick={() => handleDeleteItem(bundle.id, item.id)}
+                                                        className="text-red-400 hover:text-red-300 text-sm font-bold"
                                                     >
                                                         ✕
                                                     </button>
                                                 </div>
                                             ))}
                                         </div>
-
-                                        {showAddItem ? (
-                                            <div className="flex gap-2 mb-4">
-                                                <select
-                                                    className="p-2 bg-background border border-border rounded-md text-text-primary"
-                                                    value={newItemSubgroup}
-                                                    onChange={(e) => setNewItemSubgroup(e.target.value as EstimateSubgroup)}
-                                                >
-                                                    <option value={EstimateSubgroup.WORKS}>Работы</option>
-                                                    {selectedCategory === EstimateCategory.LOGISTICS ? (
-                                                        <option value={EstimateSubgroup.DELIVERY}>Доставка</option>
-                                                    ) : (
-                                                        <option value={EstimateSubgroup.MATERIALS}>Материалы</option>
-                                                    )}
-                                                </select>
-                                                {newItemSubgroup === EstimateSubgroup.WORKS ? (
-                                                    <select
-                                                        className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary"
-                                                        value={newItemName}
-                                                        onChange={(e) => {
-                                                            setNewItemName(e.target.value);
-                                                            handleSelectWork(e.target.value);
-                                                        }}
-                                                    >
-                                                        <option value="">Выберите работу</option>
-                                                        {works.filter(w => w.category === selectedCategory || w.category === EstimateCategory.GENERAL).map(work => (
-                                                            <option key={work.id} value={work.name}>{work.name} ({work.category})</option>
-                                                        ))}
-                                                    </select>
-                                                ) : (
-                                                    <select
-                                                        className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary"
-                                                        value={newItemName}
-                                                        onChange={(e) => {
-                                                            setNewItemName(e.target.value);
-                                                            handleSelectMaterial(e.target.value);
-                                                        }}
-                                                    >
-                                                        <option value="">Выберите материал</option>
-                                                        {materials.filter(m => m.category === selectedCategory || m.category === EstimateCategory.GENERAL).map(material => (
-                                                            <option key={material.id} value={material.name}>{material.name} ({material.category})</option>
-                                                        ))}
-                                                    </select>
-                                                )}
-                                                <button
-                                                    onClick={handleAddItem}
-                                                    className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md"
-                                                >
-                                                    Добавить
-                                                </button>
-                                                <button
-                                                    onClick={() => setShowAddItem(false)}
-                                                    className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-md"
-                                                >
-                                                    Отмена
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <button
-                                                onClick={() => setShowAddItem(true)}
-                                                className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md"
-                                            >
-                                                Добавить элемент
-                                            </button>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <div>
-                                        <h4 className="text-md font-semibold text-text-primary mb-2">Элементы ({bundle.items.length}):</h4>
-                                        <div className="space-y-1">
-                                            {bundle.items.map(item => (
-                                                <div key={item.id} className="text-sm text-text-secondary">
-                                                    {item.name} ({item.subgroup})
-                                                </div>
-                                            ))}
-                                            {bundle.items.length === 0 && (
-                                                <div className="text-sm text-text-secondary">Нет элементов</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
-                ))}
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
                 {filteredBundles.length === 0 && (
-                    <div className="text-center py-8 text-text-secondary">
-                        Нет комплектов. Добавьте первый комплект выше.
-                    </div>
+                    <div className="text-center py-8 text-text-secondary">Нет комплектов. Создайте первый выше.</div>
                 )}
             </div>
+
+            <BundleItemPickerModal
+                isOpen={pickerOpen}
+                onClose={() => { setPickerOpen(false); setPickerBundleId(null); }}
+                onConfirm={handlePickerConfirm}
+                category={pickerCategory}
+                works={worksList}
+                materials={materialList}
+            />
         </div>
     );
 };
