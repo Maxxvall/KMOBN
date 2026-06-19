@@ -910,7 +910,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         if (!bundle) return;
 
         // Создаем новые items из bundle, присваивая им уникальные id и категорию bundle
-        const newItems = bundle.items.map(item => ({
+        const newItems = (bundle.items ?? []).map(item => ({
             ...item,
             id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             category: bundle.category, // Переопределяем категорию на категорию bundle
@@ -930,7 +930,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             if (!bundle) continue;
             const baseArea = (bundle as any).baseArea || 1;
             const factor = scaleFactor / baseArea;
-            for (const item of bundle.items) {
+            for (const item of (bundle.items ?? [])) {
                 const qty = +((item.quantity || 0) * factor).toFixed(2);
                 newItems.push({
                     ...item,

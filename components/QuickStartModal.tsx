@@ -78,7 +78,7 @@ const QuickStartModal: React.FC<QuickStartModalProps> = ({ isOpen, onClose, onCo
         for (const bundleId of selectedBundleIds) {
             const bundle = bundles.find(b => b.id === bundleId);
             if (!bundle) continue;
-            for (const item of bundle.items) {
+            for (const item of (bundle.items ?? [])) {
                 if (!selectedSections.includes(item.category)) continue;
                 bundleCount++;
                 estimatedTotal += (item.quantity || 0) * (item.price || 0);
@@ -116,7 +116,7 @@ const QuickStartModal: React.FC<QuickStartModalProps> = ({ isOpen, onClose, onCo
         for (const bundleId of selectedBundleIds) {
             const bundle = bundles.find(b => b.id === bundleId);
             if (!bundle) continue;
-            for (const item of bundle.items) {
+            for (const item of (bundle.items ?? [])) {
                 if (!selectedSections.includes(item.category)) continue;
                 items.push({
                     ...item,
@@ -263,7 +263,7 @@ const QuickStartModal: React.FC<QuickStartModalProps> = ({ isOpen, onClose, onCo
                                         className="rounded border-border"
                                     />
                                     <span className="text-sm text-text-primary flex-1">{bundle.name}</span>
-                                    <span className="text-xs text-text-secondary">{bundle.items.length} поз.</span>
+                                    <span className="text-xs text-text-secondary">{(bundle.items ?? []).length} поз.</span>
                                 </label>
                             ))}
                         </div>

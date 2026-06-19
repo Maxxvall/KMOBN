@@ -14,7 +14,13 @@ interface BundlesProps {
 
 const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundle, onUpdateBundle, onDeleteBundle }) => {
     const catalogContext = useOptionalCatalogContext();
-    const bundleList = useMemo(() => bundles ?? catalogContext?.bundles ?? [], [bundles, catalogContext?.bundles]);
+    const bundleList = useMemo(() =>
+        (bundles ?? catalogContext?.bundles ?? []).map(b => ({
+            ...b,
+            items: Array.isArray(b.items) ? b.items : [],
+        })),
+        [bundles, catalogContext?.bundles]
+    );
     const worksList = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
     const materialList = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
     const totalBundlesCount = bundles ? bundleList.length : (catalogContext?.bundlesTotalCount ?? bundleList.length);

@@ -312,7 +312,13 @@ export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
   ]);
 };
 
-export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundle[]> => readTableCached<WorkBundle>('bundles', fetchBundles, options);
+export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundle[]> => {
+  const raw = await readTableCached<WorkBundle>('bundles', fetchBundles, options);
+  return raw.map(b => ({
+    ...b,
+    items: Array.isArray(b.items) ? b.items : [],
+  }));
+};
 
 export const addBundle = async (bundle: WorkBundle): Promise<void> => {
   await upsertRecords(upsertBundles, [bundle]);

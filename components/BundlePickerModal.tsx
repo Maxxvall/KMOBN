@@ -55,7 +55,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
             let worksCount = 0;
             let materialsCount = 0;
             let scaledTotal = 0;
-            for (const item of bundle.items) {
+            for (const item of (bundle.items ?? [])) {
                 const qty = (item.quantity || 0) * factor;
                 scaledTotal += qty * (item.price || 0);
                 if (item.subgroup === EstimateSubgroup.WORKS) worksCount++;
@@ -67,7 +67,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
     }, [bundleOrder, scaleArea, bundles]);
 
     const totalPositions = useMemo(() => {
-        return previews.reduce((sum, p) => sum + p.bundle.items.length, 0);
+        return previews.reduce((sum, p) => sum + (p.bundle.items ?? []).length, 0);
     }, [previews]);
 
     const totalCost = useMemo(() => {
@@ -125,7 +125,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
                                     const isSelected = selectedIds.has(bundle.id);
                                     let worksCount = 0;
                                     let materialsCount = 0;
-                                    for (const item of bundle.items) {
+                                    for (const item of (bundle.items ?? [])) {
                                         if (item.subgroup === EstimateSubgroup.WORKS) worksCount++;
                                         else materialsCount++;
                                     }
@@ -139,7 +139,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
                                                     className="rounded border-border"
                                                 />
                                                 <span className="text-sm font-medium text-text-primary flex-1">{bundle.name}</span>
-                                                <span className="text-xs text-text-secondary">{bundle.items.length} поз.</span>
+                                                <span className="text-xs text-text-secondary">{(bundle.items ?? []).length} поз.</span>
                                                 {worksCount > 0 && <span className="text-xs text-blue-400">{worksCount} р.</span>}
                                                 {materialsCount > 0 && <span className="text-xs text-green-400">{materialsCount} м.</span>}
                                                 {isSelected && (
@@ -155,7 +155,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
                                             {isSelected && expandedBundles.has(bundle.id) && (
                                                 <div className="px-2 pb-2 border-t border-border/50">
                                                     <div className="max-h-32 overflow-y-auto mt-1 space-y-0.5">
-                                                        {bundle.items.map((item, idx) => (
+                                                        {(bundle.items ?? []).map((item, idx) => (
                                                             <div key={idx} className="flex justify-between text-xs py-0.5">
                                                                 <span className="text-text-secondary truncate mr-2">{item.name || '(пусто)'}</span>
                                                                 <span className="text-text-primary whitespace-nowrap">{item.quantity} {item.unit} × {item.price.toLocaleString('ru-RU')} ₽</span>
@@ -220,7 +220,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
                                                     {p.worksCount > 0 && <span>{p.worksCount} р.</span>}
                                                     {p.worksCount > 0 && p.materialsCount > 0 && <span> + </span>}
                                                     {p.materialsCount > 0 && <span>{p.materialsCount} м.</span>}
-                                                    <span className="ml-2">({p.bundle.items.length} поз.)</span>
+                                                    <span className="ml-2">({(p.bundle.items ?? []).length} поз.)</span>
                                                 </div>
                                             </div>
                                             <span className="text-sm font-semibold text-primary whitespace-nowrap">
