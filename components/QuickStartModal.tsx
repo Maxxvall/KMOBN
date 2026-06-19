@@ -21,6 +21,7 @@ const BUILDING_TYPES = [
 ];
 
 const QuickStartModal: React.FC<QuickStartModalProps> = ({ isOpen, onClose, onConfirm, templates, bundles, existingEstimateNumbers }) => {
+    const [clientName, setClientName] = useState('');
     const [buildingType, setBuildingType] = useState(BUILDING_TYPES[0].label);
     const [customBuildingType, setCustomBuildingType] = useState('');
     const [area, setArea] = useState(BUILDING_TYPES[0].defaultArea);
@@ -131,7 +132,7 @@ const QuickStartModal: React.FC<QuickStartModalProps> = ({ isOpen, onClose, onCo
         const estimate: Estimate = {
             id: `sm-id-${Date.now()}`,
             estimateNumber: generateEstimateNumber(existingEstimateNumbers, new Date()),
-            client: '',
+            client: clientName,
             date: new Date().toISOString().split('T')[0],
             status: EstimateStatus.DRAFT,
             version: 1,
@@ -139,6 +140,7 @@ const QuickStartModal: React.FC<QuickStartModalProps> = ({ isOpen, onClose, onCo
             total,
             buildingType: effectiveBuildingType,
             area,
+            selectedSections,
             needsPriceUpdate: false,
             sortOrder: Date.now(),
         };
@@ -154,6 +156,17 @@ const QuickStartModal: React.FC<QuickStartModalProps> = ({ isOpen, onClose, onCo
                 <div className="flex items-center justify-between mb-6">
                     <h2 className="text-xl font-bold text-text-primary">Быстрый старт</h2>
                     <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
+                </div>
+
+                <div className="mb-4">
+                    <label className="block text-sm font-semibold text-text-secondary mb-2">Имя клиента</label>
+                    <input
+                        type="text"
+                        value={clientName}
+                        onChange={e => setClientName(e.target.value)}
+                        placeholder="Введите имя клиента"
+                        className="w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    />
                 </div>
 
                 <div className="mb-4">

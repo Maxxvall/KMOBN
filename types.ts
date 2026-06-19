@@ -37,6 +37,7 @@ export interface Estimate {
     buildingType: string;
     area: number;
     needsPriceUpdate?: boolean;
+    selectedSections?: EstimateCategory[];
     sortOrder?: number;
     created_at?: string | null;
     updated_at?: string | null;

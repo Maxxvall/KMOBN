@@ -207,7 +207,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiNotInDbItems, setAiNotInDbItems] = useState<import('./AIMissingItemsModal').NotInDbItem[]>([]);
     const [aiAddedToCatalogNames, setAiAddedToCatalogNames] = useState<Set<string>>(new Set());
     const [showComparison, setShowComparison] = useState(false);
-    const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>([]);
+    const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
     // Typeahead / debounce state
@@ -872,6 +872,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             [subgroupKey]: !prev[subgroupKey],
         }));
     };
+
+    // Reset visibleCategories when estimate changes (new estimate opened)
+    useEffect(() => {
+        const fromSections = estimate.selectedSections ?? [];
+        const fromItems = Array.from(new Set(estimate.items.map(i => i.category)));
+        setVisibleCategories(Array.from(new Set([...fromSections, ...fromItems])));
+    }, [estimate.id]);
 
     // keep visibleCategories in sync with items present in estimate
     useEffect(() => {
