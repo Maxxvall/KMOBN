@@ -9,6 +9,7 @@ import AILoadingIndicator from './AILoadingIndicator';
 import AIMissingItemsModal from './AIMissingItemsModal';
 import AIGenerationModal from './AIGenerationModal';
 import BundlePickerModal from './BundlePickerModal';
+import PasteFromEstimateModal from './PasteFromEstimateModal';
 import { aiAutocomplete, analyzeMissingItems } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
@@ -209,6 +210,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiAddedToCatalogNames, setAiAddedToCatalogNames] = useState<Set<string>>(new Set());
     const [showComparison, setShowComparison] = useState(false);
     const [bundlePickerOpen, setBundlePickerOpen] = useState(false);
+    const [pasteModalOpen, setPasteModalOpen] = useState(false);
+    const [pasteTargetCategory, setPasteTargetCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
+    const [clipboardItems, setClipboardItems] = useState<EstimateItem[]>([]);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
@@ -905,6 +909,67 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setVisibleCategories(prev => prev.filter(c => c !== cat));
     };
 
+    const handleDuplicateSection = useCallback((cat: EstimateCategory) => {
+        const itemsInCat = estimate.items.filter(it => it.category === cat);
+        if (itemsInCat.length === 0) {
+            alert('В разделе нет позиций для дублирования.');
+            return;
+        }
+        const coefficient = prompt(`Коэффициент для масштабирования (1 = без изменений):`, '1');
+        if (coefficient === null) return;
+        const factor = parseFloat(coefficient) || 1;
+        const newItems = itemsInCat.map(item => ({
+            ...item,
+            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            quantity: +(item.quantity * factor).toFixed(2),
+            total: +(item.quantity * factor * item.price).toFixed(2),
+        }));
+        setEstimate(prev => {
+            const updatedItems = [...prev.items, ...newItems];
+            return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
+        });
+    }, [estimate.items]);
+
+    const handleCopySection = useCallback((cat: EstimateCategory) => {
+        const itemsInCat = estimate.items.filter(it => it.category === cat);
+        if (itemsInCat.length === 0) {
+            alert('В разделе нет позиций для копирования.');
+            return;
+        }
+        setClipboardItems([...itemsInCat]);
+        alert(`Скопировано ${itemsInCat.length} позиций из раздела "${cat}".`);
+    }, [estimate.items]);
+
+    const handlePasteFromClipboard = useCallback((targetCat: EstimateCategory) => {
+        if (clipboardItems.length === 0) {
+            alert('Буфер обмена пуст. Сначала скопируйте раздел.');
+            return;
+        }
+        const newItems = clipboardItems.map(item => ({
+            ...item,
+            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            category: targetCat,
+        }));
+        setEstimate(prev => {
+            const updatedItems = [...prev.items, ...newItems];
+            return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
+        });
+        setClipboardItems([]);
+    }, [clipboardItems]);
+
+    const handleOpenPasteModal = useCallback((cat: EstimateCategory) => {
+        setPasteTargetCategory(cat);
+        setPasteModalOpen(true);
+    }, []);
+
+    const handlePasteFromEstimate = useCallback((items: EstimateItem[], _targetCategory: EstimateCategory) => {
+        setEstimate(prev => {
+            const updatedItems = [...prev.items, ...items];
+            return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
+        });
+        setPasteModalOpen(false);
+    }, []);
+
     const handleApplyBundle = useCallback((bundleId: string) => {
         const bundle = bundlesValue.find(b => b.id === bundleId);
         if (!bundle) return;
@@ -1178,8 +1243,18 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     );
                                                 })()}
                                     {visibleCategories.includes(category) && (
-                                        <div className="ml-4">
-                                            <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-sm">Удалить раздел</button>
+                                        <div className="ml-4 flex items-center gap-2">
+                                            {items.length > 0 && (
+                                                <>
+                                                    <button onClick={() => handleDuplicateSection(category)} className="text-blue-400 hover:text-blue-300 text-sm" title="Дублировать раздел (с коэффициентом)">Дублировать</button>
+                                                    <button onClick={() => handleCopySection(category)} className="text-green-400 hover:text-green-300 text-sm" title="Копировать в буфер">Копировать</button>
+                                                    {clipboardItems.length > 0 && (
+                                                        <button onClick={() => handlePasteFromClipboard(category)} className="text-yellow-400 hover:text-yellow-300 text-sm" title="Вставить из буфера">Вставить ({clipboardItems.length})</button>
+                                                    )}
+                                                </>
+                                            )}
+                                            <button onClick={() => handleOpenPasteModal(category)} className="text-purple-400 hover:text-purple-300 text-sm" title="Вставить из другой сметы">Из другой сметы</button>
+                                            <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-sm">Удалить</button>
                                         </div>
                                     )}
                                 </div>
@@ -1474,6 +1549,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 onConfirm={handleApplyBundles}
                 bundles={bundlesValue}
                 currentArea={estimate.area}
+            />
+            <PasteFromEstimateModal
+                isOpen={pasteModalOpen}
+                onClose={() => setPasteModalOpen(false)}
+                onConfirm={handlePasteFromEstimate}
+                estimates={allEstimatesValue}
+                currentEstimateId={estimate.id}
+                targetCategory={pasteTargetCategory}
             />
             {showComparison && getPreviousVersion() && (
                 <VersionComparisonModal
