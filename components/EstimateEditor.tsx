@@ -8,6 +8,7 @@ import VersionComparisonModal from './VersionComparisonModal';
 import AILoadingIndicator from './AILoadingIndicator';
 import AIMissingItemsModal from './AIMissingItemsModal';
 import AIGenerationModal from './AIGenerationModal';
+import BundlePickerModal from './BundlePickerModal';
 import { aiAutocomplete, analyzeMissingItems } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
@@ -207,6 +208,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiNotInDbItems, setAiNotInDbItems] = useState<import('./AIMissingItemsModal').NotInDbItem[]>([]);
     const [aiAddedToCatalogNames, setAiAddedToCatalogNames] = useState<Set<string>>(new Set());
     const [showComparison, setShowComparison] = useState(false);
+    const [bundlePickerOpen, setBundlePickerOpen] = useState(false);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
@@ -921,6 +923,31 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         });
     }, [bundlesValue]);
 
+    const handleApplyBundles = useCallback((order: string[], scaleFactor: number) => {
+        const newItems: EstimateItem[] = [];
+        for (const id of order) {
+            const bundle = bundlesValue.find(b => b.id === id);
+            if (!bundle) continue;
+            const baseArea = (bundle as any).baseArea || 1;
+            const factor = scaleFactor / baseArea;
+            for (const item of bundle.items) {
+                const qty = +((item.quantity || 0) * factor).toFixed(2);
+                newItems.push({
+                    ...item,
+                    id: `item-bundle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    quantity: qty,
+                    total: qty * (item.price || 0),
+                    category: bundle.category,
+                });
+            }
+        }
+        setEstimate(prev => {
+            const updatedItems = [...prev.items, ...newItems];
+            return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
+        });
+        setBundlePickerOpen(false);
+    }, [bundlesValue]);
+
     const handleSave = () => {
         if (!estimate.client) {
             alert("Пожалуйста, укажите имя клиента.");
@@ -1085,21 +1112,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </div>
                     </div>
                     <div className="p-3 bg-background/60 border border-border rounded-lg md:col-span-2 min-h-[60px] flex items-center">
-                        <select
-                            onChange={(e) => {
-                                if (e.target.value) {
-                                    handleApplyBundle(e.target.value);
-                                    e.target.value = ''; // Reset select
-                                }
-                            }}
-                            className="w-full p-1 bg-background border border-border rounded-md text-text-primary text-sm h-full"
-                            defaultValue=""
+                        <button
+                            onClick={() => setBundlePickerOpen(true)}
+                            className="w-full p-1 bg-background border border-border rounded-md text-text-primary text-sm hover:border-primary transition"
                         >
-                            <option value="">Добавить комплект...</option>
-                            {bundlesValue.map(bundle => (
-                                <option key={bundle.id} value={bundle.id}>{bundle.name}</option>
-                            ))}
-                        </select>
+                            Добавить комплекты
+                        </button>
                     </div>
                     <div className="p-3 bg-background/60 border border-border rounded-lg md:col-span-2 min-h-[60px] flex items-center">
                         <select
@@ -1449,6 +1467,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 works={worksValue}
                 currentArea={estimate.area}
                 currentBuildingType={estimate.buildingType}
+            />
+            <BundlePickerModal
+                isOpen={bundlePickerOpen}
+                onClose={() => setBundlePickerOpen(false)}
+                onConfirm={handleApplyBundles}
+                bundles={bundlesValue}
+                currentArea={estimate.area}
             />
             {showComparison && getPreviousVersion() && (
                 <VersionComparisonModal
