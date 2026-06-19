@@ -212,7 +212,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [bundlePickerOpen, setBundlePickerOpen] = useState(false);
     const [pasteModalOpen, setPasteModalOpen] = useState(false);
     const [pasteTargetCategory, setPasteTargetCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
-    const [clipboardItems, setClipboardItems] = useState<EstimateItem[]>([]);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
@@ -930,33 +929,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         });
     }, [estimate.items]);
 
-    const handleCopySection = useCallback((cat: EstimateCategory) => {
-        const itemsInCat = estimate.items.filter(it => it.category === cat);
-        if (itemsInCat.length === 0) {
-            alert('В разделе нет позиций для копирования.');
-            return;
-        }
-        setClipboardItems([...itemsInCat]);
-        alert(`Скопировано ${itemsInCat.length} позиций из раздела "${cat}".`);
-    }, [estimate.items]);
-
-    const handlePasteFromClipboard = useCallback((targetCat: EstimateCategory) => {
-        if (clipboardItems.length === 0) {
-            alert('Буфер обмена пуст. Сначала скопируйте раздел.');
-            return;
-        }
-        const newItems = clipboardItems.map(item => ({
-            ...item,
-            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            category: targetCat,
-        }));
-        setEstimate(prev => {
-            const updatedItems = [...prev.items, ...newItems];
-            return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
-        });
-        setClipboardItems([]);
-    }, [clipboardItems]);
-
     const handleOpenPasteModal = useCallback((cat: EstimateCategory) => {
         setPasteTargetCategory(cat);
         setPasteModalOpen(true);
@@ -1245,13 +1217,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     {visibleCategories.includes(category) && (
                                         <div className="ml-4 flex items-center gap-2">
                                             {items.length > 0 && (
-                                                <>
-                                                    <button onClick={() => handleDuplicateSection(category)} className="text-blue-400 hover:text-blue-300 text-sm" title="Дублировать раздел (с коэффициентом)">Дублировать</button>
-                                                    <button onClick={() => handleCopySection(category)} className="text-green-400 hover:text-green-300 text-sm" title="Копировать в буфер">Копировать</button>
-                                                    {clipboardItems.length > 0 && (
-                                                        <button onClick={() => handlePasteFromClipboard(category)} className="text-yellow-400 hover:text-yellow-300 text-sm" title="Вставить из буфера">Вставить ({clipboardItems.length})</button>
-                                                    )}
-                                                </>
+                                                <button onClick={() => handleDuplicateSection(category)} className="text-blue-400 hover:text-blue-300 text-sm" title="Дублировать раздел (с коэффициентом)">Дублировать</button>
                                             )}
                                             <button onClick={() => handleOpenPasteModal(category)} className="text-purple-400 hover:text-purple-300 text-sm" title="Вставить из другой сметы">Из другой сметы</button>
                                             <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-sm">Удалить</button>
