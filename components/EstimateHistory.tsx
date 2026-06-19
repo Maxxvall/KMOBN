@@ -1,10 +1,12 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Estimate, EstimateStatus, ProjectTemplate } from '../types';
+import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
 import { exportData, importData } from '../services/database';
 import TabDescription from './TabDescription';
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
+import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import QuickStartModal from './QuickStartModal';
 
 interface EstimateHistoryProps {
     estimates?: Estimate[];
@@ -135,6 +137,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [filterAreaMin, setFilterAreaMin] = useState('');
     const [filterAreaMax, setFilterAreaMax] = useState('');
     const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
+    const catalogContext = useOptionalCatalogContext();
+    const bundlesList = catalogContext?.bundles ?? [];
+    const [showQuickStart, setShowQuickStart] = useState(false);
 
     const handleExportData = async () => {
         try {
@@ -353,6 +358,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     <button onClick={handleImportData} className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
                         Импорт данных
                     </button>
+                    <button onClick={() => setShowQuickStart(true)} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
+                        Быстрый старт
+                    </button>
                           <button onClick={() => createNewAction?.()} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
                        Создать новую
                     </button>
@@ -414,6 +422,21 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     </tbody>
                 </table>
             </div>
+
+            {showQuickStart && (
+                <QuickStartModal
+                    isOpen={showQuickStart}
+                    onClose={() => setShowQuickStart(false)}
+                    onConfirm={(estimate) => {
+                        estimateContext?.setCurrentEstimate(estimate);
+                        estimateContext?.setView(View.EDITOR);
+                        setShowQuickStart(false);
+                    }}
+                    templates={estimateContext?.templates ?? []}
+                    bundles={bundlesList}
+                    existingEstimateNumbers={estimateList.map(e => e.estimateNumber)}
+                />
+            )}
         </div>
     );
 };
