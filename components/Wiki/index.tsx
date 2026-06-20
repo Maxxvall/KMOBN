@@ -134,6 +134,15 @@ const Wiki: React.FC = () => {
         }
     };
 
+    const handleAiArticleClick = (articleId: string) => {
+        const article = WIKI_ARTICLES.find(a => a.id === articleId);
+        if (!article) return;
+        setSelectedCategoryId(article.categoryId);
+        setSelectedSubcategoryId(article.subcategoryId);
+        setSelectedArticle(article);
+        setLevel('article');
+    };
+
     const aiDisabled = !hasOpenRouterKey();
 
     // ─── Render ──────────────────────────────────────────────────────────────
@@ -200,6 +209,7 @@ const Wiki: React.FC = () => {
                 isLoading={isLoadingAI}
                 onAsk={handleAskAI}
                 disabled={aiDisabled}
+                onArticleClick={handleAiArticleClick}
             />
             {aiDisabled && (
                 <div className="text-xs text-text-secondary">
