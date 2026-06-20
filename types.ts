@@ -211,16 +211,22 @@ export interface GenerationParams {
 }
 
 // Salary Calculator Types
+export type SalaryMode = 'percent' | 'rate';
+
 export interface Worker {
     id: string;
     name: string;
+    ratePerHour?: number;
+    ratePerDay?: number;
+    rateType?: 'hour' | 'day';
 }
 
 export interface WorkAllocation {
-    workItemId: string; // ID позиции работы из EstimateItem
+    workItemId: string;
     workItemName: string;
-    workItemTotal: number; // Стоимость работы
-    allocations: { [workerId: string]: number }; // workerId -> процент выполнения (0-100)
+    workItemTotal: number;
+    allocations: { [workerId: string]: number };
+    hours?: { [workerId: string]: number };
 }
 
 export interface SalaryCalculation {
@@ -230,4 +236,5 @@ export interface SalaryCalculation {
     workers: Worker[];
     workAllocations: WorkAllocation[];
     createdDate: string;
+    mode?: SalaryMode;
 }
