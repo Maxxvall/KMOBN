@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { EstimateItem, EstimateSubgroup, WorkBundle } from '../types';
+import { EstimateSubgroup, WorkBundle } from '../types';
+import { applySmartPackagingRules, sanitizeQuantities } from '../services/openRouterService';
 
 interface BundlePickerModalProps {
     isOpen: boolean;
@@ -50,14 +51,16 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
         return bundleOrder.map(id => {
             const bundle = bundles.find(b => b.id === id);
             if (!bundle) return null;
-            const baseArea = (bundle as any).baseArea || 1;
-            const factor = scaleArea / baseArea;
             let worksCount = 0;
             let materialsCount = 0;
+            const rawItems = (bundle.items ?? []).map(item => ({ ...item, category: bundle.category }));
+            const smartItems = sanitizeQuantities(
+                applySmartPackagingRules(rawItems, scaleArea),
+                scaleArea,
+            );
             let scaledTotal = 0;
-            for (const item of (bundle.items ?? [])) {
-                const qty = (item.quantity || 0) * factor;
-                scaledTotal += qty * (item.price || 0);
+            for (const item of smartItems) {
+                scaledTotal += (item.quantity || 0) * (item.price || 0);
                 if (item.subgroup === EstimateSubgroup.WORKS) worksCount++;
                 else if (item.subgroup === EstimateSubgroup.MATERIALS) materialsCount++;
                 else worksCount++;

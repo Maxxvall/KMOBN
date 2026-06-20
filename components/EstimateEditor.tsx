@@ -942,24 +942,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setPasteModalOpen(false);
     }, []);
 
-    const handleApplyBundle = useCallback((bundleId: string) => {
-        const bundle = bundlesValue.find(b => b.id === bundleId);
-        if (!bundle) return;
-
-        // Создаем новые items из bundle, присваивая им уникальные id и категорию bundle
-        const newItems = (bundle.items ?? []).map(item => ({
-            ...item,
-            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            category: bundle.category, // Переопределяем категорию на категорию bundle
-        }));
-
-        setEstimate(prev => {
-            const updatedItems = [...prev.items, ...newItems];
-            const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
-            return { ...prev, items: updatedItems, total: newTotal };
-        });
-    }, [bundlesValue]);
-
     const handleApplyBundles = useCallback((order: string[], scaleFactor: number) => {
         const rawItems: EstimateItem[] = [];
         for (const id of order) {
