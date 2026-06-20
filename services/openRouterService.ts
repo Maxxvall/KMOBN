@@ -216,7 +216,7 @@ const parseProfileDimensionsFromName = (nameRaw: string): { thicknessMm?: number
   return { thicknessMm: others[0], widthMm: others[1], lengthMm: length };
 };
 
-const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): EstimateItem[] => {
+export const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): EstimateItem[] => {
   const area = safeNumber(projectArea, 0);
   return (items || []).map((it) => {
     const packArea = parsePackAreaSqMFromName(it.name);
@@ -270,6 +270,53 @@ const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): 
     }
 
     return { ...it, unit };
+  });
+};
+
+export const sanitizeQuantities = (
+  items: EstimateItem[],
+  floorArea: number,
+): EstimateItem[] => {
+  return items.map(it => {
+    let { quantity, unit, subgroup, category, name } = it;
+
+    quantity = Math.max(0, quantity);
+
+    if (subgroup === EstimateSubgroup.WORKS) {
+      return { ...it, quantity: 1, unit: 'шт' };
+    }
+
+    if (subgroup === EstimateSubgroup.DELIVERY) {
+      return { ...it, quantity: 1, unit: 'шт' };
+    }
+
+    if (unit === 'шт' && quantity > floorArea * 2 && quantity > 10) {
+      const capped = Math.max(1, Math.ceil(floorArea * 0.5));
+      console.warn(`[SANITIZER] ${name}: capped ${quantity} → ${capped}`);
+      return { ...it, quantity: capped, total: capped * (it.price || 0) };
+    }
+
+    if (unit === 'м2' || unit === 'м²') {
+      const coverage = getCoverageArea(category, floorArea);
+      if (quantity < coverage * 0.5) {
+        const fixed = Math.ceil(coverage * 1.1);
+        return { ...it, quantity: fixed, total: fixed * (it.price || 0) };
+      }
+      if (quantity > coverage * 3) {
+        const fixed = Math.ceil(coverage * 1.2);
+        return { ...it, quantity: fixed, total: fixed * (it.price || 0) };
+      }
+    }
+
+    if (unit === 'м/п') {
+      const maxLinear = Math.ceil(Math.sqrt(Math.max(1, floorArea)) * 4 * 5);
+      if (quantity > maxLinear && maxLinear > 0) {
+        const fixed = Math.ceil(Math.sqrt(floorArea) * 4);
+        return { ...it, quantity: fixed, total: fixed * (it.price || 0) };
+      }
+    }
+
+    return { ...it, quantity };
   });
 };
 
@@ -552,6 +599,41 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
   - Не игнорируй подсказки обучения (learning hints).
 - Если смета частичная — не добавляй лишние разделы.
 
+### ПРИМЕРЫ РАСЧЁТА КОЛИЧЕСТВА (ОБЯЗАТЕЛЬНО СЛЕДУЙ ЭТИМ ФОРМУЛАМ):
+
+Площадь проекта = 120 м², стены ≈ 135 м² (периметр ~43м × 2.8м), крыша ≈ 156 м².
+
+1) "Мембрана ветровлагозащитная 25 м2"
+   pack area = 25 м², категория = СТЕНЫ → coverage = 135 м²
+   quantity = ceil(135 / 25) + запас(2) = 6 + 2 = 8
+   → unit: "шт", quantity: 8
+
+2) "Утеплитель Кнауф 3 м²"
+   pack area = 3 м², категория = СТЕНЫ → coverage = 135 м²
+   quantity = ceil(135 / 3) + запас(2) = 45 + 2 = 47
+   → unit: "шт", quantity: 47
+
+3) "Подкладочная кровля 50м2"
+   pack area = 50 м², категория = КРОВЛЯ → coverage = 156 м²
+   quantity = ceil(156 / 50) + запас(1) = 4 + 1 = 5
+   → unit: "шт", quantity: 5
+
+4) "Пароизоляция рулон 70кв.м"
+   pack area = 70 м², категория = СТЕНЫ → coverage = 135 м²
+   quantity = ceil(135 / 70) + запас(1) = 2 + 1 = 3
+   → unit: "шт", quantity: 3
+
+5) "Оконный блок 1200x1400"
+   → unit: "шт", quantity: = кол-во окон из визарда (например 6)
+
+6) "Саморезы кровельные 4.8x35"
+   → unit: "уп", quantity: 1-2 уп на крышу
+
+ФОРМУЛА: quantity = ceil(coverage_area / pack_area) + запас
+- запас: 1-2 шт если packs > 2, иначе 0-1
+- coverage_area: СТЕНЫ = периметр×2.8, КРОВЛЯ = площадь×1.3, остальное = площадь проекта
+- Работы ВСЕГДА quantity = 1 (это услуга)
+
 Категории смет: ФУНДАМЕНТ, РОСТВЕРК, ЛАГИ, ПОЛЫ, СТЕНЫ, КРОВЛЯ/ПОТОЛОК, ОКНА/ДВЕРИ, ЭЛЕКТРИКА, ЛОГИСТИКА, ОБЩАЯ, ДЕМОНТАЖ
 
 Формат ответа: ТОЛЬКО строгий JSON без поясняющего текста.
@@ -830,6 +912,38 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
       };
     })
     .filter(Boolean) as EstimateItem[];
+};
+
+/**
+ * Deterministic quantity override: recalculates quantity from scratch
+ * for any material with a parseable pack area in its name.
+ * Ignores AI output entirely and computes by formula.
+ */
+const deterministicQuantityOverride = (
+  items: EstimateItem[],
+  floorArea: number,
+): EstimateItem[] => {
+  return items.map(it => {
+    const packArea = parsePackAreaSqMFromName(it.name);
+    const isWork = it.subgroup === EstimateSubgroup.WORKS || it.subgroup === EstimateSubgroup.DELIVERY;
+
+    if (isWork) return it;
+
+    if (packArea && packArea > 0) {
+      const coverageArea = getCoverageArea(it.category, floorArea);
+      const packsNeeded = Math.ceil(coverageArea / packArea);
+      const reserve = packsNeeded > 2 ? 2 : 1;
+      const newQty = packsNeeded + reserve;
+      const newUnit = 'шт';
+
+      if (it.quantity !== newQty || it.unit !== newUnit) {
+        console.warn(`[DQO] ${it.name}: ${it.quantity} ${it.unit} → ${newQty} ${newUnit} (pack=${packArea}m², coverage=${coverageArea}m²)`);
+      }
+      return { ...it, unit: newUnit, quantity: newQty, total: newQty * (it.price || 0) };
+    }
+
+    return it;
+  });
 };
 
 /**
@@ -1572,19 +1686,25 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   const aiItems = toEstimateItems(parsedItems);
   const correctedItems = correctAIQuantities(aiItems, req.area, req.windowCount, req.doorCount);
   
+  // Deterministic override: recalculate quantities from scratch for pack-area materials
+  const dqoItems = deterministicQuantityOverride(correctedItems, req.area);
+
   // Then apply smart packaging rules and pricing
-  const rawItems = applySmartPackagingRules(correctedItems, req.area);
+  const rawItems = applySmartPackagingRules(dqoItems, req.area);
   const priced = applyCatalogPricing(rawItems, req.materials, req.works);
+
+  // Final sanity: sanitize quantities with physical bounds
+  const sanitizedItems = sanitizeQuantities(priced.items, req.area);
 
   // New step: AI-assisted search for missing/zero prices (materials only)
   const aiPriceEnabled = req.enableAiPriceSearch ?? true;
   const pricedWithAi = aiPriceEnabled
     ? await applyAiPriceSearchForMissingMaterials({
-        items: priced.items,
+        items: sanitizedItems,
         materials: req.materials,
         region: req.region,
       })
-    : { items: priced.items, warnings: [] };
+    : { items: sanitizedItems, warnings: [] };
 
   const norm = checkNormAnomalies({ area: req.area, items: pricedWithAi.items, materials: req.materials, works: req.works });
   const total = pricedWithAi.items.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);

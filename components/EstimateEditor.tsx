@@ -10,7 +10,7 @@ import AIMissingItemsModal from './AIMissingItemsModal';
 import AIGenerationModal from './AIGenerationModal';
 import BundlePickerModal from './BundlePickerModal';
 import PasteFromEstimateModal from './PasteFromEstimateModal';
-import { aiAutocomplete, analyzeMissingItems } from '../services/openRouterService';
+import { aiAutocomplete, analyzeMissingItems, applySmartPackagingRules, sanitizeQuantities } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
 import { aiCache } from '../services/aiCache';
@@ -961,25 +961,24 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     }, [bundlesValue]);
 
     const handleApplyBundles = useCallback((order: string[], scaleFactor: number) => {
-        const newItems: EstimateItem[] = [];
+        const rawItems: EstimateItem[] = [];
         for (const id of order) {
             const bundle = bundlesValue.find(b => b.id === id);
             if (!bundle) continue;
-            const baseArea = (bundle as any).baseArea || 1;
-            const factor = scaleFactor / baseArea;
             for (const item of (bundle.items ?? [])) {
-                const qty = +((item.quantity || 0) * factor).toFixed(2);
-                newItems.push({
+                rawItems.push({
                     ...item,
                     id: `item-bundle-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    quantity: qty,
-                    total: qty * (item.price || 0),
                     category: bundle.category,
                 });
             }
         }
+        const smartItems = sanitizeQuantities(
+            applySmartPackagingRules(rawItems, scaleFactor),
+            scaleFactor,
+        );
         setEstimate(prev => {
-            const updatedItems = [...prev.items, ...newItems];
+            const updatedItems = [...prev.items, ...smartItems];
             return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
         });
         setBundlePickerOpen(false);
