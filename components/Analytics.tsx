@@ -400,6 +400,61 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         return sum / totalEstimates;
     }, [estimatesInPeriod, totalEstimates]);
 
+    // Маржинальность: работы / (работы + материалы) × 100
+    const marginData = useMemo(() => {
+        return estimatesInPeriod.map(e => {
+            let worksTotal = 0;
+            let materialsTotal = 0;
+            e.items.forEach(it => {
+                if (it.subgroup === 'Работы') worksTotal += it.total || 0;
+                else if (it.subgroup === 'Материалы') materialsTotal += it.total || 0;
+            });
+            const base = worksTotal + materialsTotal;
+            const margin = base > 0 ? Math.round((worksTotal / base) * 100) : 0;
+            return { date: dateKey(e.date), margin, worksTotal, materialsTotal, estimateNumber: e.estimateNumber };
+        }).filter(d => d.date).sort((a, b) => a.date.localeCompare(b.date));
+    }, [estimatesInPeriod]);
+
+    const averageMargin = useMemo(() => {
+        if (!marginData.length) return 0;
+        return Math.round(marginData.reduce((s, d) => s + d.margin, 0) / marginData.length);
+    }, [marginData]);
+
+    const marginTone: 'up' | 'down' | 'flat' = averageMargin >= 40 ? 'up' : averageMargin >= 20 ? 'flat' : 'down';
+
+    // Стоимость за м²
+    const costPerSqmData = useMemo(() => {
+        return estimatesInPeriod
+            .filter(e => e.area > 0)
+            .map(e => ({
+                date: dateKey(e.date),
+                costPerSqm: Math.round((e.total || 0) / e.area),
+                area: e.area,
+                total: e.total || 0,
+                buildingType: e.buildingType || 'Не указан',
+                estimateNumber: e.estimateNumber,
+            }))
+            .filter(d => d.date)
+            .sort((a, b) => a.date.localeCompare(b.date));
+    }, [estimatesInPeriod]);
+
+    const averageCostPerSqm = useMemo(() => {
+        if (!costPerSqmData.length) return 0;
+        return Math.round(costPerSqmData.reduce((s, d) => s + d.costPerSqm, 0) / costPerSqmData.length);
+    }, [costPerSqmData]);
+
+    const costByBuildingType = useMemo(() => {
+        const byType: Record<string, { sum: number; count: number }> = {};
+        costPerSqmData.forEach(d => {
+            if (!byType[d.buildingType]) byType[d.buildingType] = { sum: 0, count: 0 };
+            byType[d.buildingType].sum += d.costPerSqm;
+            byType[d.buildingType].count++;
+        });
+        return Object.entries(byType)
+            .map(([type, v]) => ({ type, avg: Math.round(v.sum / v.count), count: v.count }))
+            .sort((a, b) => b.avg - a.avg);
+    }, [costPerSqmData]);
+
     const periodDynamics = useMemo(() => {
         if (periodPreset === 'all') {
             return { pct: 0, tone: 'flat' as const, label: 'за весь период' };
@@ -857,7 +912,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
             </div>
 
             {/* KPI карточки */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
                 <KpiCard
                     title="Общее количество смет"
                     value={String(totalEstimates)}
@@ -878,6 +933,30 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
                             <path d="M12 2v20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                             <path d="M17 6H9a2 2 0 0 0 0 4h6a2 2 0 0 1 0 4H7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                        </svg>
+                    }
+                />
+                <KpiCard
+                    title="Средняя стоимость за м²"
+                    value={costPerSqmData.length ? formatRub(averageCostPerSqm) : '—'}
+                    subtitle={costPerSqmData.length ? `${costPerSqmData.length} смет с площадью` : 'нет данных'}
+                    accentClassName="bg-gradient-to-br from-rose-600/25 to-pink-600/10"
+                    icon={
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
+                            <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                            <path d="M3 9h18M9 3v18" stroke="currentColor" strokeWidth="1.5" />
+                        </svg>
+                    }
+                />
+                <KpiCard
+                    title="Средняя маржа"
+                    value={marginData.length ? `${averageMargin}%` : '—'}
+                    subtitle={marginData.length ? `работы / (работы + материалы)` : 'нет данных'}
+                    badge={marginData.length ? { label: marginTone === 'up' ? 'Хорошо' : marginTone === 'flat' ? 'Норма' : 'Низкая', tone: marginTone } : undefined}
+                    accentClassName="bg-gradient-to-br from-amber-600/25 to-orange-600/10"
+                    icon={
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
+                            <path d="M12 3l3 6 6 .5-4.5 4 1.5 6-6-3.5-6 3.5 1.5-6L3 9.5 9 9l3-6Z" stroke="currentColor" strokeWidth="1.5" />
                         </svg>
                     }
                 />
@@ -991,6 +1070,79 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
+
+                {/* Маржинальность по времени */}
+                {marginData.length > 1 && (
+                    <div className="bg-surface border border-border rounded-xl p-6 shadow transition hover:shadow-xl">
+                        <div className="flex items-center justify-between gap-3 mb-4">
+                            <div>
+                                <h2 className="text-xl font-semibold text-text-primary">Маржинальность по времени</h2>
+                                <div className="text-xs text-text-secondary mt-1">работы / (работы + материалы) × 100%</div>
+                            </div>
+                        </div>
+                        <ResponsiveContainer width="100%" height={320}>
+                            <LineChart data={marginData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
+                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} />
+                                <YAxis domain={[0, 100]} unit="%" />
+                                <Tooltip
+                                    labelFormatter={(v) => formatDateRu(String(v))}
+                                    formatter={(value: any) => [`${value}%`, 'Маржа']}
+                                />
+                                <Line type="monotone" dataKey="margin" name="Маржа %" stroke="#F59E0B" strokeWidth={3} dot={{ r: 4 }} isAnimationActive animationDuration={650} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
+
+                {/* Стоимость за м² по времени */}
+                {costPerSqmData.length > 1 && (
+                    <div className="bg-surface border border-border rounded-xl p-6 shadow transition hover:shadow-xl">
+                        <div className="flex items-center justify-between gap-3 mb-4">
+                            <div>
+                                <h2 className="text-xl font-semibold text-text-primary">Стоимость за м² по времени</h2>
+                                <div className="text-xs text-text-secondary mt-1">средняя: {formatRub(averageCostPerSqm)}/м²</div>
+                            </div>
+                        </div>
+                        <ResponsiveContainer width="100%" height={320}>
+                            <LineChart data={costPerSqmData}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
+                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} />
+                                <YAxis />
+                                <Tooltip
+                                    labelFormatter={(v) => formatDateRu(String(v))}
+                                    formatter={(value: any) => [formatRub(Number(value || 0)), 'За м²']}
+                                />
+                                <Line type="monotone" dataKey="costPerSqm" name="₽/м²" stroke="#EF4444" strokeWidth={3} dot={{ r: 4 }} isAnimationActive animationDuration={650} />
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
+
+                {/* Стоимость за м² по типам строений */}
+                {costByBuildingType.length > 0 && (
+                    <div className="bg-surface border border-border rounded-xl p-6 shadow lg:col-span-2 transition hover:shadow-xl">
+                        <div className="flex items-center justify-between gap-3 mb-4">
+                            <div>
+                                <h2 className="text-xl font-semibold text-text-primary">Стоимость за м² по типам</h2>
+                                <div className="text-xs text-text-secondary mt-1">средняя стоимость квадратного метра</div>
+                            </div>
+                        </div>
+                        <ResponsiveContainer width="100%" height={280}>
+                            <BarChart data={costByBuildingType}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
+                                <XAxis dataKey="type" />
+                                <YAxis />
+                                <Tooltip formatter={(value: any) => [formatRub(Number(value || 0)), 'За м²']} />
+                                <Bar dataKey="avg" name="₽/м²" radius={[10, 10, 0, 0]} isAnimationActive animationDuration={650}>
+                                    {costByBuildingType.map((_, index) => (
+                                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                    ))}
+                                </Bar>
+                            </BarChart>
+                        </ResponsiveContainer>
+                    </div>
+                )}
 
                 <div className="bg-surface border border-border rounded-xl p-6 shadow lg:col-span-2 transition hover:shadow-xl">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
