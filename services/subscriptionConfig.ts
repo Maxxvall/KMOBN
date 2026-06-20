@@ -2,15 +2,15 @@ import { SubscriptionLimits, SubscriptionTier } from '../types';
 
 export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, SubscriptionLimits> = {
     free: {
-        estimates: { max: 1, canDelete: false, deletePerMonth: 0 },
-        materials: { max: 10 },
-        works: { max: 5 },
-        bundles: { max: 1 },
-        aiRequestsPerDay: 2,
+        estimates: { max: null, canDelete: true, deletePerMonth: null },
+        materials: { max: null },
+        works: { max: null },
+        bundles: { max: null },
+        aiRequestsPerDay: null,
         features: {
-            analytics: false,
-            salaryCalculator: false,
-            wiki: false,
+            analytics: true,
+            salaryCalculator: true,
+            wiki: true,
         },
     },
     basic: {

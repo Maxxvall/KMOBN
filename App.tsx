@@ -10,7 +10,6 @@ import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
 import LandingPage from './components/LandingPage.tsx';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
-import SubscriptionGateModal from './components/SubscriptionGateModal';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
@@ -31,9 +30,6 @@ import {
     canCreateMaterial,
     canCreateWork,
     canUseAi,
-    canUseAnalytics,
-    canUseSalaryCalculator,
-    canUseWiki,
     deriveSubscriptionUsage,
     getSubscriptionLimits,
     getVisibleSubscriptionData,
@@ -302,7 +298,6 @@ const App: React.FC = () => {
         showSaveOptions,
         showUnsavedModal,
         pendingView,
-        accessModal,
     } = uiState;
     const {
         currentEstimate,
@@ -370,7 +365,6 @@ const App: React.FC = () => {
         setShowSaveOptions,
         setShowUnsavedModal,
         setPendingView,
-        setAccessModal,
     } = uiSetters;
     const {
         setCurrentEstimate,
@@ -1107,22 +1101,13 @@ const App: React.FC = () => {
         }
     }, [setView, setCurrentEstimate]);
 
-    const openAccessModal = useCallback((title: string, description: string) => {
-        setAccessModal({ title, description });
-    }, [setAccessModal]);
-
-    const closeAccessModal = useCallback(() => {
-        setAccessModal(null);
-    }, [setAccessModal]);
-
-    const confirmAccessModal = useCallback(() => {
-        setAccessModal(null);
-        goToView(View.SUBSCRIPTIONS);
-    }, [goToView, setAccessModal]);
+    const openAccessModal = useCallback((_title: string, _description: string) => {
+        // Subscription gate hidden — no-op
+    }, []);
 
     const handleUpgradeClick = useCallback(() => {
-        goToView(View.SUBSCRIPTIONS);
-    }, [goToView]);
+        // Subscription page hidden — no-op
+    }, []);
 
     const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info', duration = 3200) => {
         setSync({ visible: true, message, type });
@@ -1162,21 +1147,8 @@ const App: React.FC = () => {
             return;
         }
 
-        if (target === View.ANALYTICS && !canUseAnalytics(subscriptionLimits)) {
-            openAccessModal('Аналитика доступна на Premium', 'Откройте Premium, чтобы сравнивать сметы и получать расширенную аналитику.');
-            return;
-        }
-        if (target === View.SALARY_CALCULATOR && !canUseSalaryCalculator(subscriptionLimits)) {
-            openAccessModal('Калькулятор зарплаты доступен на Basic и Premium', 'Оформите подписку, чтобы считать зарплаты и загрузку бригад.');
-            return;
-        }
-        if (target === View.WIKI && !canUseWiki(subscriptionLimits)) {
-            openAccessModal('Wiki доступна на Basic и Premium', 'Подключите подписку, чтобы использовать базу знаний и AI‑помощника.');
-            return;
-        }
-
         goToView(target);
-    }, [view, editorDirty, goToView, subscriptionLimits, openAccessModal, setPendingView, setShowUnsavedModal]);
+    }, [view, editorDirty, goToView, setPendingView, setShowUnsavedModal]);
 
     const handleBackToHistory = useCallback(() => {
         handleNavigationAttempt(View.HISTORY);
@@ -1992,15 +1964,6 @@ const App: React.FC = () => {
                     }}
                     onConfirm={handleContractNameConfirm}
                     defaultContractName={`Приложение № 1 к договору КМ ${pendingExportEstimate.estimateNumber}`}
-                />
-            )}
-            {accessModal && (
-                <SubscriptionGateModal
-                    isOpen={Boolean(accessModal)}
-                    title={accessModal.title}
-                    description={accessModal.description}
-                    onClose={closeAccessModal}
-                    onConfirm={confirmAccessModal}
                 />
             )}
             {passwordRecoveryModal}
