@@ -6,7 +6,7 @@ interface DuplicateCheckerDialogProps {
     onClose: () => void;
     title: string;
     duplicateGroups: DuplicateGroup<Material | Work>[];
-    onMerge: (keepId: string, deleteIds: string[]) => void;
+    onMerge: (keepId: string, deleteIds: string[]) => Promise<void>;
 }
 
 const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
@@ -17,6 +17,8 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
     onMerge,
 }) => {
     const [selectedKeepIds, setSelectedKeepIds] = useState<Record<string, string>>({});
+    const [isMerging, setIsMerging] = useState(false);
+    const [mergeSuccess, setMergeSuccess] = useState<string | null>(null);
 
     if (!isOpen) return null;
 
@@ -28,29 +30,58 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
         setSelectedKeepIds(prev => ({ ...prev, [groupKey]: itemId }));
     };
 
-    const handleMergeGroup = (group: DuplicateGroup<Material | Work>) => {
+    const handleMergeGroup = async (group: DuplicateGroup<Material | Work>) => {
         const keepId = getKeepId(group.normalizedKey, group.items);
         const deleteIds = group.items.filter(i => i.id !== keepId).map(i => i.id);
-        onMerge(keepId, deleteIds);
-        setSelectedKeepIds(prev => {
-            const next = { ...prev };
-            delete next[group.normalizedKey];
-            return next;
-        });
+        setIsMerging(true);
+        setMergeSuccess(null);
+        try {
+            await onMerge(keepId, deleteIds);
+            setMergeSuccess(`Удалено дубликатов: ${deleteIds.length}`);
+            setTimeout(() => {
+                setMergeSuccess(null);
+                onClose();
+            }, 1200);
+        } catch {
+            setMergeSuccess('Ошибка при удалении');
+        } finally {
+            setIsMerging(false);
+        }
     };
 
-    const handleMergeAll = () => {
-        for (const group of duplicateGroups) {
-            const keepId = getKeepId(group.normalizedKey, group.items);
-            const deleteIds = group.items.filter(i => i.id !== keepId).map(i => i.id);
-            onMerge(keepId, deleteIds);
+    const handleMergeAll = async () => {
+        setIsMerging(true);
+        setMergeSuccess(null);
+        let totalDeleted = 0;
+        try {
+            for (const group of duplicateGroups) {
+                const keepId = getKeepId(group.normalizedKey, group.items);
+                const deleteIds = group.items.filter(i => i.id !== keepId).map(i => i.id);
+                await onMerge(keepId, deleteIds);
+                totalDeleted += deleteIds.length;
+            }
+            setMergeSuccess(`Всего удалено дубликатов: ${totalDeleted}`);
+            setTimeout(() => {
+                setMergeSuccess(null);
+                onClose();
+            }, 1200);
+        } catch {
+            setMergeSuccess('Ошибка при удалении');
+        } finally {
+            setIsMerging(false);
         }
-        setSelectedKeepIds({});
     };
 
     const formatPrice = (price: number) => {
         return new Intl.NumberFormat('ru-RU').format(price) + ' ₽';
     };
+
+    const Spinner = () => (
+        <svg className="animate-spin h-4 w-4 inline-block mr-1" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+    );
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
@@ -59,6 +90,16 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                     <h2 className="text-xl font-bold text-text-primary">{title}</h2>
                     <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
                 </div>
+
+                {mergeSuccess && (
+                    <div className={`mb-4 p-3 rounded-lg text-sm font-semibold ${
+                        mergeSuccess.includes('Ошибка')
+                            ? 'bg-red-500/20 border border-red-500/40 text-red-300'
+                            : 'bg-green-500/20 border border-green-500/40 text-green-300'
+                    }`}>
+                        {mergeSuccess}
+                    </div>
+                )}
 
                 {duplicateGroups.length === 0 ? (
                     <div className="text-center py-8">
@@ -85,9 +126,10 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                             </h3>
                                             <button
                                                 onClick={() => handleMergeGroup(group)}
-                                                className="bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold py-1 px-3 rounded-md transition"
+                                                disabled={isMerging}
+                                                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold py-1 px-3 rounded-md transition"
                                             >
-                                                Удалить дубликаты
+                                                {isMerging ? <><Spinner /> Удаление...</> : 'Удалить дубликаты'}
                                             </button>
                                         </div>
                                         <table className="w-full text-sm">
@@ -112,6 +154,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                                                 checked={keepId === item.id}
                                                                 onChange={() => handleSelectKeep(group.normalizedKey, item.id)}
                                                                 className="accent-primary"
+                                                                disabled={isMerging}
                                                             />
                                                         </td>
                                                         <td className="py-2 text-text-primary">{item.name}</td>
@@ -133,15 +176,17 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                         <div className="flex justify-end gap-3">
                             <button
                                 onClick={onClose}
-                                className="bg-border hover:bg-border/80 text-text-primary font-bold py-2 px-4 rounded-md transition"
+                                disabled={isMerging}
+                                className="bg-border hover:bg-border/80 disabled:opacity-50 text-text-primary font-bold py-2 px-4 rounded-md transition"
                             >
                                 Отмена
                             </button>
                             <button
                                 onClick={handleMergeAll}
-                                className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md transition"
+                                disabled={isMerging}
+                                className="bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition"
                             >
-                                Объединить все
+                                {isMerging ? <><Spinner /> Удаление...</> : 'Объединить все'}
                             </button>
                         </div>
                     </>
