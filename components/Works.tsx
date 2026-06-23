@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Work, EstimateCategory } from '../types';
+import { Work, EstimateCategory, DuplicateGroup, findDuplicates } from '../types';
 import TabDescription from './TabDescription';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import DuplicateCheckerDialog from './DuplicateCheckerDialog';
 
 interface WorksProps {
     works?: Work[];
@@ -27,6 +28,21 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     const [editingPrice, setEditingPrice] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const ITEMS_PER_PAGE = 25;
+
+    const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+    const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup<Work>[]>([]);
+
+    const handleCheckDuplicates = () => {
+        const groups = findDuplicates(worksList);
+        setDuplicateGroups(groups);
+        setShowDuplicateDialog(true);
+    };
+
+    const handleMergeWorks = async (keepId: string, deleteIds: string[]) => {
+        if (catalogContext?.onMergeCatalogDuplicates) {
+            await catalogContext.onMergeCatalogDuplicates('work', keepId, deleteIds);
+        }
+    };
 
     const filteredWorks = useMemo(() => {
         return filterCategory === 'all' ? worksList : worksList.filter(w => w.category === filterCategory);
@@ -184,6 +200,12 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                         <option key={category} value={category}>{category}</option>
                     ))}
                 </select>
+                <button
+                    onClick={handleCheckDuplicates}
+                    className="p-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-md transition"
+                >
+                    Проверить дубликаты
+                </button>
             </div>
 
             {/* Список работ */}
@@ -304,6 +326,14 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                     </span>
                 </div>
             )}
+
+            <DuplicateCheckerDialog
+                isOpen={showDuplicateDialog}
+                onClose={() => setShowDuplicateDialog(false)}
+                title="Дубликаты работ"
+                duplicateGroups={duplicateGroups}
+                onMerge={handleMergeWorks}
+            />
         </div>
     );
 };

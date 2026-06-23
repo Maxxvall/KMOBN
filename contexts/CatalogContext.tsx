@@ -18,6 +18,7 @@ type CatalogContextValue = {
   onAddBundle: (bundle: WorkBundle) => Promise<void>;
   onUpdateBundle: (bundle: WorkBundle) => Promise<void>;
   onDeleteBundle: (bundleId: string) => Promise<void>;
+  onMergeCatalogDuplicates: (type: 'material' | 'work', keepId: string, deleteIds: string[]) => Promise<void>;
 };
 
 const CatalogContext = createContext<CatalogContextValue | undefined>(undefined);

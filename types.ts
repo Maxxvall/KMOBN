@@ -238,3 +238,33 @@ export interface SalaryCalculation {
     createdDate: string;
     mode?: SalaryMode;
 }
+
+export const normalizeKey = (name: string): string => name.trim().toLowerCase();
+
+export interface DuplicateGroup<T extends { id: string; name: string; price: number }> {
+    normalizedKey: string;
+    displayName: string;
+    items: T[];
+}
+
+export function findDuplicates<T extends { id: string; name: string; price: number }>(
+    items: T[]
+): DuplicateGroup<T>[] {
+    const map = new Map<string, T[]>();
+    for (const item of items) {
+        const key = normalizeKey(item.name);
+        const group = map.get(key);
+        if (group) {
+            group.push(item);
+        } else {
+            map.set(key, [item]);
+        }
+    }
+    const result: DuplicateGroup<T>[] = [];
+    for (const [key, group] of map) {
+        if (group.length > 1) {
+            result.push({ normalizedKey: key, displayName: group[0].name, items: group });
+        }
+    }
+    return result;
+}

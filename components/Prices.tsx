@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Material, EstimateCategory } from '../types';
+import { Material, EstimateCategory, DuplicateGroup, findDuplicates } from '../types';
 import TabDescription from './TabDescription';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import DuplicateCheckerDialog from './DuplicateCheckerDialog';
 
 interface PricesProps {
     materials?: Material[];
@@ -40,6 +41,21 @@ const Prices: React.FC<PricesProps> = ({
     const [editingPrice, setEditingPrice] = useState<{ id: string; price: string } | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const ITEMS_PER_PAGE = 25;
+
+    const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+    const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup<Material>[]>([]);
+
+    const handleCheckDuplicates = () => {
+        const groups = findDuplicates(materialList);
+        setDuplicateGroups(groups);
+        setShowDuplicateDialog(true);
+    };
+
+    const handleMergeMaterials = async (keepId: string, deleteIds: string[]) => {
+        if (catalogContext?.onMergeCatalogDuplicates) {
+            await catalogContext.onMergeCatalogDuplicates('material', keepId, deleteIds);
+        }
+    };
 
     const filteredMaterials = useMemo(() => {
         return filterCategory === 'all' ? materialList : materialList.filter(m => m.category === filterCategory);
@@ -213,6 +229,12 @@ const Prices: React.FC<PricesProps> = ({
                         <option key={category} value={category}>{category}</option>
                     ))}
                 </select>
+                <button
+                    onClick={handleCheckDuplicates}
+                    className="p-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-md transition"
+                >
+                    Проверить дубликаты
+                </button>
             </div>
 
             {/* Список материалов */}
@@ -367,6 +389,14 @@ const Prices: React.FC<PricesProps> = ({
                     </span>
                 </div>
             )}
+
+            <DuplicateCheckerDialog
+                isOpen={showDuplicateDialog}
+                onClose={() => setShowDuplicateDialog(false)}
+                title="Дубликаты материалов"
+                duplicateGroups={duplicateGroups}
+                onMerge={handleMergeMaterials}
+            />
         </div>
     );
 };

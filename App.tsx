@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, useReducer, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
-import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage } from './types';
+import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import PdfStyleModal from './components/PdfStyleModal';
@@ -1432,6 +1432,28 @@ const App: React.FC = () => {
             openAccessModal('Лимит материалов исчерпан', 'Перейдите на платный план, чтобы добавлять больше материалов.');
             return;
         }
+
+        const normalizedInput = normalizeKey(name);
+        const existing = materials.find(m => normalizeKey(m.name) === normalizedInput);
+
+        if (existing) {
+            const confirmed = window.confirm(
+                `Материал «${existing.name}» уже существует (цена: ${existing.price} ₽).\n\nОбновить цену вместо создания дубликата?`
+            );
+            if (confirmed) {
+                const updated = { ...existing, price: price ?? existing.price, link: link ?? existing.link, lastUpdated: new Date().toISOString() };
+                try {
+                    await updateMaterial(updated);
+                    setMaterials(prev => prev.map(m => m.id === existing.id ? updated : m));
+                    markDraftEstimatesWithPriceChange({ materialName: existing.name });
+                } catch (error) {
+                    console.error('Failed to update material:', error);
+                    alert('Не удалось обновить материал.');
+                }
+                return;
+            }
+        }
+
         const newMaterial: Material = {
             id: `material-${Date.now()}`,
             name,
@@ -1449,7 +1471,7 @@ const App: React.FC = () => {
             console.error('Failed to add material:', error);
             alert('Не удалось добавить материал.');
         }
-    }, [subscriptionUsage, subscriptionLimits, openAccessModal]);
+    }, [materials, subscriptionUsage, subscriptionLimits, openAccessModal, markDraftEstimatesWithPriceChange]);
 
     const handleEditMaterialPrice = useCallback(async (materialId: string, newPrice: number) => {
         const material = materials.find(m => m.id === materialId);
@@ -1499,6 +1521,28 @@ const App: React.FC = () => {
             openAccessModal('Лимит работ исчерпан', 'Перейдите на платный план, чтобы добавлять больше работ.');
             return;
         }
+
+        const normalizedInput = normalizeKey(name);
+        const existing = works.find(w => normalizeKey(w.name) === normalizedInput);
+
+        if (existing) {
+            const confirmed = window.confirm(
+                `Работа «${existing.name}» уже существует (цена: ${existing.price} ₽).\n\nОбновить цену вместо создания дубликата?`
+            );
+            if (confirmed) {
+                const updated = { ...existing, price };
+                try {
+                    await updateWork(updated);
+                    setWorks(prev => prev.map(w => w.id === existing.id ? updated : w));
+                    markDraftEstimatesWithPriceChange({ workName: existing.name });
+                } catch (error) {
+                    console.error('Failed to update work:', error);
+                    alert('Не удалось обновить работу.');
+                }
+                return;
+            }
+        }
+
         const newWork: Work = {
             id: `work-${Date.now()}`,
             name,
@@ -1513,7 +1557,7 @@ const App: React.FC = () => {
             console.error('Failed to add work:', error);
             alert('Не удалось добавить работу.');
         }
-    }, [subscriptionUsage, subscriptionLimits, openAccessModal]);
+    }, [works, subscriptionUsage, subscriptionLimits, openAccessModal, markDraftEstimatesWithPriceChange]);
 
     const handleUpdateWork = useCallback(async (work: Work) => {
         try {
@@ -1535,6 +1579,30 @@ const App: React.FC = () => {
                 console.error('Failed to delete work:', error);
                 alert('Не удалось удалить работу.');
             }
+        }
+    }, []);
+
+    const handleMergeCatalogDuplicates = useCallback(async (
+        type: 'material' | 'work',
+        keepId: string,
+        deleteIds: string[]
+    ) => {
+        try {
+            for (const id of deleteIds) {
+                if (type === 'material') {
+                    await deleteMaterial(id);
+                } else {
+                    await deleteWork(id);
+                }
+            }
+            if (type === 'material') {
+                setMaterials(prev => prev.filter(m => !deleteIds.includes(m.id)));
+            } else {
+                setWorks(prev => prev.filter(w => !deleteIds.includes(w.id)));
+            }
+        } catch (error) {
+            console.error('Failed to merge duplicates:', error);
+            alert('Не удалось объединить дубликаты.');
         }
     }, []);
 
@@ -1693,6 +1761,7 @@ const App: React.FC = () => {
         onAddBundle: handleAddBundle,
         onUpdateBundle: handleUpdateBundle,
         onDeleteBundle: handleDeleteBundle,
+        onMergeCatalogDuplicates: handleMergeCatalogDuplicates,
     }), [
         visibleSubscriptionData.materials,
         materials.length,
@@ -1710,6 +1779,7 @@ const App: React.FC = () => {
         handleAddBundle,
         handleUpdateBundle,
         handleDeleteBundle,
+        handleMergeCatalogDuplicates,
     ]);
 
     const subscriptionContextValue = useMemo(() => ({
