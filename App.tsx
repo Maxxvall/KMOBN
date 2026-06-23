@@ -1483,6 +1483,15 @@ const App: React.FC = () => {
         }
     }, [materials, subscriptionUsage, subscriptionLimits, openAccessModal, markDraftEstimatesWithPriceChange]);
 
+    const handleForceAddMaterial = useCallback(async (material: Material) => {
+        try {
+            await addMaterial(material);
+            setMaterials(prev => [...prev, material]);
+        } catch (error) {
+            console.error('Failed to force add material:', error);
+        }
+    }, []);
+
     const handleEditMaterialPrice = useCallback(async (materialId: string, newPrice: number) => {
         const material = materials.find(m => m.id === materialId);
         if (!material) return;
@@ -1568,6 +1577,15 @@ const App: React.FC = () => {
             alert('Не удалось добавить работу.');
         }
     }, [works, subscriptionUsage, subscriptionLimits, openAccessModal, markDraftEstimatesWithPriceChange]);
+
+    const handleForceAddWork = useCallback(async (work: Work) => {
+        try {
+            await addWork(work);
+            setWorks(prev => [...prev, work]);
+        } catch (error) {
+            console.error('Failed to force add work:', error);
+        }
+    }, []);
 
     const handleUpdateWork = useCallback(async (work: Work) => {
         try {
@@ -1762,10 +1780,12 @@ const App: React.FC = () => {
         bundles: visibleSubscriptionData.bundles,
         bundlesTotalCount: bundles.length,
         onAddMaterial: handleAddMaterial,
+        onForceAddMaterial: handleForceAddMaterial,
         onEditMaterialPrice: handleEditMaterialPrice,
         onEditMaterialLink: handleEditMaterialLink,
         onDeleteMaterial: handleDeleteMaterial,
         onAddWork: handleAddWork,
+        onForceAddWork: handleForceAddWork,
         onUpdateWork: handleUpdateWork,
         onDeleteWork: handleDeleteWork,
         onAddBundle: handleAddBundle,
@@ -1780,10 +1800,12 @@ const App: React.FC = () => {
         visibleSubscriptionData.bundles,
         bundles.length,
         handleAddMaterial,
+        handleForceAddMaterial,
         handleEditMaterialPrice,
         handleEditMaterialLink,
         handleDeleteMaterial,
         handleAddWork,
+        handleForceAddWork,
         handleUpdateWork,
         handleDeleteWork,
         handleAddBundle,

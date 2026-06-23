@@ -58,8 +58,8 @@ const Prices: React.FC<PricesProps> = ({
     };
 
     const handleCreateMaterialInGeneral = async (item: Material) => {
-        if (catalogContext?.onAddMaterial) {
-            await catalogContext.onAddMaterial(item.name, item.category, item.price, item.link);
+        if (catalogContext?.onForceAddMaterial) {
+            await catalogContext.onForceAddMaterial(item);
         }
     };
 

@@ -45,8 +45,8 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     };
 
     const handleCreateWorkInGeneral = async (item: Work) => {
-        if (catalogContext?.onAddWork) {
-            await catalogContext.onAddWork(item.name, item.category, item.price);
+        if (catalogContext?.onForceAddWork) {
+            await catalogContext.onForceAddWork(item);
         }
     };
 

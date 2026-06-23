@@ -65,28 +65,28 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
         try {
             for (const group of duplicateGroups) {
                 const itemsToKeep = group.items.filter(item => keptIds.has(item.id));
-                const itemsToDelete = group.items.filter(item => !keptIds.has(item.id));
-
-                if (itemsToDelete.length === 0) continue;
-
                 const hasGeneral = itemsToKeep.some(
                     item => 'category' in item && item.category === EstimateCategory.GENERAL
                 );
 
                 if (hasGeneral || itemsToKeep.length > 0) {
-                    const keepId = itemsToKeep[0]?.id ?? group.items[0].id;
-                    const deleteIds = itemsToDelete.map(item => item.id);
-                    await onMerge(keepId, deleteIds);
-                    totalDeleted += deleteIds.length;
-                } else if (onCreateInGeneral && itemsToDelete.length > 0) {
-                    const templateItem = itemsToDelete[0];
+                    const keepId = itemsToKeep[0].id;
+                    const deleteIds = group.items
+                        .filter(item => item.id !== keepId)
+                        .map(item => item.id);
+                    if (deleteIds.length > 0) {
+                        await onMerge(keepId, deleteIds);
+                        totalDeleted += deleteIds.length;
+                    }
+                } else if (onCreateInGeneral) {
+                    const templateItem = group.items[0];
                     const newItem = {
                         ...templateItem,
                         id: `${'category' in templateItem ? 'material' : 'work'}-${Date.now()}`,
                         category: EstimateCategory.GENERAL,
                     };
                     await onCreateInGeneral(newItem);
-                    const deleteIds = itemsToDelete.map(item => item.id);
+                    const deleteIds = group.items.map(item => item.id);
                     await onMerge(newItem.id, deleteIds);
                     totalDeleted += deleteIds.length;
                     totalCreated++;
