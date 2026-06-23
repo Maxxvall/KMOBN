@@ -547,6 +547,16 @@ const App: React.FC = () => {
         return () => window.removeEventListener('kmobn:cache-update', handler as EventListener);
     }, [handleCacheUpdate]);
 
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const handler = () => {
+            setLoadedFlags({ estimates: false, templates: false, materials: false, works: false, bundles: false });
+            setWikiLoaded(false);
+        };
+        window.addEventListener('kmobn:data-imported', handler);
+        return () => window.removeEventListener('kmobn:data-imported', handler);
+    }, []);
+
     const handleLogin = useCallback(async (_username: string, _password: string) => {
         if (!useSupabaseAuth) {
             throw new Error('Supabase не настроен');

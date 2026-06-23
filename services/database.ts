@@ -1,4 +1,4 @@
-import { Estimate, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation } from '../types';
+import { Estimate, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation, normalizeKey } from '../types';
 import { CacheTableKey, getCachedRecords, getCacheUserId, syncCachedRecords } from './indexedDbCache';
 import supabase, {
   isSupabaseConfigured,
@@ -361,6 +361,8 @@ export const deleteSalaryCalculation = async (calculationId: string): Promise<vo
   await deleteRecord('salary_calculations', calculationId);
 };
 
+export const SCHEMA_VERSION = 2;
+
 export const exportData = async (): Promise<string> => {
   const [estimates, templates, materials, works, bundles, salaryCalculations] = await Promise.all([
     loadEstimates(),
@@ -372,6 +374,7 @@ export const exportData = async (): Promise<string> => {
   ]);
 
   const data = {
+    schemaVersion: SCHEMA_VERSION,
     estimates,
     templates,
     materials,
@@ -384,13 +387,54 @@ export const exportData = async (): Promise<string> => {
   return JSON.stringify(data, null, 2);
 };
 
+type ImportValidationResult = { ok: true; data: Record<string, unknown> } | { ok: false; error: string };
+
+export const validateImportData = (jsonData: string): ImportValidationResult => {
+  if (jsonData.length > 50 * 1024 * 1024) {
+    return { ok: false, error: 'Файл слишком большой (максимум 50 МБ).' };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonData);
+  } catch {
+    return { ok: false, error: 'Файл не является валидным JSON.' };
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'Неверный формат файла: ожидается объект.' };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+
+  const version = obj.schemaVersion;
+  if (typeof version === 'number' && version > SCHEMA_VERSION) {
+    return { ok: false, error: `Файл создан в более новой версии (${version}). Обновите приложение.` };
+  }
+
+  const requiredArrays = ['estimates', 'templates', 'materials', 'works', 'bundles'];
+  for (const key of requiredArrays) {
+    if (obj[key] !== undefined && !Array.isArray(obj[key])) {
+      return { ok: false, error: `Поле «${key}» должно быть массивом.` };
+    }
+  }
+
+  return { ok: true, data: obj };
+};
+
 export const importData = async (jsonData: string): Promise<void> => {
   if (!isSupabaseConfigured()) {
     console.warn('Supabase not configured, skipping import');
     return;
   }
+
+  const validation = validateImportData(jsonData);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+
   try {
-    const data = JSON.parse(jsonData);
+    const data = validation.data;
     const randomSuffix = () => Math.random().toString(36).slice(2, 8);
     const generateId = (prefix: string): string => `${prefix}-${Date.now()}-${randomSuffix()}`;
     const baseSortOrder = Date.now();
@@ -401,46 +445,124 @@ export const importData = async (jsonData: string): Promise<void> => {
     const rawTemplates = asArray<ProjectTemplate>(data.templates);
     const rawMaterials = asArray<Material>(data.materials);
     const rawWorks = asArray<Work>(data.works);
+
+    const existingMaterials = isSupabaseConfigured() ? await loadMaterials() : [];
+    const existingWorks = isSupabaseConfigured() ? await loadWorks() : [];
+    const existingEstimates = isSupabaseConfigured() ? await loadEstimates() : [];
+    const existingTemplates = isSupabaseConfigured() ? await loadTemplates() : [];
+    const existingBundles = isSupabaseConfigured() ? await loadBundles() : [];
+
+    const existingMaterialByName = new Map<string, Material>();
+    for (const m of existingMaterials) {
+      existingMaterialByName.set(normalizeKey(m.name), m);
+    }
+    const existingWorkByName = new Map<string, Work>();
+    for (const w of existingWorks) {
+      existingWorkByName.set(normalizeKey(w.name), w);
+    }
+
+    const existingEstimateByNumberVersion = new Map<string, Estimate>();
+    for (const e of existingEstimates) {
+      const key = `${e.estimateNumber}::v${e.version ?? 0}`;
+      existingEstimateByNumberVersion.set(key, e);
+    }
+
+    const existingTemplateByName = new Map<string, ProjectTemplate>();
+    for (const t of existingTemplates) {
+      existingTemplateByName.set(normalizeKey(t.name), t);
+    }
+
+    const existingBundleByName = new Map<string, WorkBundle>();
+    for (const b of existingBundles) {
+      existingBundleByName.set(normalizeKey(b.name), b);
+    }
     const rawBundles = asArray<WorkBundle>(data.bundles);
     const rawSalaryCalculations = asArray<SalaryCalculation>(data.salaryCalculations);
 
     const estimateIdMap = new Map<string, string>();
     rawEstimates.forEach(e => {
-      estimateIdMap.set(e.id, generateId('sm-id'));
+      const key = `${e.estimateNumber}::v${e.version ?? 0}`;
+      const existing = existingEstimateByNumberVersion.get(key);
+      estimateIdMap.set(e.id, existing?.id ?? generateId('sm-id'));
     });
-    const estimates = rawEstimates.map((e, index) => ({
-      ...e,
-      id: estimateIdMap.get(e.id) as string,
-      parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
-      items: Array.isArray(e.items) ? e.items : [],
-      sortOrder: typeof e.sortOrder === 'number' ? e.sortOrder : makeSortOrder(index),
-    }));
+    const estimates = rawEstimates.map((e, index) => {
+      const mappedId = estimateIdMap.get(e.id) as string;
+      return {
+        ...e,
+        id: mappedId,
+        parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
+        items: Array.isArray(e.items) ? e.items : [],
+        sortOrder: typeof e.sortOrder === 'number' ? e.sortOrder : makeSortOrder(index),
+      };
+    });
 
-    const templates = rawTemplates.map((t, index) => ({
-      ...t,
-      id: generateId('template'),
-      items: Array.isArray(t.items) ? t.items : [],
-      sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : makeSortOrder(index),
-    }));
+    const templates = rawTemplates.map((t, index) => {
+      const existing = existingTemplateByName.get(normalizeKey(t.name));
+      if (existing) {
+        return {
+          ...existing,
+          items: Array.isArray(t.items) ? t.items : existing.items,
+          baseArea: t.baseArea ?? existing.baseArea,
+        };
+      }
+      return {
+        ...t,
+        id: generateId('template'),
+        items: Array.isArray(t.items) ? t.items : [],
+        sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : makeSortOrder(index),
+      };
+    });
 
-    const materials = rawMaterials.map((m, index) => ({
-      ...m,
-      id: generateId('material'),
-      sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : makeSortOrder(index),
-    }));
+    const materials = rawMaterials.map((m, index) => {
+      const existing = existingMaterialByName.get(normalizeKey(m.name));
+      if (existing) {
+        return {
+          ...existing,
+          price: m.price ?? existing.price,
+          link: m.link ?? existing.link,
+          category: m.category ?? existing.category,
+          lastUpdated: m.lastUpdated ?? existing.lastUpdated,
+        };
+      }
+      return {
+        ...m,
+        id: generateId('material'),
+        sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : makeSortOrder(index),
+      };
+    });
 
-    const works = rawWorks.map((w, index) => ({
-      ...w,
-      id: generateId('work'),
-      sortOrder: typeof w.sortOrder === 'number' ? w.sortOrder : makeSortOrder(index),
-    }));
+    const works = rawWorks.map((w, index) => {
+      const existing = existingWorkByName.get(normalizeKey(w.name));
+      if (existing) {
+        return {
+          ...existing,
+          price: w.price ?? existing.price,
+          category: w.category ?? existing.category,
+        };
+      }
+      return {
+        ...w,
+        id: generateId('work'),
+        sortOrder: typeof w.sortOrder === 'number' ? w.sortOrder : makeSortOrder(index),
+      };
+    });
 
-    const bundles = rawBundles.map((b, index) => ({
-      ...b,
-      id: generateId('bundle'),
-      items: Array.isArray(b.items) ? b.items : [],
-      sortOrder: typeof b.sortOrder === 'number' ? b.sortOrder : makeSortOrder(index),
-    }));
+    const bundles = rawBundles.map((b, index) => {
+      const existing = existingBundleByName.get(normalizeKey(b.name));
+      if (existing) {
+        return {
+          ...existing,
+          items: Array.isArray(b.items) ? b.items : existing.items,
+          category: b.category ?? existing.category,
+        };
+      }
+      return {
+        ...b,
+        id: generateId('bundle'),
+        items: Array.isArray(b.items) ? b.items : [],
+        sortOrder: typeof b.sortOrder === 'number' ? b.sortOrder : makeSortOrder(index),
+      };
+    });
 
     const salaryCalculations = rawSalaryCalculations.map(s => {
       const newEstimateId = estimateIdMap.get(s.estimateId);
@@ -459,6 +581,9 @@ export const importData = async (jsonData: string): Promise<void> => {
       bundles.length ? upsertRecords(upsertBundles, bundles) : Promise.resolve(),
       salaryCalculations.length ? upsertRecords(upsertSalaryCalculations, salaryCalculations) : Promise.resolve(),
     ]);
+
+    window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
+
     console.log('Data imported successfully');
   } catch (error) {
     console.error('Failed to import data:', error);

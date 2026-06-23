@@ -46,10 +46,15 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
         setIsMerging(true);
         setMergeResult(null);
         let totalDeleted = 0;
-        let totalItemsInGroups = 0;
+        let totalItemsInProcessedGroups = 0;
+        let groupsProcessed = 0;
         try {
             for (const group of duplicateGroups) {
-                totalItemsInGroups += group.items.length;
+                const hasSelection = group.items.some(item => keptIds.has(item.id));
+                if (!hasSelection) continue;
+
+                groupsProcessed++;
+                totalItemsInProcessedGroups += group.items.length;
                 const deleteIds = group.items
                     .filter(item => !keptIds.has(item.id))
                     .map(item => item.id);
@@ -59,18 +64,18 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                     totalDeleted += deleteIds.length;
                 }
             }
-            const remainingInGroups = totalItemsInGroups - totalDeleted;
-            const effectiveTotal = typeof totalCount === 'number' ? totalCount : totalItemsInGroups;
+            const remainingInGroups = totalItemsInProcessedGroups - totalDeleted;
+            const effectiveTotal = typeof totalCount === 'number' ? totalCount : totalItemsInProcessedGroups;
             const percentOfTotal = effectiveTotal > 0 ? Math.round((totalDeleted / effectiveTotal) * 100) : 0;
             setMergeResult({
                 success: true,
-                message: `Удалено дубликатов: ${totalDeleted}`,
+                message: `Обработано групп: ${groupsProcessed}. Удалено дубликатов: ${totalDeleted}`,
                 details: { removedFromGroup: totalDeleted, remainingInGroups, percentOfTotal },
             });
             setTimeout(() => {
                 setMergeResult(null);
                 onClose();
-            }, 2500);
+            }, 3000);
         } catch {
             setMergeResult({ success: false, message: 'Ошибка при удалении' });
         } finally {
@@ -79,7 +84,10 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
     };
 
     const totalDuplicates = duplicateGroups.reduce((sum, g) => sum + g.items.length, 0);
+    const selectedGroupsCount = duplicateGroups.filter(g => g.items.some(item => keptIds.has(item.id))).length;
     const totalToDelete = duplicateGroups.reduce((sum, g) => {
+        const hasSelection = g.items.some(item => keptIds.has(item.id));
+        if (!hasSelection) return sum;
         return sum + g.items.filter(item => !keptIds.has(item.id)).length;
     }, 0);
 
@@ -190,7 +198,8 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
 
                         <div className="flex justify-between items-center">
                             <span className="text-text-secondary text-sm">
-                                Будет удалено: <strong className="text-red-400">{totalToDelete}</strong> из {totalDuplicates}
+                                Отмечено групп: <strong className="text-primary">{selectedGroupsCount}</strong> из {duplicateGroups.length}.
+                                Будет удалено: <strong className="text-red-400">{totalToDelete}</strong>
                             </span>
                             <div className="flex gap-3">
                                 <button

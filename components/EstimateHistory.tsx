@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
-import { exportData, importData } from '../services/database';
+import { exportData, importData, validateImportData } from '../services/database';
 import TabDescription from './TabDescription';
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
@@ -169,12 +169,17 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             if (!file) return;
             try {
                 const text = await file.text();
+                const validation = validateImportData(text);
+                if (!validation.ok) {
+                    alert(validation.error);
+                    return;
+                }
                 await importData(text);
-                alert('Данные импортированы успешно! Перезагрузите страницу для обновления.');
-                window.location.reload();
+                alert('Данные импортированы успешно!');
+                window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
             } catch (error) {
                 console.error('Import failed:', error);
-                alert('Ошибка при импорте данных. Проверьте файл.');
+                alert(error instanceof Error ? error.message : 'Ошибка при импорте данных. Проверьте файл.');
             }
         };
         input.click();
