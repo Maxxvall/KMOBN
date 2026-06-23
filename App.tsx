@@ -20,7 +20,7 @@ import { EstimateProvider } from './contexts/EstimateContext';
 import { CatalogProvider } from './contexts/CatalogContext';
 import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import { SyncProvider } from './contexts/SyncContext';
-import { loadEstimates, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, loadWorks, saveWorks, addWork, updateWork, deleteWork, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { loadEstimates, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, deleteMaterials, loadWorks, saveWorks, addWork, updateWork, deleteWork, deleteWorks, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
@@ -1616,16 +1616,11 @@ const App: React.FC = () => {
         deleteIds: string[]
     ) => {
         try {
-            for (const id of deleteIds) {
-                if (type === 'material') {
-                    await deleteMaterial(id);
-                } else {
-                    await deleteWork(id);
-                }
-            }
             if (type === 'material') {
+                await deleteMaterials(deleteIds);
                 setMaterials(prev => prev.filter(m => !deleteIds.includes(m.id)));
             } else {
+                await deleteWorks(deleteIds);
                 setWorks(prev => prev.filter(w => !deleteIds.includes(w.id)));
             }
         } catch (error) {

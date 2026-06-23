@@ -189,6 +189,19 @@ const deleteRecord = async (table: string, id: string) => {
   }
 };
 
+const deleteRecords = async (table: string, ids: string[]) => {
+  if (!ids.length || !isSupabaseConfigured()) {
+    return;
+  }
+  const client = ensureSupabase();
+  const userId = await requireUserId();
+  const { error } = await client.from(table).delete().in('id', ids).eq('user_id', userId);
+  if (error) {
+    console.error(`Failed to batch delete from ${table}:`, error);
+    throw error;
+  }
+};
+
 const upsertRecords = async (upserter: (records: any[], userId: string) => Promise<{ data?: any; error: any }>, records: any[]) => {
   if (!records.length || !isSupabaseConfigured()) {
     return;
@@ -283,6 +296,10 @@ export const deleteMaterial = async (materialId: string): Promise<void> => {
   await deleteRecord('materials', materialId);
 };
 
+export const deleteMaterials = async (materialIds: string[]): Promise<void> => {
+  await deleteRecords('materials', materialIds);
+};
+
 export const saveWorks = async (works: Work[]): Promise<void> => {
   const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
   await Promise.all([
@@ -303,6 +320,10 @@ export const updateWork = async (work: Work): Promise<void> => {
 
 export const deleteWork = async (workId: string): Promise<void> => {
   await deleteRecord('works', workId);
+};
+
+export const deleteWorks = async (workIds: string[]): Promise<void> => {
+  await deleteRecords('works', workIds);
 };
 
 export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
@@ -441,6 +462,15 @@ export const importData = async (jsonData: string): Promise<void> => {
     const baseSortOrder = Date.now();
     const makeSortOrder = (index: number): number => baseSortOrder + index;
     const asArray = <T>(value: unknown): T[] => Array.isArray(value) ? (value as T[]) : [];
+    const dedupById = <T extends { id: string }>(items: T[]): T[] => {
+      const seen = new Map<string, T>();
+      for (const item of items) {
+        if (!seen.has(item.id)) {
+          seen.set(item.id, item);
+        }
+      }
+      return Array.from(seen.values());
+    };
 
     const rawEstimates = asArray<Estimate>(data.estimates);
     const rawTemplates = asArray<ProjectTemplate>(data.templates);
@@ -532,6 +562,8 @@ export const importData = async (jsonData: string): Promise<void> => {
       };
     });
 
+    const dedupMaterials = dedupById(materials);
+
     const works = rawWorks.map((w, index) => {
       const existing = existingWorkByName.get(normalizeKey(w.name));
       if (existing) {
@@ -547,6 +579,8 @@ export const importData = async (jsonData: string): Promise<void> => {
         sortOrder: typeof w.sortOrder === 'number' ? w.sortOrder : makeSortOrder(index),
       };
     });
+
+    const dedupWorks = dedupById(works);
 
     const bundles = rawBundles.map((b, index) => {
       const existing = existingBundleByName.get(normalizeKey(b.name));
@@ -583,11 +617,11 @@ export const importData = async (jsonData: string): Promise<void> => {
     if (templates.length) {
       upsertTasks.push({ name: 'templates', task: upsertRecords(upsertTemplates, templates) });
     }
-    if (materials.length) {
-      upsertTasks.push({ name: 'materials', task: upsertRecords(upsertMaterials, materials) });
+    if (dedupMaterials.length) {
+      upsertTasks.push({ name: 'materials', task: upsertRecords(upsertMaterials, dedupMaterials) });
     }
-    if (works.length) {
-      upsertTasks.push({ name: 'works', task: upsertRecords(upsertWorks, works) });
+    if (dedupWorks.length) {
+      upsertTasks.push({ name: 'works', task: upsertRecords(upsertWorks, dedupWorks) });
     }
     if (bundles.length) {
       upsertTasks.push({ name: 'bundles', task: upsertRecords(upsertBundles, bundles) });
