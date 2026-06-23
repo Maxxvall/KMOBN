@@ -194,10 +194,11 @@ const upsertRecords = async (upserter: (records: any[], userId: string) => Promi
     return;
   }
   const userId = await requireUserId();
-  const { error } = await upserter(records, userId);
+  const { data, error } = await upserter(records, userId);
   if (error) {
-    console.error('Supabase upsert error:', error);
-    throw error;
+    const msg = error?.message || error?.details || error?.hint || JSON.stringify(error);
+    console.error('Supabase upsert error:', msg, error);
+    throw new Error(msg);
   }
 };
 
