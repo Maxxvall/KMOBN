@@ -174,8 +174,49 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     alert(validation.error);
                     return;
                 }
-                await importData(text);
-                alert('Данные импортированы успешно!');
+                const result = await importData(text);
+
+                const lines: string[] = [];
+                if (result.estimates.added > 0 || result.estimates.updated > 0) {
+                    const parts: string[] = [];
+                    if (result.estimates.added > 0) parts.push(`${result.estimates.added} новых`);
+                    if (result.estimates.updated > 0) parts.push(`${result.estimates.updated} обновлено`);
+                    if (result.estimates.skipped > 0) parts.push(`${result.estimates.skipped} пропущено`);
+                    lines.push(`📋 Сметы: ${parts.join(', ')}`);
+                }
+                if (result.templates.added > 0 || result.templates.updated > 0) {
+                    const parts: string[] = [];
+                    if (result.templates.added > 0) parts.push(`${result.templates.added} новых`);
+                    if (result.templates.updated > 0) parts.push(`${result.templates.updated} обновлено`);
+                    lines.push(`📄 Шаблоны: ${parts.join(', ')}`);
+                }
+                if (result.materials.added > 0 || result.materials.updated > 0) {
+                    const parts: string[] = [];
+                    if (result.materials.added > 0) parts.push(`${result.materials.added} новых`);
+                    if (result.materials.updated > 0) parts.push(`${result.materials.updated} обновлено`);
+                    if (result.materials.skipped > 0) parts.push(`${result.materials.skipped} дублей`);
+                    lines.push(`🧱 Материалы: ${parts.join(', ')}`);
+                }
+                if (result.works.added > 0 || result.works.updated > 0) {
+                    const parts: string[] = [];
+                    if (result.works.added > 0) parts.push(`${result.works.added} новых`);
+                    if (result.works.updated > 0) parts.push(`${result.works.updated} обновлено`);
+                    if (result.works.skipped > 0) parts.push(`${result.works.skipped} дублей`);
+                    lines.push(`🔨 Работы: ${parts.join(', ')}`);
+                }
+                if (result.bundles.added > 0 || result.bundles.updated > 0) {
+                    const parts: string[] = [];
+                    if (result.bundles.added > 0) parts.push(`${result.bundles.added} новых`);
+                    if (result.bundles.updated > 0) parts.push(`${result.bundles.updated} обновлено`);
+                    lines.push(`📦 Комплекты: ${parts.join(', ')}`);
+                }
+                if (result.salaryCalculations.added > 0) {
+                    lines.push(`💰 Расчёт з/п: ${result.salaryCalculations.added} новых`);
+                }
+
+                alert(lines.length > 0
+                    ? `Импорт завершён:\n\n${lines.join('\n')}`
+                    : 'Данные импортированы, но новых записей не добавлено.');
                 window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
             } catch (error) {
                 console.error('Import failed:', error);

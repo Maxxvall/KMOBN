@@ -444,10 +444,19 @@ export const validateImportData = (jsonData: string): ImportValidationResult => 
   return { ok: true, data: obj };
 };
 
-export const importData = async (jsonData: string): Promise<void> => {
+export interface ImportResult {
+  estimates: { added: number; updated: number; skipped: number };
+  templates: { added: number; updated: number; skipped: number };
+  materials: { added: number; updated: number; skipped: number };
+  works: { added: number; updated: number; skipped: number };
+  bundles: { added: number; updated: number; skipped: number };
+  salaryCalculations: { added: number; skipped: number };
+}
+
+export const importData = async (jsonData: string): Promise<ImportResult> => {
   if (!isSupabaseConfigured()) {
     console.warn('Supabase not configured, skipping import');
-    return;
+    return { estimates: { added: 0, updated: 0, skipped: 0 }, templates: { added: 0, updated: 0, skipped: 0 }, materials: { added: 0, updated: 0, skipped: 0 }, works: { added: 0, updated: 0, skipped: 0 }, bundles: { added: 0, updated: 0, skipped: 0 }, salaryCalculations: { added: 0, skipped: 0 } };
   }
 
   const validation = validateImportData(jsonData);
@@ -510,12 +519,41 @@ export const importData = async (jsonData: string): Promise<void> => {
     const rawBundles = asArray<WorkBundle>(data.bundles);
     const rawSalaryCalculations = asArray<SalaryCalculation>(data.salaryCalculations);
 
+    let estimatesAdded = 0, estimatesUpdated = 0, estimatesSkipped = 0;
     const estimateIdMap = new Map<string, string>();
     rawEstimates.forEach(e => {
       const key = `${e.estimateNumber}::v${e.version ?? 0}`;
       const existing = existingEstimateByNumberVersion.get(key);
-      estimateIdMap.set(e.id, existing?.id ?? generateId('sm-id'));
+      if (existing) {
+        estimateIdMap.set(e.id, existing.id);
+        estimatesUpdated++;
+      } else {
+        const newId = generateId('sm-id');
+        estimateIdMap.set(e.id, newId);
+        estimatesAdded++;
+      }
     });
+
+    let templatesAdded = 0, templatesUpdated = 0;
+    const templates = rawTemplates.map((t, index) => {
+      const existing = existingTemplateByName.get(normalizeKey(t.name));
+      if (existing) {
+        templatesUpdated++;
+        return {
+          ...existing,
+          items: Array.isArray(t.items) ? t.items : existing.items,
+          baseArea: t.baseArea ?? existing.baseArea,
+        };
+      }
+      templatesAdded++;
+      return {
+        ...t,
+        id: generateId('template'),
+        items: Array.isArray(t.items) ? t.items : [],
+        sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : makeSortOrder(index),
+      };
+    });
+
     const estimates = rawEstimates.map((e, index) => {
       const mappedId = estimateIdMap.get(e.id) as string;
       return {
@@ -527,26 +565,11 @@ export const importData = async (jsonData: string): Promise<void> => {
       };
     });
 
-    const templates = rawTemplates.map((t, index) => {
-      const existing = existingTemplateByName.get(normalizeKey(t.name));
-      if (existing) {
-        return {
-          ...existing,
-          items: Array.isArray(t.items) ? t.items : existing.items,
-          baseArea: t.baseArea ?? existing.baseArea,
-        };
-      }
-      return {
-        ...t,
-        id: generateId('template'),
-        items: Array.isArray(t.items) ? t.items : [],
-        sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : makeSortOrder(index),
-      };
-    });
-
+    let materialsAdded = 0, materialsUpdated = 0;
     const materials = rawMaterials.map((m, index) => {
       const existing = existingMaterialByName.get(normalizeKey(m.name));
       if (existing) {
+        materialsUpdated++;
         return {
           ...existing,
           price: m.price ?? existing.price,
@@ -555,6 +578,7 @@ export const importData = async (jsonData: string): Promise<void> => {
           lastUpdated: m.lastUpdated ?? existing.lastUpdated,
         };
       }
+      materialsAdded++;
       return {
         ...m,
         id: generateId('material'),
@@ -563,16 +587,20 @@ export const importData = async (jsonData: string): Promise<void> => {
     });
 
     const dedupMaterials = dedupById(materials);
+    const materialsSkipped = materials.length - dedupMaterials.length;
 
+    let worksAdded = 0, worksUpdated = 0;
     const works = rawWorks.map((w, index) => {
       const existing = existingWorkByName.get(normalizeKey(w.name));
       if (existing) {
+        worksUpdated++;
         return {
           ...existing,
           price: w.price ?? existing.price,
           category: w.category ?? existing.category,
         };
       }
+      worksAdded++;
       return {
         ...w,
         id: generateId('work'),
@@ -581,16 +609,20 @@ export const importData = async (jsonData: string): Promise<void> => {
     });
 
     const dedupWorks = dedupById(works);
+    const worksSkipped = works.length - dedupWorks.length;
 
+    let bundlesAdded = 0, bundlesUpdated = 0;
     const bundles = rawBundles.map((b, index) => {
       const existing = existingBundleByName.get(normalizeKey(b.name));
       if (existing) {
+        bundlesUpdated++;
         return {
           ...existing,
           items: Array.isArray(b.items) ? b.items : existing.items,
           category: b.category ?? existing.category,
         };
       }
+      bundlesAdded++;
       return {
         ...b,
         id: generateId('bundle'),
@@ -599,9 +631,11 @@ export const importData = async (jsonData: string): Promise<void> => {
       };
     });
 
+    let salaryAdded = 0;
     const salaryCalculations = rawSalaryCalculations.map(s => {
       const newEstimateId = estimateIdMap.get(s.estimateId);
       const estimateId = newEstimateId ?? s.estimateId;
+      salaryAdded++;
       return {
         ...s,
         estimateId,
@@ -641,9 +675,19 @@ export const importData = async (jsonData: string): Promise<void> => {
       throw new Error(`Ошибка при импорте таблиц: ${failures.map(f => f.name).join(', ')}`);
     }
 
+    const importResult: ImportResult = {
+      estimates: { added: estimatesAdded, updated: estimatesUpdated, skipped: rawEstimates.length - estimatesAdded - estimatesUpdated },
+      templates: { added: templatesAdded, updated: templatesUpdated, skipped: rawTemplates.length - templatesAdded - templatesUpdated },
+      materials: { added: materialsAdded, updated: materialsUpdated, skipped: materialsSkipped },
+      works: { added: worksAdded, updated: worksUpdated, skipped: worksSkipped },
+      bundles: { added: bundlesAdded, updated: bundlesUpdated, skipped: rawBundles.length - bundlesAdded - bundlesUpdated },
+      salaryCalculations: { added: salaryAdded, skipped: rawSalaryCalculations.length - salaryAdded },
+    };
+
     window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
 
-    console.log('Data imported successfully');
+    console.log('Data imported successfully', importResult);
+    return importResult;
   } catch (error) {
     console.error('Failed to import data:', error);
     if (error instanceof Error) {
