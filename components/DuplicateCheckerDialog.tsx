@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { DuplicateGroup, Material, Work, EstimateCategory, normalizeKey } from '../types';
 
 interface DuplicateCheckerDialogProps {
@@ -7,7 +7,6 @@ interface DuplicateCheckerDialogProps {
     title: string;
     duplicateGroups: DuplicateGroup<Material | Work>[];
     onMerge: (keepId: string, deleteIds: string[]) => Promise<void>;
-    onCreateInGeneral?: (item: Material | Work) => Promise<void>;
 }
 
 const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
@@ -16,11 +15,24 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
     title,
     duplicateGroups,
     onMerge,
-    onCreateInGeneral,
 }) => {
     const [keptIds, setKeptIds] = useState<Set<string>>(new Set());
     const [isMerging, setIsMerging] = useState(false);
     const [mergeResult, setMergeResult] = useState<{ success: boolean; message: string } | null>(null);
+
+    // Auto-select best item in each group on open
+    useEffect(() => {
+        if (!isOpen || duplicateGroups.length === 0) return;
+        const initial = new Set<string>();
+        for (const group of duplicateGroups) {
+            const generalItem = group.items.find(
+                item => 'category' in item && item.category === EstimateCategory.GENERAL
+            );
+            const best = generalItem ?? group.items[0];
+            initial.add(best.id);
+        }
+        setKeptIds(initial);
+    }, [isOpen, duplicateGroups]);
 
     if (!isOpen) return null;
 
@@ -61,40 +73,22 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
         setIsMerging(true);
         setMergeResult(null);
         let totalDeleted = 0;
-        let totalCreated = 0;
         try {
             for (const group of duplicateGroups) {
                 const itemsToKeep = group.items.filter(item => keptIds.has(item.id));
-                const hasGeneral = itemsToKeep.some(
-                    item => 'category' in item && item.category === EstimateCategory.GENERAL
-                );
+                if (itemsToKeep.length === 0) continue;
 
-                if (hasGeneral || itemsToKeep.length > 0) {
-                    const keepId = itemsToKeep[0].id;
-                    const deleteIds = group.items
-                        .filter(item => item.id !== keepId)
-                        .map(item => item.id);
-                    if (deleteIds.length > 0) {
-                        await onMerge(keepId, deleteIds);
-                        totalDeleted += deleteIds.length;
-                    }
-                } else if (onCreateInGeneral) {
-                    const templateItem = group.items[0];
-                    const newItem = {
-                        ...templateItem,
-                        id: `${'category' in templateItem ? 'material' : 'work'}-${Date.now()}`,
-                        category: EstimateCategory.GENERAL,
-                    };
-                    await onCreateInGeneral(newItem);
-                    const deleteIds = group.items.map(item => item.id);
-                    await onMerge(newItem.id, deleteIds);
+                const keepId = itemsToKeep[0].id;
+                const deleteIds = group.items
+                    .filter(item => item.id !== keepId)
+                    .map(item => item.id);
+                if (deleteIds.length > 0) {
+                    await onMerge(keepId, deleteIds);
                     totalDeleted += deleteIds.length;
-                    totalCreated++;
                 }
             }
             const parts: string[] = [];
             if (totalDeleted > 0) parts.push(`удалено: ${totalDeleted}`);
-            if (totalCreated > 0) parts.push(`создано в ОБЩАЯ: ${totalCreated}`);
             setMergeResult({ success: true, message: parts.join(', ') || 'Нечего удалять' });
             setTimeout(() => {
                 setMergeResult(null);
@@ -151,10 +145,10 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                 ) : (
                     <>
                         <p className="text-text-secondary mb-2 text-sm">
-                            Найдено групп: {duplicateGroups.length}. Отметьте галочками что <strong className="text-text-primary">оставить</strong>.
+                            Найдено групп: {duplicateGroups.length}. Автоматически выбран элемент из каждой группы.
                         </p>
                         <p className="text-text-secondary mb-4 text-sm">
-                            Кнопка «Выбрать» автоматически оставляет позицию из раздела <strong className="text-text-primary">ОБЩАЯ</strong> (или первую).
+                            Если в группе есть позиция из раздела <strong className="text-text-primary">ОБЩАЯ</strong> — она выбрана приоритетно. Можете изменить выбор галочками.
                         </p>
 
                         <div className="flex gap-3 mb-4">

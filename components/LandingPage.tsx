@@ -2,9 +2,10 @@ import React from 'react';
 
 type LandingPageProps = {
     onOpenLogin: () => void;
+    onOfflineMode?: () => void;
 };
 
-const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
+const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode }) => {
     return (
         <div className="min-h-screen bg-background text-text-primary">
             <header className="fixed top-0 left-0 right-0 z-40 border-b border-border bg-background/80 backdrop-blur">
@@ -68,6 +69,15 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin }) => {
                         >
                             Войти
                         </button>
+                        {onOfflineMode && (
+                            <button
+                                type="button"
+                                onClick={onOfflineMode}
+                                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-5 py-2 text-amber-300 font-medium hover:bg-amber-500/20 transition"
+                            >
+                                Оффлайн-режим
+                            </button>
+                        )}
                     </div>
                 </div>
             </header>

@@ -1,5 +1,6 @@
 import { Estimate, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation, normalizeKey } from '../types';
 import { CacheTableKey, getCachedRecords, getCacheUserId, syncCachedRecords } from './indexedDbCache';
+import { offlineQueue } from './offlineQueue';
 import supabase, {
   isSupabaseConfigured,
   upsertEstimates,
@@ -177,28 +178,60 @@ const readTableCached = async <T extends { id: string }>(
 };
 
 const deleteRecord = async (table: string, id: string) => {
-  if (!isSupabaseConfigured()) {
-    return;
-  }
-  const client = ensureSupabase();
-  const userId = await requireUserId();
-  const { error } = await client.from(table).delete().eq('id', id).eq('user_id', userId);
-  if (error) {
-    console.error(`Failed to delete from ${table}:`, error);
-    throw error;
+  // Remove from IndexedDB cache
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cacheTable = table as CacheTableKey;
+  try {
+    const cached = await getCachedRecords<any>(cacheTable, cacheUserId);
+    const remaining = cached.filter(r => r.id !== id);
+    await syncCachedRecords(cacheTable, cacheUserId, remaining);
+  } catch { /* ignore cache errors */ }
+
+  if (navigator.onLine && isSupabaseConfigured()) {
+    try {
+      const client = ensureSupabase();
+      const uid = await requireUserId();
+      const { error } = await client.from(table).delete().eq('id', id).eq('user_id', uid);
+      if (error) {
+        console.error(`Failed to delete from ${table}:`, error);
+        throw error;
+      }
+    } catch {
+      await offlineQueue.add({ table, operation: 'delete', data: [id] });
+    }
+  } else {
+    await offlineQueue.add({ table, operation: 'delete', data: [id] });
   }
 };
 
 const deleteRecords = async (table: string, ids: string[]) => {
-  if (!ids.length || !isSupabaseConfigured()) {
-    return;
-  }
-  const client = ensureSupabase();
-  const userId = await requireUserId();
-  const { error } = await client.from(table).delete().in('id', ids).eq('user_id', userId);
-  if (error) {
-    console.error(`Failed to batch delete from ${table}:`, error);
-    throw error;
+  if (!ids.length) return;
+
+  // Always remove from IndexedDB cache
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cacheTable = table as CacheTableKey;
+  try {
+    const cached = await getCachedRecords<any>(cacheTable, cacheUserId);
+    const remaining = cached.filter(r => !ids.includes(r.id));
+    await syncCachedRecords(cacheTable, cacheUserId, remaining);
+  } catch { /* ignore cache errors */ }
+
+  if (navigator.onLine && isSupabaseConfigured()) {
+    try {
+      const client = ensureSupabase();
+      const uid = await requireUserId();
+      const { error } = await client.from(table).delete().in('id', ids).eq('user_id', uid);
+      if (error) {
+        console.error(`Failed to batch delete from ${table}:`, error);
+        throw error;
+      }
+    } catch {
+      await offlineQueue.add({ table, operation: 'delete', data: ids });
+    }
+  } else {
+    await offlineQueue.add({ table, operation: 'delete', data: ids });
   }
 };
 
@@ -207,7 +240,7 @@ const upsertRecords = async (upserter: (records: any[], userId: string) => Promi
     return;
   }
   const userId = await requireUserId();
-  const { data, error } = await upserter(records, userId);
+  const { error } = await upserter(records, userId);
   if (error) {
     const msg = error?.message || error?.details || error?.hint || JSON.stringify(error);
     console.error('Supabase upsert error:', msg, error);
@@ -222,12 +255,23 @@ export const pickChangedRecordsByIds = <T extends { id: string }>(records: T[], 
 };
 
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
-  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
-  const syncResult = await syncCachedRecords('estimates', cacheUserId, estimates);
-  const changedEstimates = syncResult.cacheAvailable
-    ? pickChangedRecordsByIds(estimates, syncResult.changedIds)
-    : estimates;
-  await upsertRecords(upsertEstimates, changedEstimates);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  await syncCachedRecords('estimates', cacheUserId, estimates);
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      const syncResult = await syncCachedRecords('estimates', cacheUserId, estimates);
+      const changedEstimates = syncResult.cacheAvailable
+        ? pickChangedRecordsByIds(estimates, syncResult.changedIds)
+        : estimates;
+      await upsertRecords(upsertEstimates, changedEstimates);
+    } catch {
+      await offlineQueue.add({ table: 'estimates', operation: 'upsert', data: estimates });
+    }
+  } else if (!navigator.onLine) {
+    await offlineQueue.add({ table: 'estimates', operation: 'upsert', data: estimates });
+  }
 };
 
 export const loadEstimates = async (options?: LoadTableOptions): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates, options);
@@ -275,11 +319,19 @@ export const deleteTemplate = async (templateId: string): Promise<void> => {
 };
 
 export const saveMaterials = async (materials: Material[]): Promise<void> => {
-  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
-  await Promise.all([
-    upsertRecords(upsertMaterials, materials),
-    syncCachedRecords('materials', cacheUserId, materials),
-  ]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  await syncCachedRecords('materials', cacheUserId, materials);
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertMaterials, materials);
+    } catch {
+      await offlineQueue.add({ table: 'materials', operation: 'upsert', data: materials });
+    }
+  } else if (!navigator.onLine) {
+    await offlineQueue.add({ table: 'materials', operation: 'upsert', data: materials });
+  }
 };
 
 export const loadMaterials = async (options?: LoadTableOptions): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials, options);
@@ -301,11 +353,19 @@ export const deleteMaterials = async (materialIds: string[]): Promise<void> => {
 };
 
 export const saveWorks = async (works: Work[]): Promise<void> => {
-  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
-  await Promise.all([
-    upsertRecords(upsertWorks, works),
-    syncCachedRecords('works', cacheUserId, works),
-  ]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  await syncCachedRecords('works', cacheUserId, works);
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertWorks, works);
+    } catch {
+      await offlineQueue.add({ table: 'works', operation: 'upsert', data: works });
+    }
+  } else if (!navigator.onLine) {
+    await offlineQueue.add({ table: 'works', operation: 'upsert', data: works });
+  }
 };
 
 export const loadWorks = async (options?: LoadTableOptions): Promise<Work[]> => readTableCached<Work>('works', fetchWorks, options);
@@ -327,11 +387,19 @@ export const deleteWorks = async (workIds: string[]): Promise<void> => {
 };
 
 export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
-  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
-  await Promise.all([
-    upsertRecords(upsertBundles, bundles),
-    syncCachedRecords('bundles', cacheUserId, bundles),
-  ]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  await syncCachedRecords('bundles', cacheUserId, bundles);
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertBundles, bundles);
+    } catch {
+      await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: bundles });
+    }
+  } else if (!navigator.onLine) {
+    await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: bundles });
+  }
 };
 
 export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundle[]> => {
@@ -454,11 +522,6 @@ export interface ImportResult {
 }
 
 export const importData = async (jsonData: string): Promise<ImportResult> => {
-  if (!isSupabaseConfigured()) {
-    console.warn('Supabase not configured, skipping import');
-    return { estimates: { added: 0, updated: 0, unchanged: 0, inFileDuplicates: 0 }, templates: { added: 0, updated: 0, unchanged: 0 }, materials: { added: 0, updated: 0, unchanged: 0, inFileDuplicates: 0 }, works: { added: 0, updated: 0, unchanged: 0, inFileDuplicates: 0 }, bundles: { added: 0, updated: 0, unchanged: 0 }, salaryCalculations: { added: 0 } };
-  }
-
   const validation = validateImportData(jsonData);
   if (!validation.ok) {
     throw new Error(validation.error);
@@ -702,37 +765,34 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       };
     });
 
-    const upsertTasks: { name: string; task: Promise<void> }[] = [];
+    const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
 
-    if (estimates.length) {
-      upsertTasks.push({ name: 'estimates', task: upsertRecords(upsertEstimates, estimates) });
-    }
-    if (templates.length) {
-      upsertTasks.push({ name: 'templates', task: upsertRecords(upsertTemplates, templates) });
-    }
-    if (dedupMaterials.length) {
-      upsertTasks.push({ name: 'materials', task: upsertRecords(upsertMaterials, dedupMaterials) });
-    }
-    if (dedupWorks.length) {
-      upsertTasks.push({ name: 'works', task: upsertRecords(upsertWorks, dedupWorks) });
-    }
-    if (bundles.length) {
-      upsertTasks.push({ name: 'bundles', task: upsertRecords(upsertBundles, bundles) });
-    }
-    if (salaryCalculations.length) {
-      upsertTasks.push({ name: 'salaryCalculations', task: upsertRecords(upsertSalaryCalculations, salaryCalculations) });
-    }
+    const importTable = async <T extends { id: string }>(
+      tableName: CacheTableKey,
+      records: T[],
+      upserter: (items: T[], uid: string) => Promise<{ data?: any; error: any }>,
+    ) => {
+      if (!records.length) return;
+      await syncCachedRecords(tableName, cacheUserId, records);
+      if (navigator.onLine && isSupabaseConfigured()) {
+        try {
+          await upsertRecords(upserter, records);
+        } catch {
+          await offlineQueue.add({ table: tableName, operation: 'upsert', data: records });
+        }
+      } else {
+        await offlineQueue.add({ table: tableName, operation: 'upsert', data: records });
+      }
+    };
 
-    const results = await Promise.allSettled(upsertTasks.map(t => t.task));
-    const failures = results
-      .map((r, i) => ({ status: r.status, name: upsertTasks[i].name, reason: r.status === 'rejected' ? r.reason : null }))
-      .filter(r => r.status === 'rejected');
-
-    if (failures.length > 0) {
-      const details = failures.map(f => `${f.name}: ${f.reason}`).join('; ');
-      console.error('Partial import failure:', details);
-      throw new Error(`Ошибка при импорте таблиц: ${failures.map(f => f.name).join(', ')}`);
-    }
+    await Promise.all([
+      importTable('estimates', estimates, upsertEstimates),
+      importTable('templates', templates, upsertTemplates),
+      importTable('materials', dedupMaterials, upsertMaterials),
+      importTable('works', dedupWorks, upsertWorks),
+      importTable('bundles', bundles, upsertBundles),
+      importTable('salary_calculations', salaryCalculations, upsertSalaryCalculations),
+    ]);
 
     const importResult: ImportResult = {
       estimates: { added: estimatesAdded, updated: estimatesUpdated, unchanged: estimatesUnchanged, inFileDuplicates: rawEstimates.length - estimatesAdded - estimatesUpdated - estimatesUnchanged },
@@ -754,4 +814,17 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     }
     throw new Error('Ошибка при импорте данных. Проверьте формат файла.');
   }
+};
+
+export const exportUserData = async (): Promise<Blob> => {
+  const data = {
+    estimates: await loadEstimates(),
+    materials: await loadMaterials(),
+    works: await loadWorks(),
+    bundles: await loadBundles(),
+    templates: await loadTemplates(),
+    exportedAt: new Date().toISOString(),
+    version: '1.0',
+  };
+  return new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
 };

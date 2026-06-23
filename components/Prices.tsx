@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Material, EstimateCategory, DuplicateGroup, findDuplicates } from '../types';
 import TabDescription from './TabDescription';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
@@ -38,6 +38,19 @@ const Prices: React.FC<PricesProps> = ({
     const [newMaterialPrice, setNewMaterialPrice] = useState('');
     const [newMaterialLink, setNewMaterialLink] = useState('');
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
+    const [searchInput, setSearchInput] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+
+    const handleSearchChange = useCallback((value: string) => {
+        setSearchInput(value);
+        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+        debounceTimer.current = setTimeout(() => setSearchTerm(value), 250);
+    }, []);
+
+    useEffect(() => {
+        return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
+    }, []);
     const [editingPrice, setEditingPrice] = useState<{ id: string; price: string } | null>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const ITEMS_PER_PAGE = 25;
@@ -57,15 +70,14 @@ const Prices: React.FC<PricesProps> = ({
         }
     };
 
-    const handleCreateMaterialInGeneral = async (item: Material) => {
-        if (catalogContext?.onForceAddMaterial) {
-            await catalogContext.onForceAddMaterial(item);
-        }
-    };
-
     const filteredMaterials = useMemo(() => {
-        return filterCategory === 'all' ? materialList : materialList.filter(m => m.category === filterCategory);
-    }, [materialList, filterCategory]);
+        let result = filterCategory === 'all' ? materialList : materialList.filter(m => m.category === filterCategory);
+        if (searchTerm.trim()) {
+            const q = searchTerm.trim().toLowerCase();
+            result = result.filter(m => m.name.toLowerCase().includes(q));
+        }
+        return result;
+    }, [materialList, filterCategory, searchTerm]);
 
     const paginatedMaterials = useMemo(() => {
         const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -225,6 +237,13 @@ const Prices: React.FC<PricesProps> = ({
 
             {/* Фильтр по категориям */}
             <div className="flex gap-4 mb-6">
+                <input
+                    type="text"
+                    placeholder="Поиск по наименованию..."
+                    className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    value={searchInput}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                />
                 <select
                     className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={filterCategory}
@@ -402,7 +421,6 @@ const Prices: React.FC<PricesProps> = ({
                 title="Дубликаты материалов"
                 duplicateGroups={duplicateGroups}
                 onMerge={handleMergeMaterials}
-                onCreateInGeneral={handleCreateMaterialInGeneral}
             />
         </div>
     );

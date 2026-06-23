@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Work, EstimateCategory, DuplicateGroup, findDuplicates } from '../types';
 import TabDescription from './TabDescription';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
@@ -24,6 +24,19 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     const [newWorkPrice, setNewWorkPrice] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
+    const [searchInput, setSearchInput] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+
+    const handleSearchChange = useCallback((value: string) => {
+        setSearchInput(value);
+        if (debounceTimer.current) clearTimeout(debounceTimer.current);
+        debounceTimer.current = setTimeout(() => setSearchTerm(value), 250);
+    }, []);
+
+    useEffect(() => {
+        return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
+    }, []);
     const [editingWorkId, setEditingWorkId] = useState<string | null>(null);
     const [editingPrice, setEditingPrice] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
@@ -44,15 +57,14 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
         }
     };
 
-    const handleCreateWorkInGeneral = async (item: Work) => {
-        if (catalogContext?.onForceAddWork) {
-            await catalogContext.onForceAddWork(item);
-        }
-    };
-
     const filteredWorks = useMemo(() => {
-        return filterCategory === 'all' ? worksList : worksList.filter(w => w.category === filterCategory);
-    }, [worksList, filterCategory]);
+        let result = filterCategory === 'all' ? worksList : worksList.filter(w => w.category === filterCategory);
+        if (searchTerm.trim()) {
+            const q = searchTerm.trim().toLowerCase();
+            result = result.filter(w => w.name.toLowerCase().includes(q));
+        }
+        return result;
+    }, [worksList, filterCategory, searchTerm]);
 
     const paginatedWorks = useMemo(() => {
         const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
@@ -196,6 +208,13 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
 
             {/* Фильтр по категориям */}
             <div className="flex gap-4 mb-6">
+                <input
+                    type="text"
+                    placeholder="Поиск по наименованию..."
+                    className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    value={searchInput}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                />
                 <select
                     className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={filterCategory}
@@ -339,7 +358,6 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 title="Дубликаты работ"
                 duplicateGroups={duplicateGroups}
                 onMerge={handleMergeWorks}
-                onCreateInGeneral={handleCreateWorkInGeneral}
             />
         </div>
     );

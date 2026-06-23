@@ -4,6 +4,7 @@ import type { User } from '@supabase/supabase-js';
 import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
+import StatusIndicators from './components/StatusIndicators';
 import PdfStyleModal from './components/PdfStyleModal';
 import ContractNameModal from './components/ContractNameModal';
 import ScrollToTop from './components/ScrollToTop';
@@ -11,6 +12,7 @@ import Login from './components/Login';
 import LandingPage from './components/LandingPage.tsx';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
+import { useOfflineSync } from './hooks/useOfflineSync';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
@@ -57,6 +59,7 @@ const AUTOSAVE_DELAY_MS = 8000;
 type SaveMode = 'overwrite' | 'new';
 
 const RECOVERY_STORAGE_KEY = 'kmobn:recoveryRequired';
+const OFFLINE_MODE_KEY = 'kmobn:offlineMode';
 const hasRecoveryFlagInUrl = (): boolean => {
     if (typeof window === 'undefined') return false;
     const combined = `${window.location.search}${window.location.hash}`.toLowerCase();
@@ -279,6 +282,20 @@ const App: React.FC = () => {
     const [uiState, dispatchUi] = useReducer(uiReducer, initialUiState);
     const [editorState, dispatchEditor] = useReducer(editorReducer, initialEditorState);
     const [saveState, dispatchSave] = useReducer(saveReducer, initialSaveState);
+    const [offlineModeRaw, setOfflineModeRaw] = useState(() => {
+        try { return localStorage.getItem(OFFLINE_MODE_KEY) === 'true'; } catch { return false; }
+    });
+    const setOfflineMode = useCallback((value: boolean) => {
+        setOfflineModeRaw(value);
+        try {
+            if (value) {
+                localStorage.setItem(OFFLINE_MODE_KEY, 'true');
+            } else {
+                localStorage.removeItem(OFFLINE_MODE_KEY);
+            }
+        } catch { /* ignore */ }
+    }, []);
+    const offlineSync = useOfflineSync();
     const {
         supabaseUser,
         subscription,
@@ -381,8 +398,8 @@ const App: React.FC = () => {
     } = saveSetters;
     const recoveryIntent = recoveryRequired || hasRecoveryFlagInUrl();
     const isAuthenticated = useMemo(() => {
-        return Boolean(supabaseUser) && !recoveryIntent;
-    }, [supabaseUser, recoveryIntent]);
+        return (Boolean(supabaseUser) || offlineModeRaw) && !recoveryIntent;
+    }, [supabaseUser, offlineModeRaw, recoveryIntent]);
     const displayName = useMemo(() => {
         if (supabaseUser) {
             const meta = supabaseUser.user_metadata as Record<string, string | undefined> | undefined;
@@ -756,20 +773,54 @@ const App: React.FC = () => {
         };
 
         const initSession = async () => {
-            const { data, error } = await sb.auth.getSession();
-            if (error) {
-                console.error('Supabase getSession error:', error);
+            try {
+                const { data, error } = await sb.auth.getSession();
+                if (error) {
+                    console.error('Supabase getSession error:', error);
+                    throw error;
+                }
+                if (!isMounted) return;
+                setSupabaseUser(data.session?.user ?? null);
+                if (data.session?.user) {
+                    setOfflineMode(false);
+                } else {
+                    clearRecoveryRequired();
+                    // No session — check if we should enter offline mode
+                    if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
+                        setOfflineMode(true);
+                    }
+                }
+                if (data.session?.user && hasRecoveryFlagInUrl()) {
+                    setShowPasswordRecoveryModal(true);
+                    markRecoveryRequired();
+                    clearRecoveryFlag();
+                }
                 return;
+            } catch {
+                // Offline or network error — try reading cached session from localStorage
+                try {
+                    const cached = localStorage.getItem('sb-auth-token');
+                    if (cached) {
+                        const parsed = JSON.parse(cached);
+                        const session = parsed?.current_session;
+                        if (session?.user) {
+                            if (!isMounted) return;
+                            setSupabaseUser(session.user);
+                            setOfflineMode(true);
+                            return;
+                        }
+                    }
+                } catch {
+                    // ignore localStorage errors
+                }
             }
             if (!isMounted) return;
-            setSupabaseUser(data.session?.user ?? null);
-            if (!data.session?.user) {
-                clearRecoveryRequired();
-            }
-            if (data.session?.user && hasRecoveryFlagInUrl()) {
-                setShowPasswordRecoveryModal(true);
-                markRecoveryRequired();
-                clearRecoveryFlag();
+            setSupabaseUser(null);
+            // Restore offlineMode from localStorage if offline or was previously in offline mode
+            if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
+                setOfflineMode(true);
+            } else {
+                setOfflineMode(false);
             }
         };
 
@@ -777,6 +828,7 @@ const App: React.FC = () => {
 
         const { data } = sb.auth.onAuthStateChange((event, session) => {
             setSupabaseUser(session?.user ?? null);
+            setOfflineMode(false);
             if (!session?.user) {
                 clearRecoveryRequired();
             }
@@ -799,7 +851,7 @@ const App: React.FC = () => {
             isMounted = false;
             data.subscription.unsubscribe();
         };
-    }, [useSupabaseAuth, setRecoveryRequired, setShowPasswordRecoveryModal, setSupabaseUser]);
+    }, [useSupabaseAuth, setRecoveryRequired, setShowPasswordRecoveryModal, setSupabaseUser, setOfflineMode]);
 
     useEffect(() => {
         if (recoveryIntent) {
@@ -1887,7 +1939,7 @@ const App: React.FC = () => {
     if (!isAuthenticated) {
         return (
             <div className="min-h-screen bg-background text-text-primary">
-                <LandingPage onOpenLogin={() => setShowLoginModal(true)} />
+                <LandingPage onOpenLogin={() => setShowLoginModal(true)} onOfflineMode={() => setOfflineMode(true)} />
                 {showLoginModal && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" role="dialog" aria-modal="true">
                         <div className="relative w-full max-w-md">
@@ -1907,6 +1959,18 @@ const App: React.FC = () => {
                                 onResetPassword={handleResetPassword}
                                 useSupabaseAuth={useSupabaseAuth}
                             />
+                            <div className="mt-4">
+                                <button
+                                    type="button"
+                                    onClick={() => setOfflineMode(true)}
+                                    className="w-full rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-300 font-medium hover:bg-amber-500/20 transition"
+                                >
+                                    Работать оффлайн
+                                </button>
+                                <p className="mt-2 text-center text-xs text-text-secondary">
+                                    Данные сохраняются локально. Синхронизация при восстановлении связи.
+                                </p>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -1930,6 +1994,21 @@ const App: React.FC = () => {
                 subscriptionSummary={headerSubscriptionSummary}
                 onUpgradeClick={handleUpgradeClick}
             />
+            {offlineModeRaw && (
+                <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-center text-sm text-amber-300">
+                    Оффлайн-режим — данные сохраняются локально. Синхронизация будет выполнена при восстановлении связи.
+                </div>
+            )}
+            <div className="fixed top-3 right-4 z-50">
+                <StatusIndicators
+                    isOnline={offlineSync.isOnline}
+                    isSupabaseConnected={offlineSync.isSupabaseConnected}
+                    isGoogleAuthOk={offlineSync.isGoogleAuthOk}
+                    pendingCount={offlineSync.pendingChanges.length}
+                    syncStatus={offlineSync.syncStatus}
+                    onSync={offlineSync.syncNow}
+                />
+            </div>
             <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto">
                 {isLoading ? (
                     <AppLoadingSkeleton />
