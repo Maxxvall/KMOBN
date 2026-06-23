@@ -40,7 +40,7 @@ const Prices: React.FC<PricesProps> = ({
     const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
     const [searchInput, setSearchInput] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
-    const debounceTimer = useRef<ReturnType<typeof setTimeout>>();
+    const debounceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
     const handleSearchChange = useCallback((value: string) => {
         setSearchInput(value);
