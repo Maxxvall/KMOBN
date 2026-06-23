@@ -445,18 +445,18 @@ export const validateImportData = (jsonData: string): ImportValidationResult => 
 };
 
 export interface ImportResult {
-  estimates: { added: number; updated: number; skipped: number };
-  templates: { added: number; updated: number; skipped: number };
-  materials: { added: number; updated: number; skipped: number };
-  works: { added: number; updated: number; skipped: number };
-  bundles: { added: number; updated: number; skipped: number };
-  salaryCalculations: { added: number; skipped: number };
+  estimates: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
+  templates: { added: number; updated: number; unchanged: number };
+  materials: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
+  works: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
+  bundles: { added: number; updated: number; unchanged: number };
+  salaryCalculations: { added: number };
 }
 
 export const importData = async (jsonData: string): Promise<ImportResult> => {
   if (!isSupabaseConfigured()) {
     console.warn('Supabase not configured, skipping import');
-    return { estimates: { added: 0, updated: 0, skipped: 0 }, templates: { added: 0, updated: 0, skipped: 0 }, materials: { added: 0, updated: 0, skipped: 0 }, works: { added: 0, updated: 0, skipped: 0 }, bundles: { added: 0, updated: 0, skipped: 0 }, salaryCalculations: { added: 0, skipped: 0 } };
+    return { estimates: { added: 0, updated: 0, unchanged: 0, inFileDuplicates: 0 }, templates: { added: 0, updated: 0, unchanged: 0 }, materials: { added: 0, updated: 0, unchanged: 0, inFileDuplicates: 0 }, works: { added: 0, updated: 0, unchanged: 0, inFileDuplicates: 0 }, bundles: { added: 0, updated: 0, unchanged: 0 }, salaryCalculations: { added: 0 } };
   }
 
   const validation = validateImportData(jsonData);
@@ -471,14 +471,54 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     const baseSortOrder = Date.now();
     const makeSortOrder = (index: number): number => baseSortOrder + index;
     const asArray = <T>(value: unknown): T[] => Array.isArray(value) ? (value as T[]) : [];
-    const dedupById = <T extends { id: string }>(items: T[]): T[] => {
+
+    const dedupById = <T extends { id: string }>(items: T[]): { result: T[]; removedCount: number } => {
       const seen = new Map<string, T>();
+      let removedCount = 0;
       for (const item of items) {
         if (!seen.has(item.id)) {
           seen.set(item.id, item);
+        } else {
+          removedCount++;
         }
       }
-      return Array.from(seen.values());
+      return { result: Array.from(seen.values()), removedCount };
+    };
+
+    const hasMaterialChanged = (existing: Material, incoming: Material): boolean => {
+      return existing.price !== incoming.price ||
+        (existing.link ?? '') !== (incoming.link ?? '') ||
+        existing.category !== incoming.category;
+    };
+
+    const hasWorkChanged = (existing: Work, incoming: Work): boolean => {
+      return existing.price !== incoming.price ||
+        existing.category !== incoming.category;
+    };
+
+    const hasTemplateChanged = (existing: ProjectTemplate, incoming: ProjectTemplate): boolean => {
+      if (existing.baseArea !== incoming.baseArea) return true;
+      if ((existing.items?.length ?? 0) !== (incoming.items?.length ?? 0)) return true;
+      if (JSON.stringify(existing.items) !== JSON.stringify(incoming.items)) return true;
+      return false;
+    };
+
+    const hasBundleChanged = (existing: WorkBundle, incoming: WorkBundle): boolean => {
+      if (existing.category !== incoming.category) return true;
+      if ((existing.items?.length ?? 0) !== (incoming.items?.length ?? 0)) return true;
+      if (JSON.stringify(existing.items) !== JSON.stringify(incoming.items)) return true;
+      return false;
+    };
+
+    const hasEstimateChanged = (existing: Estimate, incoming: Estimate): boolean => {
+      if (existing.client !== incoming.client) return true;
+      if (existing.date !== incoming.date) return true;
+      if (existing.status !== incoming.status) return true;
+      if (existing.area !== incoming.area) return true;
+      if (existing.buildingType !== incoming.buildingType) return true;
+      if ((existing.items?.length ?? 0) !== (incoming.items?.length ?? 0)) return true;
+      if (JSON.stringify(existing.items) !== JSON.stringify(incoming.items)) return true;
+      return false;
     };
 
     const rawEstimates = asArray<Estimate>(data.estimates);
@@ -519,26 +559,33 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     const rawBundles = asArray<WorkBundle>(data.bundles);
     const rawSalaryCalculations = asArray<SalaryCalculation>(data.salaryCalculations);
 
-    let estimatesAdded = 0, estimatesUpdated = 0, estimatesSkipped = 0;
+    let estimatesAdded = 0, estimatesUpdated = 0, estimatesUnchanged = 0;
     const estimateIdMap = new Map<string, string>();
     rawEstimates.forEach(e => {
       const key = `${e.estimateNumber}::v${e.version ?? 0}`;
       const existing = existingEstimateByNumberVersion.get(key);
       if (existing) {
         estimateIdMap.set(e.id, existing.id);
-        estimatesUpdated++;
+        if (hasEstimateChanged(existing, e)) {
+          estimatesUpdated++;
+        } else {
+          estimatesUnchanged++;
+        }
       } else {
-        const newId = generateId('sm-id');
-        estimateIdMap.set(e.id, newId);
+        estimateIdMap.set(e.id, generateId('sm-id'));
         estimatesAdded++;
       }
     });
 
-    let templatesAdded = 0, templatesUpdated = 0;
+    let templatesAdded = 0, templatesUpdated = 0, templatesUnchanged = 0;
     const templates = rawTemplates.map((t, index) => {
       const existing = existingTemplateByName.get(normalizeKey(t.name));
       if (existing) {
-        templatesUpdated++;
+        if (hasTemplateChanged(existing, t)) {
+          templatesUpdated++;
+        } else {
+          templatesUnchanged++;
+        }
         return {
           ...existing,
           items: Array.isArray(t.items) ? t.items : existing.items,
@@ -565,11 +612,15 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       };
     });
 
-    let materialsAdded = 0, materialsUpdated = 0;
+    let materialsAdded = 0, materialsUpdated = 0, materialsUnchanged = 0;
     const materials = rawMaterials.map((m, index) => {
       const existing = existingMaterialByName.get(normalizeKey(m.name));
       if (existing) {
-        materialsUpdated++;
+        if (hasMaterialChanged(existing, m)) {
+          materialsUpdated++;
+        } else {
+          materialsUnchanged++;
+        }
         return {
           ...existing,
           price: m.price ?? existing.price,
@@ -586,14 +637,18 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       };
     });
 
-    const dedupMaterials = dedupById(materials);
-    const materialsSkipped = materials.length - dedupMaterials.length;
+    const dedupMaterialsResult = dedupById(materials);
+    const dedupMaterials = dedupMaterialsResult.result;
 
-    let worksAdded = 0, worksUpdated = 0;
+    let worksAdded = 0, worksUpdated = 0, worksUnchanged = 0;
     const works = rawWorks.map((w, index) => {
       const existing = existingWorkByName.get(normalizeKey(w.name));
       if (existing) {
-        worksUpdated++;
+        if (hasWorkChanged(existing, w)) {
+          worksUpdated++;
+        } else {
+          worksUnchanged++;
+        }
         return {
           ...existing,
           price: w.price ?? existing.price,
@@ -608,14 +663,18 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       };
     });
 
-    const dedupWorks = dedupById(works);
-    const worksSkipped = works.length - dedupWorks.length;
+    const dedupWorksResult = dedupById(works);
+    const dedupWorks = dedupWorksResult.result;
 
-    let bundlesAdded = 0, bundlesUpdated = 0;
+    let bundlesAdded = 0, bundlesUpdated = 0, bundlesUnchanged = 0;
     const bundles = rawBundles.map((b, index) => {
       const existing = existingBundleByName.get(normalizeKey(b.name));
       if (existing) {
-        bundlesUpdated++;
+        if (hasBundleChanged(existing, b)) {
+          bundlesUpdated++;
+        } else {
+          bundlesUnchanged++;
+        }
         return {
           ...existing,
           items: Array.isArray(b.items) ? b.items : existing.items,
@@ -676,12 +735,12 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     }
 
     const importResult: ImportResult = {
-      estimates: { added: estimatesAdded, updated: estimatesUpdated, skipped: rawEstimates.length - estimatesAdded - estimatesUpdated },
-      templates: { added: templatesAdded, updated: templatesUpdated, skipped: rawTemplates.length - templatesAdded - templatesUpdated },
-      materials: { added: materialsAdded, updated: materialsUpdated, skipped: materialsSkipped },
-      works: { added: worksAdded, updated: worksUpdated, skipped: worksSkipped },
-      bundles: { added: bundlesAdded, updated: bundlesUpdated, skipped: rawBundles.length - bundlesAdded - bundlesUpdated },
-      salaryCalculations: { added: salaryAdded, skipped: rawSalaryCalculations.length - salaryAdded },
+      estimates: { added: estimatesAdded, updated: estimatesUpdated, unchanged: estimatesUnchanged, inFileDuplicates: rawEstimates.length - estimatesAdded - estimatesUpdated - estimatesUnchanged },
+      templates: { added: templatesAdded, updated: templatesUpdated, unchanged: templatesUnchanged },
+      materials: { added: materialsAdded, updated: materialsUpdated, unchanged: materialsUnchanged, inFileDuplicates: dedupMaterialsResult.removedCount },
+      works: { added: worksAdded, updated: worksUpdated, unchanged: worksUnchanged, inFileDuplicates: dedupWorksResult.removedCount },
+      bundles: { added: bundlesAdded, updated: bundlesUpdated, unchanged: bundlesUnchanged },
+      salaryCalculations: { added: salaryAdded },
     };
 
     window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
