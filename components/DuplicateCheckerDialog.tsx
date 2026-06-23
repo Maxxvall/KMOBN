@@ -7,6 +7,7 @@ interface DuplicateCheckerDialogProps {
     title: string;
     duplicateGroups: DuplicateGroup<Material | Work>[];
     onMerge: (keepId: string, deleteIds: string[]) => Promise<void>;
+    totalCount?: number;
 }
 
 const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
@@ -15,10 +16,11 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
     title,
     duplicateGroups,
     onMerge,
+    totalCount,
 }) => {
     const [keptIds, setKeptIds] = useState<Set<string>>(new Set());
     const [isMerging, setIsMerging] = useState(false);
-    const [mergeResult, setMergeResult] = useState<{ success: boolean; message: string } | null>(null);
+    const [mergeResult, setMergeResult] = useState<{ success: boolean; message: string; details?: { removedFromGroup: number; remainingInGroups: number; percentOfTotal: number } } | null>(null);
 
     if (!isOpen) return null;
 
@@ -44,8 +46,10 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
         setIsMerging(true);
         setMergeResult(null);
         let totalDeleted = 0;
+        let totalItemsInGroups = 0;
         try {
             for (const group of duplicateGroups) {
+                totalItemsInGroups += group.items.length;
                 const deleteIds = group.items
                     .filter(item => !keptIds.has(item.id))
                     .map(item => item.id);
@@ -55,11 +59,18 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                     totalDeleted += deleteIds.length;
                 }
             }
-            setMergeResult({ success: true, message: `Удалено дубликатов: ${totalDeleted}` });
+            const remainingInGroups = totalItemsInGroups - totalDeleted;
+            const effectiveTotal = typeof totalCount === 'number' ? totalCount : totalItemsInGroups;
+            const percentOfTotal = effectiveTotal > 0 ? Math.round((totalDeleted / effectiveTotal) * 100) : 0;
+            setMergeResult({
+                success: true,
+                message: `Удалено дубликатов: ${totalDeleted}`,
+                details: { removedFromGroup: totalDeleted, remainingInGroups, percentOfTotal },
+            });
             setTimeout(() => {
                 setMergeResult(null);
                 onClose();
-            }, 1000);
+            }, 2500);
         } catch {
             setMergeResult({ success: false, message: 'Ошибка при удалении' });
         } finally {
@@ -100,7 +111,14 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                             ? 'bg-green-500/20 border border-green-500/40 text-green-300'
                             : 'bg-red-500/20 border border-red-500/40 text-red-300'
                     }`}>
-                        {mergeResult.message}
+                        <div>{mergeResult.message}</div>
+                        {mergeResult.details && (
+                            <div className="mt-2 text-xs font-normal opacity-90 space-y-0.5">
+                                <div>Удалено из выбранных групп: <strong>{mergeResult.details.removedFromGroup}</strong></div>
+                                <div>Осталось в группах: <strong>{mergeResult.details.remainingInGroups}</strong></div>
+                                <div>Удалено от общего списка: <strong>{mergeResult.details.percentOfTotal}%</strong></div>
+                            </div>
+                        )}
                     </div>
                 )}
 

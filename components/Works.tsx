@@ -333,6 +333,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 title="Дубликаты работ"
                 duplicateGroups={duplicateGroups}
                 onMerge={handleMergeWorks}
+                totalCount={worksList.length}
             />
         </div>
     );

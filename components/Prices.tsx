@@ -396,6 +396,7 @@ const Prices: React.FC<PricesProps> = ({
                 title="Дубликаты материалов"
                 duplicateGroups={duplicateGroups}
                 onMerge={handleMergeMaterials}
+                totalCount={materialList.length}
             />
         </div>
     );
