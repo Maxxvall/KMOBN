@@ -257,7 +257,6 @@ export const pickChangedRecordsByIds = <T extends { id: string }>(records: T[], 
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
   const userId = await getAuthenticatedUserId();
   const cacheUserId = getCacheUserId(userId);
-  await syncCachedRecords('estimates', cacheUserId, estimates);
 
   if (navigator.onLine && isSupabaseConfigured() && userId) {
     try {
@@ -267,9 +266,11 @@ export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
         : estimates;
       await upsertRecords(upsertEstimates, changedEstimates);
     } catch {
+      await syncCachedRecords('estimates', cacheUserId, estimates);
       await offlineQueue.add({ table: 'estimates', operation: 'upsert', data: estimates });
     }
-  } else if (!navigator.onLine) {
+  } else {
+    await syncCachedRecords('estimates', cacheUserId, estimates);
     await offlineQueue.add({ table: 'estimates', operation: 'upsert', data: estimates });
   }
 };
@@ -298,6 +299,10 @@ export const deleteEstimatesByNumber = async (estimateNumber: string | number): 
 
 export const deleteEstimateById = async (estimateId: string): Promise<void> => {
   await deleteRecord('estimates', estimateId);
+};
+
+export const deleteEstimates = async (estimateIds: string[]): Promise<void> => {
+  await deleteRecords('estimates', estimateIds);
 };
 
 export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void> => {
@@ -337,11 +342,37 @@ export const saveMaterials = async (materials: Material[]): Promise<void> => {
 export const loadMaterials = async (options?: LoadTableOptions): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials, options);
 
 export const addMaterial = async (material: Material): Promise<void> => {
-  await upsertRecords(upsertMaterials, [material]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cached = await getCachedRecords<Material>('materials', cacheUserId);
+  await syncCachedRecords('materials', cacheUserId, [...cached, material]);
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertMaterials, [material]);
+    } catch {
+      await offlineQueue.add({ table: 'materials', operation: 'upsert', data: [material] });
+    }
+  } else {
+    await offlineQueue.add({ table: 'materials', operation: 'upsert', data: [material] });
+  }
 };
 
 export const updateMaterial = async (material: Material): Promise<void> => {
-  await upsertRecords(upsertMaterials, [material]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cached = await getCachedRecords<Material>('materials', cacheUserId);
+  await syncCachedRecords('materials', cacheUserId, cached.map(c => c.id === material.id ? material : c));
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertMaterials, [material]);
+    } catch {
+      await offlineQueue.add({ table: 'materials', operation: 'upsert', data: [material] });
+    }
+  } else {
+    await offlineQueue.add({ table: 'materials', operation: 'upsert', data: [material] });
+  }
 };
 
 export const deleteMaterial = async (materialId: string): Promise<void> => {
@@ -371,11 +402,37 @@ export const saveWorks = async (works: Work[]): Promise<void> => {
 export const loadWorks = async (options?: LoadTableOptions): Promise<Work[]> => readTableCached<Work>('works', fetchWorks, options);
 
 export const addWork = async (work: Work): Promise<void> => {
-  await upsertRecords(upsertWorks, [work]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cached = await getCachedRecords<Work>('works', cacheUserId);
+  await syncCachedRecords('works', cacheUserId, [...cached, work]);
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertWorks, [work]);
+    } catch {
+      await offlineQueue.add({ table: 'works', operation: 'upsert', data: [work] });
+    }
+  } else {
+    await offlineQueue.add({ table: 'works', operation: 'upsert', data: [work] });
+  }
 };
 
 export const updateWork = async (work: Work): Promise<void> => {
-  await upsertRecords(upsertWorks, [work]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cached = await getCachedRecords<Work>('works', cacheUserId);
+  await syncCachedRecords('works', cacheUserId, cached.map(c => c.id === work.id ? work : c));
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertWorks, [work]);
+    } catch {
+      await offlineQueue.add({ table: 'works', operation: 'upsert', data: [work] });
+    }
+  } else {
+    await offlineQueue.add({ table: 'works', operation: 'upsert', data: [work] });
+  }
 };
 
 export const deleteWork = async (workId: string): Promise<void> => {
@@ -411,23 +468,61 @@ export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundl
 };
 
 export const addBundle = async (bundle: WorkBundle): Promise<void> => {
-  await upsertRecords(upsertBundles, [bundle]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cached = await getCachedRecords<WorkBundle>('bundles', cacheUserId);
+  await syncCachedRecords('bundles', cacheUserId, [...cached, bundle]);
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertBundles, [bundle]);
+    } catch {
+      await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: [bundle] });
+    }
+  } else {
+    await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: [bundle] });
+  }
 };
 
 export const updateBundle = async (bundle: WorkBundle): Promise<void> => {
-  await upsertRecords(upsertBundles, [bundle]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  const cached = await getCachedRecords<WorkBundle>('bundles', cacheUserId);
+  await syncCachedRecords('bundles', cacheUserId, cached.map(c => c.id === bundle.id ? bundle : c));
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertBundles, [bundle]);
+    } catch {
+      await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: [bundle] });
+    }
+  } else {
+    await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: [bundle] });
+  }
 };
 
 export const deleteBundle = async (bundleId: string): Promise<void> => {
   await deleteRecord('bundles', bundleId);
 };
 
+export const deleteBundles = async (bundleIds: string[]): Promise<void> => {
+  await deleteRecords('bundles', bundleIds);
+};
+
 export const saveSalaryCalculation = async (calculation: SalaryCalculation): Promise<void> => {
-  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
-  await Promise.all([
-    upsertRecords(upsertSalaryCalculations, [calculation]),
-    syncCachedRecords('salary_calculations', cacheUserId, [calculation]),
-  ]);
+  const userId = await getAuthenticatedUserId();
+  const cacheUserId = getCacheUserId(userId);
+  await syncCachedRecords('salary_calculations', cacheUserId, [calculation]);
+
+  if (navigator.onLine && isSupabaseConfigured() && userId) {
+    try {
+      await upsertRecords(upsertSalaryCalculations, [calculation]);
+    } catch {
+      await offlineQueue.add({ table: 'salary_calculations', operation: 'upsert', data: [calculation] });
+    }
+  } else {
+    await offlineQueue.add({ table: 'salary_calculations', operation: 'upsert', data: [calculation] });
+  }
 };
 
 export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
@@ -517,7 +612,7 @@ export interface ImportResult {
   templates: { added: number; updated: number; unchanged: number };
   materials: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
   works: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
-  bundles: { added: number; updated: number; unchanged: number };
+  bundles: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
   salaryCalculations: { added: number };
 }
 
@@ -589,11 +684,11 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     const rawMaterials = asArray<Material>(data.materials);
     const rawWorks = asArray<Work>(data.works);
 
-    const existingMaterials = isSupabaseConfigured() ? await loadMaterials() : [];
-    const existingWorks = isSupabaseConfigured() ? await loadWorks() : [];
-    const existingEstimates = isSupabaseConfigured() ? await loadEstimates() : [];
-    const existingTemplates = isSupabaseConfigured() ? await loadTemplates() : [];
-    const existingBundles = isSupabaseConfigured() ? await loadBundles() : [];
+    const existingMaterials = await loadMaterials();
+    const existingWorks = await loadWorks();
+    const existingEstimates = await loadEstimates();
+    const existingTemplates = await loadTemplates();
+    const existingBundles = await loadBundles();
 
     const existingMaterialByName = new Map<string, Material>();
     for (const m of existingMaterials) {
@@ -753,6 +848,9 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       };
     });
 
+    const dedupBundlesResult = dedupById(bundles);
+    const dedupBundles = dedupBundlesResult.result;
+
     let salaryAdded = 0;
     const salaryCalculations = rawSalaryCalculations.map(s => {
       const newEstimateId = estimateIdMap.get(s.estimateId);
@@ -790,7 +888,7 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       importTable('templates', templates, upsertTemplates),
       importTable('materials', dedupMaterials, upsertMaterials),
       importTable('works', dedupWorks, upsertWorks),
-      importTable('bundles', bundles, upsertBundles),
+      importTable('bundles', dedupBundles, upsertBundles),
       importTable('salary_calculations', salaryCalculations, upsertSalaryCalculations),
     ]);
 
@@ -799,7 +897,7 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       templates: { added: templatesAdded, updated: templatesUpdated, unchanged: templatesUnchanged },
       materials: { added: materialsAdded, updated: materialsUpdated, unchanged: materialsUnchanged, inFileDuplicates: dedupMaterialsResult.removedCount },
       works: { added: worksAdded, updated: worksUpdated, unchanged: worksUnchanged, inFileDuplicates: dedupWorksResult.removedCount },
-      bundles: { added: bundlesAdded, updated: bundlesUpdated, unchanged: bundlesUnchanged },
+      bundles: { added: bundlesAdded, updated: bundlesUpdated, unchanged: bundlesUnchanged, inFileDuplicates: dedupBundlesResult.removedCount },
       salaryCalculations: { added: salaryAdded },
     };
 
@@ -817,14 +915,6 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
 };
 
 export const exportUserData = async (): Promise<Blob> => {
-  const data = {
-    estimates: await loadEstimates(),
-    materials: await loadMaterials(),
-    works: await loadWorks(),
-    bundles: await loadBundles(),
-    templates: await loadTemplates(),
-    exportedAt: new Date().toISOString(),
-    version: '1.0',
-  };
-  return new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const data = await exportData();
+  return new Blob([data], { type: 'application/json' });
 };

@@ -6,8 +6,10 @@ import {
   saveMaterials,
   saveWorks,
   saveBundles,
+  deleteEstimates,
   deleteMaterials,
   deleteWorks,
+  deleteBundles,
 } from '../services/database';
 
 export type SyncStatus = 'idle' | 'syncing' | 'error';
@@ -64,11 +66,17 @@ export const useOfflineSync = () => {
         for (const change of tableChanges) {
           if (change.operation === 'delete' && Array.isArray(change.data)) {
             switch (table) {
+              case 'estimates':
+                await deleteEstimates(change.data);
+                break;
               case 'materials':
                 await deleteMaterials(change.data);
                 break;
               case 'works':
                 await deleteWorks(change.data);
+                break;
+              case 'bundles':
+                await deleteBundles(change.data);
                 break;
             }
           } else if (change.operation === 'upsert') {
