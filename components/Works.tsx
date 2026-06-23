@@ -44,6 +44,12 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
         }
     };
 
+    const handleCreateWorkInGeneral = async (item: Work) => {
+        if (catalogContext?.onAddWork) {
+            await catalogContext.onAddWork(item.name, item.category, item.price);
+        }
+    };
+
     const filteredWorks = useMemo(() => {
         return filterCategory === 'all' ? worksList : worksList.filter(w => w.category === filterCategory);
     }, [worksList, filterCategory]);
@@ -333,7 +339,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 title="Дубликаты работ"
                 duplicateGroups={duplicateGroups}
                 onMerge={handleMergeWorks}
-                totalCount={worksList.length}
+                onCreateInGeneral={handleCreateWorkInGeneral}
             />
         </div>
     );

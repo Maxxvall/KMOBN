@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { DuplicateGroup, Material, Work } from '../types';
+import { DuplicateGroup, Material, Work, EstimateCategory, normalizeKey } from '../types';
 
 interface DuplicateCheckerDialogProps {
     isOpen: boolean;
@@ -7,7 +7,7 @@ interface DuplicateCheckerDialogProps {
     title: string;
     duplicateGroups: DuplicateGroup<Material | Work>[];
     onMerge: (keepId: string, deleteIds: string[]) => Promise<void>;
-    totalCount?: number;
+    onCreateInGeneral?: (item: Material | Work) => Promise<void>;
 }
 
 const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
@@ -16,11 +16,11 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
     title,
     duplicateGroups,
     onMerge,
-    totalCount,
+    onCreateInGeneral,
 }) => {
     const [keptIds, setKeptIds] = useState<Set<string>>(new Set());
     const [isMerging, setIsMerging] = useState(false);
-    const [mergeResult, setMergeResult] = useState<{ success: boolean; message: string; details?: { removedFromGroup: number; remainingInGroups: number; percentOfTotal: number } } | null>(null);
+    const [mergeResult, setMergeResult] = useState<{ success: boolean; message: string } | null>(null);
 
     if (!isOpen) return null;
 
@@ -42,40 +42,64 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
         }
     };
 
+    const selectBestInGroup = (group: DuplicateGroup<Material | Work>) => {
+        const generalItem = group.items.find(
+            item => 'category' in item && item.category === EstimateCategory.GENERAL
+        );
+        const bestItem = generalItem ?? group.items[0];
+        setKeptIds(prev => {
+            const next = new Set(prev);
+            for (const item of group.items) {
+                next.delete(item.id);
+            }
+            next.add(bestItem.id);
+            return next;
+        });
+    };
+
     const handleMergeAll = async () => {
         setIsMerging(true);
         setMergeResult(null);
         let totalDeleted = 0;
-        let totalItemsInProcessedGroups = 0;
-        let groupsProcessed = 0;
+        let totalCreated = 0;
         try {
             for (const group of duplicateGroups) {
-                const hasSelection = group.items.some(item => keptIds.has(item.id));
-                if (!hasSelection) continue;
+                const itemsToKeep = group.items.filter(item => keptIds.has(item.id));
+                const itemsToDelete = group.items.filter(item => !keptIds.has(item.id));
 
-                groupsProcessed++;
-                totalItemsInProcessedGroups += group.items.length;
-                const deleteIds = group.items
-                    .filter(item => !keptIds.has(item.id))
-                    .map(item => item.id);
-                if (deleteIds.length > 0) {
-                    const keepId = group.items.find(item => keptIds.has(item.id))?.id ?? group.items[0].id;
+                if (itemsToDelete.length === 0) continue;
+
+                const hasGeneral = itemsToKeep.some(
+                    item => 'category' in item && item.category === EstimateCategory.GENERAL
+                );
+
+                if (hasGeneral || itemsToKeep.length > 0) {
+                    const keepId = itemsToKeep[0]?.id ?? group.items[0].id;
+                    const deleteIds = itemsToDelete.map(item => item.id);
                     await onMerge(keepId, deleteIds);
                     totalDeleted += deleteIds.length;
+                } else if (onCreateInGeneral && itemsToDelete.length > 0) {
+                    const templateItem = itemsToDelete[0];
+                    const newItem = {
+                        ...templateItem,
+                        id: `${'category' in templateItem ? 'material' : 'work'}-${Date.now()}`,
+                        category: EstimateCategory.GENERAL,
+                    };
+                    await onCreateInGeneral(newItem);
+                    const deleteIds = itemsToDelete.map(item => item.id);
+                    await onMerge(newItem.id, deleteIds);
+                    totalDeleted += deleteIds.length;
+                    totalCreated++;
                 }
             }
-            const remainingInGroups = totalItemsInProcessedGroups - totalDeleted;
-            const effectiveTotal = typeof totalCount === 'number' ? totalCount : totalItemsInProcessedGroups;
-            const percentOfTotal = effectiveTotal > 0 ? Math.round((totalDeleted / effectiveTotal) * 100) : 0;
-            setMergeResult({
-                success: true,
-                message: `Обработано групп: ${groupsProcessed}. Удалено дубликатов: ${totalDeleted}`,
-                details: { removedFromGroup: totalDeleted, remainingInGroups, percentOfTotal },
-            });
+            const parts: string[] = [];
+            if (totalDeleted > 0) parts.push(`удалено: ${totalDeleted}`);
+            if (totalCreated > 0) parts.push(`создано в ОБЩАЯ: ${totalCreated}`);
+            setMergeResult({ success: true, message: parts.join(', ') || 'Нечего удалять' });
             setTimeout(() => {
                 setMergeResult(null);
                 onClose();
-            }, 3000);
+            }, 1200);
         } catch {
             setMergeResult({ success: false, message: 'Ошибка при удалении' });
         } finally {
@@ -83,11 +107,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
         }
     };
 
-    const totalDuplicates = duplicateGroups.reduce((sum, g) => sum + g.items.length, 0);
-    const selectedGroupsCount = duplicateGroups.filter(g => g.items.some(item => keptIds.has(item.id))).length;
     const totalToDelete = duplicateGroups.reduce((sum, g) => {
-        const hasSelection = g.items.some(item => keptIds.has(item.id));
-        if (!hasSelection) return sum;
         return sum + g.items.filter(item => !keptIds.has(item.id)).length;
     }, 0);
 
@@ -108,7 +128,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
             onClick={handleBackdropClick}
         >
             <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-bold text-text-primary">{title}</h2>
                     <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
                 </div>
@@ -119,14 +139,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                             ? 'bg-green-500/20 border border-green-500/40 text-green-300'
                             : 'bg-red-500/20 border border-red-500/40 text-red-300'
                     }`}>
-                        <div>{mergeResult.message}</div>
-                        {mergeResult.details && (
-                            <div className="mt-2 text-xs font-normal opacity-90 space-y-0.5">
-                                <div>Удалено из выбранных групп: <strong>{mergeResult.details.removedFromGroup}</strong></div>
-                                <div>Осталось в группах: <strong>{mergeResult.details.remainingInGroups}</strong></div>
-                                <div>Удалено от общего списка: <strong>{mergeResult.details.percentOfTotal}%</strong></div>
-                            </div>
-                        )}
+                        {mergeResult.message}
                     </div>
                 )}
 
@@ -137,86 +150,111 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                     </div>
                 ) : (
                     <>
-                        <p className="text-text-secondary mb-2">
-                            Найдено групп: {duplicateGroups.length}, позиций: {totalDuplicates}.
+                        <p className="text-text-secondary mb-2 text-sm">
+                            Найдено групп: {duplicateGroups.length}. Отметьте галочками что <strong className="text-text-primary">оставить</strong>.
                         </p>
                         <p className="text-text-secondary mb-4 text-sm">
-                            Отметьте галочками позиции, которые хотите <strong className="text-text-primary">оставить</strong>.
-                            Остальные будут удалены.
+                            Кнопка «Выбрать» автоматически оставляет позицию из раздела <strong className="text-text-primary">ОБЩАЯ</strong> (или первую).
                         </p>
 
-                        <div className="space-y-4 mb-6">
-                            {duplicateGroups.map(group => (
-                                <div key={group.normalizedKey} className="bg-background rounded-lg p-4 border border-border">
-                                    <h3 className="text-text-primary font-semibold mb-3">
-                                        «{group.displayName}»
-                                        <span className="ml-2 text-sm text-text-secondary">
-                                            ({group.items.length} шт.)
-                                        </span>
-                                    </h3>
-                                    <table className="w-full text-sm">
-                                        <thead>
-                                            <tr className="text-text-secondary border-b border-border">
-                                                <th className="text-left py-2 w-8">✓</th>
-                                                <th className="text-left py-2">Название</th>
-                                                <th className="text-left py-2">Категория</th>
-                                                <th className="text-right py-2">Цена</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {group.items.map(item => {
-                                                const isKept = keptIds.has(item.id);
-                                                return (
-                                                    <tr
-                                                        key={item.id}
-                                                        className={`border-b border-border/50 ${isKept ? 'bg-green-500/10' : 'opacity-50'}`}
-                                                    >
-                                                        <td className="py-2">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={isKept}
-                                                                onChange={() => toggleKeep(item.id)}
-                                                                className="accent-green-500"
-                                                                disabled={isMerging}
-                                                            />
-                                                        </td>
-                                                        <td className="py-2 text-text-primary">{item.name}</td>
-                                                        <td className="py-2 text-text-secondary">
-                                                            {'category' in item ? item.category : '—'}
-                                                        </td>
-                                                        <td className="py-2 text-text-primary text-right">
-                                                            {formatPrice(item.price)}
-                                                        </td>
-                                                    </tr>
-                                                );
-                                            })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ))}
+                        <div className="flex gap-3 mb-4">
+                            <button
+                                onClick={handleMergeAll}
+                                disabled={isMerging || totalToDelete === 0}
+                                className="bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition"
+                            >
+                                {isMerging ? <><Spinner /> Удаление...</> : `Удалить выбранные (${totalToDelete})`}
+                            </button>
+                            <button
+                                onClick={onClose}
+                                disabled={isMerging}
+                                className="bg-border hover:bg-border/80 disabled:opacity-50 text-text-primary font-bold py-2 px-4 rounded-md transition"
+                            >
+                                Отмена
+                            </button>
                         </div>
 
-                        <div className="flex justify-between items-center">
-                            <span className="text-text-secondary text-sm">
-                                Отмечено групп: <strong className="text-primary">{selectedGroupsCount}</strong> из {duplicateGroups.length}.
-                                Будет удалено: <strong className="text-red-400">{totalToDelete}</strong>
-                            </span>
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={onClose}
-                                    disabled={isMerging}
-                                    className="bg-border hover:bg-border/80 disabled:opacity-50 text-text-primary font-bold py-2 px-4 rounded-md transition"
-                                >
-                                    Отмена
-                                </button>
-                                <button
-                                    onClick={handleMergeAll}
-                                    disabled={isMerging || totalToDelete === 0}
-                                    className="bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition"
-                                >
-                                    {isMerging ? <><Spinner /> Удаление...</> : `Удалить (${totalToDelete})`}
-                                </button>
-                            </div>
+                        <div className="space-y-4">
+                            {duplicateGroups.map(group => {
+                                const hasGeneral = group.items.some(
+                                    item => 'category' in item && item.category === EstimateCategory.GENERAL
+                                );
+                                const selectedCount = group.items.filter(item => keptIds.has(item.id)).length;
+                                return (
+                                    <div key={group.normalizedKey} className="bg-background rounded-lg p-4 border border-border">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <h3 className="text-text-primary font-semibold">
+                                                «{group.displayName}»
+                                                <span className="ml-2 text-sm text-text-secondary">
+                                                    ({group.items.length} шт.)
+                                                    {selectedCount > 0 && (
+                                                        <span className="ml-2 text-green-400">
+                                                            — оставлено: {selectedCount}
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                {hasGeneral && (
+                                                    <span className="ml-2 text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">
+                                                        есть ОБЩАЯ
+                                                    </span>
+                                                )}
+                                            </h3>
+                                            <button
+                                                onClick={() => selectBestInGroup(group)}
+                                                disabled={isMerging}
+                                                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-bold py-1 px-3 rounded-md transition"
+                                            >
+                                                Выбрать
+                                            </button>
+                                        </div>
+                                        <table className="w-full text-sm">
+                                            <thead>
+                                                <tr className="text-text-secondary border-b border-border">
+                                                    <th className="text-left py-2 w-8">✓</th>
+                                                    <th className="text-left py-2">Название</th>
+                                                    <th className="text-left py-2">Категория</th>
+                                                    <th className="text-right py-2">Цена</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {group.items.map(item => {
+                                                    const isKept = keptIds.has(item.id);
+                                                    const isGeneral = 'category' in item && item.category === EstimateCategory.GENERAL;
+                                                    return (
+                                                        <tr
+                                                            key={item.id}
+                                                            className={`border-b border-border/50 ${
+                                                                isKept ? 'bg-green-500/10' : 'opacity-50'
+                                                            }`}
+                                                        >
+                                                            <td className="py-2">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isKept}
+                                                                    onChange={() => toggleKeep(item.id)}
+                                                                    className="accent-green-500"
+                                                                    disabled={isMerging}
+                                                                />
+                                                            </td>
+                                                            <td className="py-2 text-text-primary">{item.name}</td>
+                                                            <td className="py-2 text-text-secondary">
+                                                                {'category' in item ? (
+                                                                    <span className={isGeneral ? 'text-primary font-semibold' : ''}>
+                                                                        {item.category}
+                                                                    </span>
+                                                                ) : '—'}
+                                                            </td>
+                                                            <td className="py-2 text-text-primary text-right">
+                                                                {formatPrice(item.price)}
+                                                            </td>
+                                                        </tr>
+                                                    );
+                                                })}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </>
                 )}

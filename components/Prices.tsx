@@ -57,6 +57,12 @@ const Prices: React.FC<PricesProps> = ({
         }
     };
 
+    const handleCreateMaterialInGeneral = async (item: Material) => {
+        if (catalogContext?.onAddMaterial) {
+            await catalogContext.onAddMaterial(item.name, item.category, item.price, item.link);
+        }
+    };
+
     const filteredMaterials = useMemo(() => {
         return filterCategory === 'all' ? materialList : materialList.filter(m => m.category === filterCategory);
     }, [materialList, filterCategory]);
@@ -396,7 +402,7 @@ const Prices: React.FC<PricesProps> = ({
                 title="Дубликаты материалов"
                 duplicateGroups={duplicateGroups}
                 onMerge={handleMergeMaterials}
-                totalCount={materialList.length}
+                onCreateInGeneral={handleCreateMaterialInGeneral}
             />
         </div>
     );

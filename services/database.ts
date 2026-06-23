@@ -573,20 +573,47 @@ export const importData = async (jsonData: string): Promise<void> => {
         id: newEstimateId ? `salary-${estimateId}` : generateId('salary'),
       };
     });
-    await Promise.all([
-      estimates.length ? upsertRecords(upsertEstimates, estimates) : Promise.resolve(),
-      templates.length ? upsertRecords(upsertTemplates, templates) : Promise.resolve(),
-      materials.length ? upsertRecords(upsertMaterials, materials) : Promise.resolve(),
-      works.length ? upsertRecords(upsertWorks, works) : Promise.resolve(),
-      bundles.length ? upsertRecords(upsertBundles, bundles) : Promise.resolve(),
-      salaryCalculations.length ? upsertRecords(upsertSalaryCalculations, salaryCalculations) : Promise.resolve(),
-    ]);
+
+    const upsertTasks: { name: string; task: Promise<void> }[] = [];
+
+    if (estimates.length) {
+      upsertTasks.push({ name: 'estimates', task: upsertRecords(upsertEstimates, estimates) });
+    }
+    if (templates.length) {
+      upsertTasks.push({ name: 'templates', task: upsertRecords(upsertTemplates, templates) });
+    }
+    if (materials.length) {
+      upsertTasks.push({ name: 'materials', task: upsertRecords(upsertMaterials, materials) });
+    }
+    if (works.length) {
+      upsertTasks.push({ name: 'works', task: upsertRecords(upsertWorks, works) });
+    }
+    if (bundles.length) {
+      upsertTasks.push({ name: 'bundles', task: upsertRecords(upsertBundles, bundles) });
+    }
+    if (salaryCalculations.length) {
+      upsertTasks.push({ name: 'salaryCalculations', task: upsertRecords(upsertSalaryCalculations, salaryCalculations) });
+    }
+
+    const results = await Promise.allSettled(upsertTasks.map(t => t.task));
+    const failures = results
+      .map((r, i) => ({ status: r.status, name: upsertTasks[i].name, reason: r.status === 'rejected' ? r.reason : null }))
+      .filter(r => r.status === 'rejected');
+
+    if (failures.length > 0) {
+      const details = failures.map(f => `${f.name}: ${f.reason}`).join('; ');
+      console.error('Partial import failure:', details);
+      throw new Error(`Ошибка при импорте таблиц: ${failures.map(f => f.name).join(', ')}`);
+    }
 
     window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
 
     console.log('Data imported successfully');
   } catch (error) {
     console.error('Failed to import data:', error);
+    if (error instanceof Error) {
+      throw new Error(`Ошибка при импорте: ${error.message}`);
+    }
     throw new Error('Ошибка при импорте данных. Проверьте формат файла.');
   }
 };
