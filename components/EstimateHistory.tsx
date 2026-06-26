@@ -328,7 +328,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     }, [estimateList]);
 
     return (
-        <div className="bg-surface p-4 rounded-lg shadow-2xl">
+        <div className="bg-surface p-3 sm:p-4 md:p-6 rounded-lg shadow-2xl">
             <TabDescription
                 storageKey="history"
                 summary="Управление всеми сметами вашей компании. Создавайте, редактируйте, отслеживайте версии и экспортируйте готовые документы."
@@ -424,7 +424,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 </div>
             </div>
 
-            <div className="overflow-x-auto">
+            {/* Desktop table */}
+            <div className="overflow-x-auto hidden md:block">
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
@@ -478,6 +479,55 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         })}
                     </tbody>
                 </table>
+            </div>
+
+            {/* Mobile card list */}
+            <div className="md:hidden space-y-3">
+                {filteredEstimates.map(estimate => {
+                    const groupKey = estimate.estimateNumber;
+                    const selectedEstimate = getSelectedVersionEstimate(estimate);
+                    const versionHistory = getVersionHistory(estimate);
+
+                    return (
+                        <article key={estimate.id} className="rounded-lg border border-border bg-background/40 p-3">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="min-w-0 flex-1">
+                                    <div className="font-semibold text-text-primary truncate">{estimate.client || 'Без клиента'}</div>
+                                    <div className="text-xs text-text-secondary">{estimate.estimateNumber} &middot; {estimate.area} м² &middot; {estimate.buildingType}</div>
+                                </div>
+                                <span className={`shrink-0 py-1 px-2 rounded-full text-xs font-semibold ${statusColors[selectedEstimate.status]}`}>
+                                    {selectedEstimate.status}
+                                </span>
+                            </div>
+                            <div className="text-xs text-text-secondary mb-2">
+                                {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                            <div className="flex items-center justify-between mb-3">
+                                <VersionDropdown
+                                    versions={versionHistory}
+                                    selectedId={selectedVersions[groupKey] || (versionHistory[0] && versionHistory[0].id) || estimate.id}
+                                    onSelect={(versionId) => handleVersionChange(groupKey, versionId)}
+                                    onDelete={(estimateVersion) => deleteVersionAction?.(estimateVersion)}
+                                />
+                                <span className="font-bold text-text-primary">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</span>
+                            </div>
+                            <div className="flex gap-2">
+                                <button onClick={() => editAction?.(selectedEstimate)} className="flex-1 min-h-[44px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold rounded-md transition-colors">
+                                    Просмотр
+                                </button>
+                                <button onClick={() => generatePdfAction?.(selectedEstimate)} className="flex-1 min-h-[44px] bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white text-sm font-semibold rounded-md transition-colors">
+                                    PDF
+                                </button>
+                                <button onClick={() => deleteAction?.(estimate)} className="min-h-[44px] min-w-[44px] bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-sm font-semibold rounded-md transition-colors flex items-center justify-center">
+                                    ✕
+                                </button>
+                            </div>
+                        </article>
+                    );
+                })}
+                {filteredEstimates.length === 0 && (
+                    <div className="text-center py-8 text-text-secondary">Нет смет</div>
+                )}
             </div>
 
             {showQuickStart && (

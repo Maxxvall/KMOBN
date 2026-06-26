@@ -1059,27 +1059,27 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 )}
 
                 {/* Row 1: Клиент, Дата, Статус, Тип строения, Площадь */}
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4">
-                    <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Клиент" className={inputStyles + " md:col-span-2"} />
-                    <input type="date" value={estimate.date} onChange={e => setEstimate({ ...estimate, date: e.target.value })} className={inputStyles} />
-                    <select value={estimate.status} onChange={e => setEstimate({ ...estimate, status: e.target.value as EstimateStatus })} className={inputStyles}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Клиент" className={inputStyles + " sm:col-span-2 min-h-[44px]"} />
+                    <input type="date" value={estimate.date} onChange={e => setEstimate({ ...estimate, date: e.target.value })} className={inputStyles + " min-h-[44px]"} />
+                    <select value={estimate.status} onChange={e => setEstimate({ ...estimate, status: e.target.value as EstimateStatus })} className={inputStyles + " min-h-[44px]"}>
                         {Object.values(EstimateStatus).filter(s => s !== EstimateStatus.ARCHIVED).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
-                    <input type="text" value={estimate.buildingType} onChange={e => setEstimate({ ...estimate, buildingType: e.target.value })} placeholder="Тип строения" className={inputStyles} />
+                    <input type="text" value={estimate.buildingType} onChange={e => setEstimate({ ...estimate, buildingType: e.target.value })} placeholder="Тип строения" className={inputStyles + " min-h-[44px]"} />
                 </div>
 
                 {/* Row 2: Площадь, Шаблон + удалить, Кнопка генерации + AI, AI-анализ */}
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-                    <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="Площадь" className={inputStyles} />
-                    <div className="flex gap-2 md:col-span-2">
-                        <select value={genParams.projectTemplateId} onChange={e => setGenParams({ ...genParams, projectTemplateId: e.target.value })} className={inputStyles + " flex-1"}>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+                    <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="Площадь" className={inputStyles + " min-h-[44px]"} />
+                    <div className="flex gap-2 sm:col-span-2">
+                        <select value={genParams.projectTemplateId} onChange={e => setGenParams({ ...genParams, projectTemplateId: e.target.value })} className={inputStyles + " flex-1 min-h-[44px]"}>
                             {templatesValue.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
                         </select>
-                        <button onClick={() => onDeleteTemplateAction?.(genParams.projectTemplateId)} className="text-red-500 hover:text-red-400 transition-colors px-2">✖</button>
+                        <button onClick={() => onDeleteTemplateAction?.(genParams.projectTemplateId)} className="text-red-500 hover:text-red-400 transition-colors px-2 min-h-[44px] min-w-[44px] flex items-center justify-center">✖</button>
                     </div>
-                    <div className="flex gap-2 items-center md:col-span-2">
-                        <button onClick={handleGenerate} disabled={isLoading} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-500 transition-colors">
-                            {isLoading ? 'Генерация...' : 'Сгенерировать по шаблону'}
+                    <div className="flex gap-2 items-center sm:col-span-2">
+                        <button onClick={handleGenerate} disabled={isLoading} className="flex-1 min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-500 transition-colors text-sm">
+                            {isLoading ? 'Генерация...' : 'По шаблону'}
                         </button>
                         <button
                             onClick={() => {
@@ -1103,41 +1103,41 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                 setAiGenModalOpen(true);
                             }}
                             disabled={isLoading}
-                            className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-3 rounded transition-colors disabled:bg-gray-500"
+                            className="min-h-[44px] min-w-[44px] bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-3 rounded transition-colors disabled:bg-gray-500"
                         >
                             AI
                         </button>
                         <button
                             onClick={handleAnalyzeEstimate}
                             disabled={isLoading}
-                            className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-3 rounded transition-colors disabled:bg-gray-500"
+                            className="min-h-[44px] min-w-[44px] bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-3 rounded transition-colors disabled:bg-gray-500 text-sm"
                         >
                             🤖 AI-анализ
                         </button>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mt-6 items-stretch">
-                    <div className="p-3 bg-background/60 border border-border rounded-lg flex items-center md:col-span-3 min-h-[60px]">
-                        <div className="flex items-center gap-4">
-                            <span className="font-semibold text-text-secondary">Версия: {estimate.version} | Изменено: {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 mt-6 items-stretch">
+                    <div className="p-3 bg-background/60 border border-border rounded-lg sm:col-span-2 md:col-span-3 min-h-[48px]">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-semibold text-text-secondary text-xs">v{estimate.version} | {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             {getPreviousVersion() && (
-                                <button onClick={() => setShowComparison(true)} className="text-sm text-blue-400 hover:underline">Сравнить с v{estimate.version - 1}</button>
+                                <button onClick={() => setShowComparison(true)} className="text-xs text-blue-400 hover:underline min-h-[44px]">Сравнить</button>
                             )}
                             {initialEstimateValue && (
-                                <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="text-sm text-green-400 hover:text-green-300 font-semibold transition-colors">Сохранить как шаблон</button>
+                                <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="text-xs text-green-400 hover:text-green-300 font-semibold min-h-[44px]">Шаблон</button>
                             )}
                         </div>
                     </div>
-                    <div className="p-3 bg-background/60 border border-border rounded-lg md:col-span-2 min-h-[60px] flex items-center">
+                    <div className="p-3 bg-background/60 border border-border rounded-lg sm:col-span-1 md:col-span-2 min-h-[48px] flex items-center">
                         <button
                             onClick={() => setBundlePickerOpen(true)}
-                            className="w-full p-1 bg-background border border-border rounded-md text-text-primary text-sm hover:border-primary transition"
+                            className="w-full min-h-[44px] p-1 bg-background border border-border rounded-md text-text-primary text-sm hover:border-primary transition"
                         >
-                            Добавить комплекты
+                            Комплекты
                         </button>
                     </div>
-                    <div className="p-3 bg-background/60 border border-border rounded-lg md:col-span-2 min-h-[60px] flex items-center">
+                    <div className="p-3 bg-background/60 border border-border rounded-lg sm:col-span-1 md:col-span-2 min-h-[48px] flex items-center">
                         <select
                             onChange={(e) => {
                                 const val = e.target.value as EstimateCategory;
@@ -1146,26 +1146,23 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     e.target.value = '';
                                 }
                             }}
-                            className="w-full p-1 bg-background border border-border rounded-md text-text-primary text-sm h-full"
+                            className="w-full min-h-[44px] p-1 bg-background border border-border rounded-md text-text-primary text-sm h-full"
                             defaultValue=""
                         >
-                            <option value="">Добавить раздел...</option>
+                            <option value="">+ Раздел...</option>
                             {Object.values(EstimateCategory).map(cat => (
                                 <option key={cat} value={cat} disabled={visibleCategories.includes(cat)}>{cat}</option>
                             ))}
                         </select>
                     </div>
-                    <div className="p-3 bg-background/60 border border-border rounded-lg flex items-center justify-between md:col-span-5 min-h-[60px]">
-                        <div className="flex flex-wrap gap-x-4 gap-y-1 items-center text-xs">
-                            <span className="text-text-secondary whitespace-nowrap">Работы: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="text-text-border">|</span>
-                            <span className="text-text-secondary whitespace-nowrap">Материалы: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="text-text-border">|</span>
-                            <span className="text-text-secondary whitespace-nowrap">Доставка: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="text-text-border">|</span>
+                    <div className="p-3 bg-background/60 border border-border rounded-lg flex items-center justify-between sm:col-span-2 md:col-span-5 min-h-[48px]">
+                        <div className="flex flex-wrap gap-x-3 gap-y-1 items-center text-xs">
+                            <span className="text-text-secondary whitespace-nowrap">Р: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                            <span className="text-text-secondary whitespace-nowrap">М: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                            <span className="text-text-secondary whitespace-nowrap">Д: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="text-sm font-bold text-primary whitespace-nowrap">ИТОГ: {estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
                         </div>
-                        <button onClick={handleSave} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 ml-4 whitespace-nowrap">
+                        <button onClick={handleSave} className="min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 ml-3 whitespace-nowrap text-sm">
                             Сохранить
                         </button>
                     </div>
@@ -1178,8 +1175,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
                         return (
                             <div key={category} className="border border-border rounded-lg bg-background/30">
-                                <div className="bg-gray-900/50 p-3 flex justify-between items-center rounded-t-lg border-b border-border">
-                                                <h3 className="text-lg font-bold text-text-primary">{catIndex + 1}. {category}</h3>
+                                <div className="bg-gray-900/50 p-2 sm:p-3 flex flex-col sm:flex-row sm:justify-between sm:items-center rounded-t-lg border-b border-border gap-1">
+                                                <h3 className="text-sm sm:text-lg font-bold text-text-primary truncate">{catIndex + 1}. {category}</h3>
                                                 {(() => {
                                                     const catTotal = categorySubtotals.get(category) || 0;
                                                     const catItems = items;
@@ -1188,20 +1185,26 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     const deliveryTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
                                                     if (category === EstimateCategory.LOGISTICS) {
                                                         return (
-                                                            <div className="font-semibold text-text-secondary">Итого по разделу: {catTotal.toLocaleString('ru-RU')} ₽ (Работы: {worksTotal.toLocaleString('ru-RU')} ₽, Доставка: {deliveryTotal.toLocaleString('ru-RU')} ₽)</div>
+                                                            <div className="text-xs sm:text-sm font-semibold text-text-secondary">
+                                                                <span className="sm:hidden">Итого: {catTotal.toLocaleString('ru-RU')} ₽ (Р:{worksTotal.toLocaleString('ru-RU')}₽, Д:{deliveryTotal.toLocaleString('ru-RU')}₽)</span>
+                                                                <span className="hidden sm:inline">Итого по разделу: {catTotal.toLocaleString('ru-RU')} ₽ (Работы: {worksTotal.toLocaleString('ru-RU')} ₽, Доставка: {deliveryTotal.toLocaleString('ru-RU')} ₽)</span>
+                                                            </div>
                                                         );
                                                     }
                                                     return (
-                                                        <div className="font-semibold text-text-secondary">Итого по разделу: {catTotal.toLocaleString('ru-RU')} ₽ (Работы: {worksTotal.toLocaleString('ru-RU')} ₽, Материалы: {materialsTotal.toLocaleString('ru-RU')} ₽)</div>
+                                                        <div className="text-xs sm:text-sm font-semibold text-text-secondary">
+                                                            <span className="sm:hidden">Итого: {catTotal.toLocaleString('ru-RU')} ₽ (Р:{worksTotal.toLocaleString('ru-RU')}₽, М:{materialsTotal.toLocaleString('ru-RU')}₽)</span>
+                                                            <span className="hidden sm:inline">Итого по разделу: {catTotal.toLocaleString('ru-RU')} ₽ (Работы: {worksTotal.toLocaleString('ru-RU')} ₽, Материалы: {materialsTotal.toLocaleString('ru-RU')} ₽)</span>
+                                                        </div>
                                                     );
                                                 })()}
                                     {visibleCategories.includes(category) && (
-                                        <div className="ml-4 flex items-center gap-2">
+                                        <div className="flex items-center gap-2 flex-wrap">
                                             {items.length > 0 && (
-                                                <button onClick={() => handleDuplicateSection(category)} className="text-blue-400 hover:text-blue-300 text-sm" title="Дублировать раздел (с коэффициентом)">Дублировать</button>
+                                                <button onClick={() => handleDuplicateSection(category)} className="text-blue-400 hover:text-blue-300 text-xs sm:text-sm min-h-[44px] px-2" title="Дублировать раздел">Дублировать</button>
                                             )}
-                                            <button onClick={() => handleOpenPasteModal(category)} className="text-purple-400 hover:text-purple-300 text-sm" title="Вставить из другой сметы">Из другой сметы</button>
-                                            <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-sm">Удалить</button>
+                                            <button onClick={() => handleOpenPasteModal(category)} className="text-purple-400 hover:text-purple-300 text-xs sm:text-sm min-h-[44px] px-2" title="Вставить из другой сметы">Из другой</button>
+                                            <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-xs sm:text-sm min-h-[44px] px-2">Удалить</button>
                                         </div>
                                     )}
                                 </div>
@@ -1216,12 +1219,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                         const renderedSubItems = isSubgroupExpanded ? subItems : subItems.slice(0, MAX_RENDERED_SUBITEMS);
                                         const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
                                         return (
-                                            <div key={subgroup} className="border border-border rounded-md bg-background/20">
+                                                <div key={subgroup} className="border border-border rounded-md bg-background/20">
                                                 <div className="flex justify-between items-center p-2 bg-gray-900/30 border-b border-border rounded-t-md">
-                                                    <div className="font-semibold">{subgroup}</div>
-                                                    <div className="text-sm font-medium text-text-secondary">Итого ({subgroup}): {subTotal.toLocaleString('ru-RU')} ₽</div>
+                                                    <div className="font-semibold text-xs sm:text-sm">{subgroup === EstimateSubgroup.WORKS ? 'Работы' : subgroup === EstimateSubgroup.MATERIALS ? 'Материалы' : 'Доставка'}</div>
+                                                    <div className="text-xs sm:text-sm font-medium text-text-secondary">{subTotal.toLocaleString('ru-RU')} ₽</div>
                                                 </div>
-                                                <div className="overflow-x-auto">
+                                                <div className="overflow-x-auto hidden md:block">
                                                     <table className="min-w-full">
                                                         <thead className="bg-gray-900/30">
                                                             <tr>
@@ -1338,11 +1341,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                     <td className="p-1 w-10 text-center">
                                                                         <button
                                                                             onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                                                                            className="relative text-text-secondary hover:text-primary transition-colors"
+                                                                            className="relative text-text-secondary hover:text-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
                                                                             title={item.note || 'Добавить примечание'}
                                                                         >
                                                                             📝
-                                                                            {item.note && <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full inline-block" />}
+                                                                            {item.note && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full inline-block" />}
                                                                         </button>
                                                                     </td>
                                                                     <td className="p-1 w-24">
@@ -1357,7 +1360,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                     <td className="p-1 w-32"><input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', inputStyles + " text-right text-sm")} /></td>
                                                                     <td className="p-1 w-32"><input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', inputStyles + " text-right text-sm")} /></td>
                                                                     <td className="p-1 w-32 text-right font-medium text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</td>
-                                                                    <td className="p-1 text-center"><button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-400 transition-colors">✖</button></td>
+                                                                    <td className="p-1 text-center"><button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-400 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center">✖</button></td>
                                                                 </tr>
                                                                 {openNotes[item.id] && (
                                                                     <tr>
@@ -1377,6 +1380,125 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         </tbody>
                                                     </table>
                                                 </div>
+                                                {/* Mobile card list */}
+                                                <div className="md:hidden space-y-3 p-2">
+                                                    {subItems.length === 0 && (
+                                                        <div className="text-sm text-text-secondary py-2">Нет позиций</div>
+                                                    )}
+                                                    {renderedSubItems.map((item) => {
+                                                        const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
+                                                        const filteredWorks = filteredWorksByCategory.get(category) || [];
+                                                        const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
+                                                        const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
+                                                        return (
+                                                        <article key={item.id} className={"rounded-lg border border-border bg-background/40 p-3" + (validationResultValue?.invalidItemIds?.has(item.id) ? " border-red-500/40" : "")}>
+                                                            <div className="space-y-2">
+                                                                {(subgroup === EstimateSubgroup.MATERIALS || subgroup === EstimateSubgroup.DELIVERY) ? (
+                                                                    useTypeaheadMaterials ? (
+                                                                        <div className="relative">
+                                                                            <input
+                                                                                type="text"
+                                                                                id={`typeahead-mobile-${item.id}`}
+                                                                                disabled={!!loadingPrices[item.id]}
+                                                                                value={item.name}
+                                                                                onChange={e => {
+                                                                                    updateItem(item.id, 'name', e.target.value);
+                                                                                    scheduleSuggestions(item.id, e.currentTarget.value, filteredMaterials);
+                                                                                }}
+                                                                                onBlur={e => {
+                                                                                    hideTimeouts.current[item.id] = setTimeout(() => {
+                                                                                        setShowSuggestions(prev => ({ ...prev, [item.id]: false }));
+                                                                                        delete hideTimeouts.current[item.id];
+                                                                                    }, 150);
+                                                                                    tryApplyMaterialByName(item.id, (e.currentTarget as HTMLInputElement).value);
+                                                                                }}
+                                                                                onFocus={e => { scheduleSuggestions(item.id, (e.currentTarget as HTMLInputElement).value, filteredMaterials); }}
+                                                                                onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); tryApplyMaterialByName(item.id, (e.currentTarget as HTMLInputElement).value); } }}
+                                                                                placeholder="Поиск материала"
+                                                                                className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")}
+                                                                            />
+                                                                            {renderSuggestionsPortal(item.id, suggestions[item.id] as Material[] | undefined, (it) => selectMaterialSuggestion(item.id, it as Material))}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} disabled={!!loadingPrices[item.id]} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")}>
+                                                                            <option value="">— Выберите материал —</option>
+                                                                            {filteredMaterials.map(mat => <option key={mat.id} value={mat.name}>{mat.name}</option>)}
+                                                                        </select>
+                                                                    )
+                                                                ) : subgroup === EstimateSubgroup.WORKS ? (
+                                                                    useTypeaheadWorks ? (
+                                                                        <div className="relative">
+                                                                            <input
+                                                                                type="text"
+                                                                                id={`typeahead-mobile-${item.id}`}
+                                                                                value={item.name}
+                                                                                onChange={e => {
+                                                                                    updateItem(item.id, 'name', e.target.value);
+                                                                                    scheduleSuggestions(item.id, e.currentTarget.value, filteredWorks);
+                                                                                }}
+                                                                                onBlur={e => {
+                                                                                    hideTimeouts.current[item.id] = setTimeout(() => {
+                                                                                        setShowSuggestions(prev => ({ ...prev, [item.id]: false }));
+                                                                                        delete hideTimeouts.current[item.id];
+                                                                                    }, 150);
+                                                                                    tryApplyWorkByName(item.id, (e.currentTarget as HTMLInputElement).value);
+                                                                                }}
+                                                                                onFocus={e => { scheduleSuggestions(item.id, (e.currentTarget as HTMLInputElement).value, filteredWorks); }}
+                                                                                onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); tryApplyWorkByName(item.id, (e.currentTarget as HTMLInputElement).value); } }}
+                                                                                placeholder="Поиск работы"
+                                                                                className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")}
+                                                                            />
+                                                                            {renderSuggestionsPortal(item.id, suggestions[item.id] as Work[] | undefined, (it) => selectWorkSuggestion(item.id, it as Work))}
+                                                                        </div>
+                                                                    ) : (
+                                                                        <select value={item.name} onChange={e => handleWorkSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")}>
+                                                                            <option value="">— Выберите работу —</option>
+                                                                            {filteredWorks.map(wrk => <option key={wrk.id} value={wrk.name}>{wrk.name}</option>)}
+                                                                        </select>
+                                                                    )
+                                                                ) : (
+                                                                    <input type="text" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Новая позиция" className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")} />
+                                                                )}
+                                                                {validationResultValue?.invalidItemIds?.has(item.id) && getItemIssueMessages(item.id).length > 0 && (
+                                                                    <div className="text-xs text-red-400">{getItemIssueMessages(item.id).join(' • ')}</div>
+                                                                )}
+                                                                <div className="grid grid-cols-3 gap-2">
+                                                                    <div>
+                                                                        <label className="text-xs text-text-secondary block mb-1">Кол-во</label>
+                                                                        <input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right")} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-xs text-text-secondary block mb-1">Цена</label>
+                                                                        <input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right")} />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-xs text-text-secondary block mb-1">Ед.</label>
+                                                                        <select value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)} className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm">
+                                                                            <option value="м2">м2</option>
+                                                                            <option value="м/п">м/п</option>
+                                                                            <option value="шт">шт</option>
+                                                                            <option value="уп">уп</option>
+                                                                            <option value="м3">м3</option>
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex items-center justify-between pt-1">
+                                                                    <strong className="text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</strong>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <button onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-text-secondary hover:text-primary transition-colors rounded" title={item.note || 'Добавить примечание'}>
+                                                                            📝{item.note && <span className="absolute w-2 h-2 bg-red-500 rounded-full" />}
+                                                                        </button>
+                                                                        <button onClick={() => removeItem(item.id)} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-red-500 hover:text-red-400 transition-colors rounded">✖</button>
+                                                                    </div>
+                                                                </div>
+                                                                {openNotes[item.id] && (
+                                                                    <textarea value={item.note || ''} onChange={e => updateItem(item.id, 'note', e.target.value)} placeholder="Примечание..." className="w-full p-2 text-xs bg-background border border-border rounded text-text-primary resize-none min-h-[60px]" rows={2} />
+                                                                )}
+                                                            </div>
+                                                        </article>
+                                                        );
+                                                    })}
+                                                </div>
                                                 {subItems.length > MAX_RENDERED_SUBITEMS && (
                                                     <div className="px-2 pt-2 text-sm text-text-secondary flex items-center justify-between gap-3">
                                                         <span>
@@ -1394,7 +1516,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     </div>
                                                 )}
                                                 <div className="p-2 bg-gray-900/30 border-t border-border rounded-b-md flex justify-end">
-                                                    <button onClick={() => addItem(category, subgroup)} className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-1 px-3 rounded transition-colors">+ Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : subgroup === EstimateSubgroup.DELIVERY ? 'позицию (Доставка)' : 'позицию (Материалы)'}</button>
+                                                    <button onClick={() => addItem(category, subgroup)} className="min-h-[44px] text-xs sm:text-sm bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-text-primary font-bold py-1 px-3 rounded transition-colors">
+                                                        <span className="sm:hidden">+ Добавить</span>
+                                                        <span className="hidden sm:inline">+ Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : subgroup === EstimateSubgroup.DELIVERY ? 'позицию (Доставка)' : 'позицию (Материалы)'}</span>
+                                                    </button>
                                                 </div>
                                             </div>
                                         );

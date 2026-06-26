@@ -128,7 +128,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     };
 
     return (
-        <div className="bg-surface p-6 rounded-lg shadow-2xl">
+        <div className="bg-surface p-3 sm:p-4 md:p-6 rounded-lg shadow-2xl">
             <TabDescription
                 storageKey="works"
                 summary="База всех видов работ с ценами. Создайте единый справочник работ для быстрого добавления в сметы."
@@ -172,51 +172,53 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
             )}
 
             {/* Добавление новой работы */}
-            <div className="flex gap-4 mb-6">
+            <div className="flex flex-col gap-3 mb-6">
                 <input
                     type="text"
                     placeholder="Наименование работы"
-                    className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={newWorkName}
                     onChange={(e) => setNewWorkName(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
                 />
-                <input
-                    type="number"
-                    placeholder="Цена (₽)"
-                    className="w-32 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                    value={newWorkPrice}
-                    onChange={(e) => setNewWorkPrice(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
-                />
-                <select
-                    className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value as EstimateCategory)}
-                >
-                    {Object.values(EstimateCategory).map(category => (
-                        <option key={category} value={category}>{category}</option>
-                    ))}
-                </select>
+                <div className="flex gap-3">
+                    <input
+                        type="number"
+                        placeholder="Цена (₽)"
+                        className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                        value={newWorkPrice}
+                        onChange={(e) => setNewWorkPrice(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                    />
+                    <select
+                        className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                        value={selectedCategory}
+                        onChange={(e) => setSelectedCategory(e.target.value as EstimateCategory)}
+                    >
+                        {Object.values(EstimateCategory).map(category => (
+                            <option key={category} value={category}>{category}</option>
+                        ))}
+                    </select>
+                </div>
                 <button
                     onClick={handleAdd}
-                    className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
+                    className="w-full min-h-[44px] bg-primary hover:bg-primary-hover active:bg-red-800 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
                 >
                     Добавить
                 </button>
             </div>
 
             {/* Фильтр по категориям */}
-            <div className="flex gap-4 mb-6">
+            <div className="flex flex-col sm:flex-row gap-3 mb-6">
                 <input
                     type="text"
                     placeholder="Поиск по наименованию..."
-                    className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={searchInput}
                     onChange={(e) => handleSearchChange(e.target.value)}
                 />
                 <select
-                    className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={filterCategory}
                     onChange={(e) => setFilterCategory(e.target.value as EstimateCategory | 'all')}
                 >
@@ -227,14 +229,14 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 </select>
                 <button
                     onClick={handleCheckDuplicates}
-                    className="p-2 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-md transition"
+                    className="min-h-[44px] p-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold rounded-md transition"
                 >
-                    Проверить дубликаты
+                    Дубликаты
                 </button>
             </div>
 
-            {/* Список работ */}
-            <div className="overflow-x-auto">
+            {/* Desktop table */}
+            <div className="overflow-x-auto hidden md:block">
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
@@ -310,6 +312,55 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                         )}
                     </tbody>
                 </table>
+            </div>
+
+            {/* Mobile card list */}
+            <div className="md:hidden space-y-3">
+                {paginatedWorks.map(work => (
+                    <article key={work.id} className="rounded-lg border border-border bg-background/40 p-3">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                            <div className="min-w-0 flex-1">
+                                <div className="font-semibold text-text-primary text-sm truncate">{work.name}</div>
+                                <div className="text-xs text-text-secondary">{work.category}</div>
+                            </div>
+                            {editingWorkId === work.id ? (
+                                <input
+                                    type="number"
+                                    value={editingPrice}
+                                    onChange={(e) => setEditingPrice(e.target.value)}
+                                    className="w-24 min-h-[44px] p-1 bg-background border border-border rounded text-text-primary text-right"
+                                    onKeyPress={(e) => e.key === 'Enter' && handleSave()}
+                                />
+                            ) : (
+                                <span className="shrink-0 font-bold text-text-primary text-sm">{work.price.toLocaleString('ru-RU')} ₽</span>
+                            )}
+                        </div>
+                        <div className="flex gap-2 mt-2">
+                            {editingWorkId === work.id ? (
+                                <>
+                                    <button onClick={handleSave} className="flex-1 min-h-[44px] bg-green-600 hover:bg-green-700 active:bg-green-800 text-white text-sm font-semibold rounded-md transition-colors">
+                                        Сохранить
+                                    </button>
+                                    <button onClick={handleCancel} className="flex-1 min-h-[44px] bg-gray-600 hover:bg-gray-700 active:bg-gray-800 text-white text-sm font-semibold rounded-md transition-colors">
+                                        Отмена
+                                    </button>
+                                </>
+                            ) : (
+                                <>
+                                    <button onClick={() => handleEdit(work)} className="flex-1 min-h-[44px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold rounded-md transition-colors">
+                                        Изменить
+                                    </button>
+                                    <button onClick={() => { if (deleteWorkAction) void deleteWorkAction(work.id); }} className="min-h-[44px] min-w-[44px] bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-sm font-semibold rounded-md transition-colors flex items-center justify-center">
+                                        ✕
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                    </article>
+                ))}
+                {filteredWorks.length === 0 && (
+                    <div className="text-center py-8 text-text-secondary">Нет работ</div>
+                )}
             </div>
             {totalPages > 1 && (
                 <div className="flex justify-center items-center gap-2 mt-6">

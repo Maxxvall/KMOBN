@@ -2009,7 +2009,7 @@ const App: React.FC = () => {
                     onSync={offlineSync.syncNow}
                 />
             </div>
-            <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto">
+            <main className="p-3 sm:p-4 md:p-6 max-w-8xl mx-auto pb-24 lg:pb-6">
                 {isLoading ? (
                     <AppLoadingSkeleton />
                 ) : (

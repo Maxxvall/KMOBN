@@ -108,7 +108,7 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
     }, []);
 
     return (
-        <div className="bg-surface p-6 rounded-lg shadow-2xl">
+        <div className="bg-surface p-3 sm:p-4 md:p-6 rounded-lg shadow-2xl">
             <TabDescription
                 storageKey="bundles"
                 summary="Готовые наборы работ и материалов. Создавайте комплекты для типовых задач и добавляйте их в сметы одним кликом."
@@ -189,54 +189,56 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
 
                     return (
                         <div key={bundle.id} className="border border-border rounded-lg bg-background/30">
-                            <div className="flex justify-between items-center p-4">
-                                {isEditing ? (
-                                    <input
-                                        type="text"
-                                        value={editingBundleName?.name ?? ''}
-                                        onChange={e => setEditingBundleName(prev => prev ? { ...prev, name: e.target.value } : null)}
-                                        onKeyDown={e => { if (e.key === 'Enter') handleSaveBundleName(); if (e.key === 'Escape') setEditingBundleName(null); }}
-                                        className="flex-1 p-1 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary mr-4"
-                                        autoFocus
-                                    />
-                                ) : (
-                                    <div className="flex items-center cursor-pointer flex-1" onClick={() => toggleBundleExpansion(bundle.id)}>
-                                        <span className={`mr-2 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
-                                        <div>
-                                            <h3 className="text-lg font-bold text-text-primary">{bundle.name}</h3>
-                                            <p className="text-sm text-text-secondary">Категория: {bundle.category} | Элементов: {itemCount}</p>
+                            <div className="p-3 sm:p-4">
+                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
+                                    {isEditing ? (
+                                        <input
+                                            type="text"
+                                            value={editingBundleName?.name ?? ''}
+                                            onChange={e => setEditingBundleName(prev => prev ? { ...prev, name: e.target.value } : null)}
+                                            onKeyDown={e => { if (e.key === 'Enter') handleSaveBundleName(); if (e.key === 'Escape') setEditingBundleName(null); }}
+                                            className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                                            autoFocus
+                                        />
+                                    ) : (
+                                        <div className="flex items-center cursor-pointer flex-1 min-w-0" onClick={() => toggleBundleExpansion(bundle.id)}>
+                                            <span className={`mr-2 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+                                            <div className="min-w-0">
+                                                <h3 className="text-sm sm:text-lg font-bold text-text-primary truncate">{bundle.name}</h3>
+                                                <p className="text-xs sm:text-sm text-text-secondary">{bundle.category} | {itemCount} эл.</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                )}
-                                <div className="flex gap-2">
+                                    )}
+                                    <div className="flex gap-2 flex-wrap">
                                     {isEditing ? (
                                         <>
-                                            <button onClick={handleSaveBundleName} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-md transition">Сохранить</button>
-                                            <button onClick={() => setEditingBundleName(null)} className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-1 px-3 rounded-md transition">Отмена</button>
+                                            <button onClick={handleSaveBundleName} className="flex-1 min-h-[44px] bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold py-1 px-3 rounded-md transition text-sm">Сохранить</button>
+                                            <button onClick={() => setEditingBundleName(null)} className="min-h-[44px] min-w-[44px] bg-gray-600 hover:bg-gray-700 active:bg-gray-800 text-white font-bold py-1 px-3 rounded-md transition flex items-center justify-center text-sm">✕</button>
                                         </>
                                     ) : (
                                         <>
                                             <button
                                                 onClick={() => handleOpenPicker(bundle)}
-                                                className="bg-green-600 hover:bg-green-700 text-white font-bold py-1 px-3 rounded-md transition"
+                                                className="flex-1 min-h-[44px] bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-bold py-1 px-3 rounded-md transition text-sm"
                                             >
                                                 + Элементы
                                             </button>
                                             <button
                                                 onClick={() => setEditingBundleName({ id: bundle.id, name: bundle.name })}
-                                                className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-1 px-3 rounded-md transition"
+                                                className="min-h-[44px] min-w-[44px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-bold py-1 px-3 rounded-md transition flex items-center justify-center text-sm"
                                             >
-                                                Название
+                                                ✎
                                             </button>
                                             <button
                                                 onClick={() => deleteBundleAction && void deleteBundleAction(bundle.id)}
-                                                className="bg-red-600 hover:bg-red-700 text-white font-bold py-1 px-3 rounded-md transition"
+                                                className="min-h-[44px] min-w-[44px] bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold py-1 px-3 rounded-md transition flex items-center justify-center text-sm"
                                             >
-                                                Удалить
+                                                ✕
                                             </button>
                                         </>
                                     )}
                                 </div>
+                            </div>
                             </div>
 
                             {isExpanded && (
@@ -253,7 +255,7 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                                                     </span>
                                                     <button
                                                         onClick={() => handleDeleteItem(bundle.id, item.id)}
-                                                        className="text-red-400 hover:text-red-300 text-sm font-bold"
+                                                        className="min-h-[44px] min-w-[44px] flex items-center justify-center text-red-400 hover:text-red-300 text-sm font-bold rounded"
                                                     >
                                                         ✕
                                                     </button>

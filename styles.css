@@ -5,3 +5,20 @@
 body {
   @apply bg-background text-text-primary;
 }
+
+html,
+body,
+#root {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+@media (max-width: 767px) {
+  main {
+    padding-bottom: calc(72px + env(safe-area-inset-bottom));
+  }
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
