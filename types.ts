@@ -268,3 +268,34 @@ export function findDuplicates<T extends { id: string; name: string; price: numb
     }
     return result;
 }
+
+export interface SmartWizardParams {
+    buildingType: string;
+    area: number;
+    floors: number;
+    foundation: string;
+    roof: string;
+    insulation: string;
+    windowsDoors: string;
+    region: string;
+    finishLevel: string;
+}
+
+export interface AutoAddedSummary {
+    category: EstimateCategory;
+    count: number;
+    description: string;
+}
+
+export interface SmartWizardWarning {
+    type: 'missing_data' | 'unusual_params' | 'low_confidence';
+    message: string;
+}
+
+export interface SmartWizardResult {
+    items: EstimateItem[];
+    autoAddedCount: number;
+    needsReviewCount: number;
+    autoSummary: AutoAddedSummary[];
+    warnings: SmartWizardWarning[];
+}

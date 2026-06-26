@@ -6,7 +6,7 @@ import { exportData, importData, validateImportData } from '../services/database
 import TabDescription from './TabDescription';
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
-import QuickStartModal from './QuickStartModal';
+import SmartEstimateWizard from './SmartEstimateWizard';
 
 interface EstimateHistoryProps {
     estimates?: Estimate[];
@@ -138,7 +138,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [filterAreaMax, setFilterAreaMax] = useState('');
     const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
     const catalogContext = useOptionalCatalogContext();
-    const bundlesList = catalogContext?.bundles ?? [];
+    const materialsList = catalogContext?.materials ?? [];
+    const worksList = catalogContext?.works ?? [];
     const [showQuickStart, setShowQuickStart] = useState(false);
 
     const handleExportData = async () => {
@@ -531,7 +532,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             </div>
 
             {showQuickStart && (
-                <QuickStartModal
+                <SmartEstimateWizard
                     isOpen={showQuickStart}
                     onClose={() => setShowQuickStart(false)}
                     onConfirm={(estimate) => {
@@ -539,8 +540,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         estimateContext?.setView(View.EDITOR);
                         setShowQuickStart(false);
                     }}
-                    templates={estimateContext?.templates ?? []}
-                    bundles={bundlesList}
+                    estimates={estimateList}
+                    materials={materialsList}
+                    works={worksList}
                     existingEstimateNumbers={estimateList.map(e => e.estimateNumber)}
                 />
             )}
