@@ -363,13 +363,13 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 )}
             </div>
             {totalPages > 1 && (
-                <div className="flex justify-center items-center gap-2 mt-6">
+                <div className="flex justify-center items-center gap-1 sm:gap-2 mt-4 sm:mt-6">
                     <button
                         onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                         disabled={currentPage === 1}
-                        className="px-3 py-1 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-lg"
                     >
-                        ← Назад
+                        ‹
                     </button>
 
                     <div className="flex gap-1">
@@ -377,7 +377,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                             <button
                                 key={page}
                                 onClick={() => setCurrentPage(page)}
-                                className={`px-3 py-1 rounded ${
+                                className={`min-h-[44px] min-w-[44px] flex items-center justify-center rounded text-sm ${
                                     currentPage === page
                                         ? 'bg-primary text-white'
                                         : 'bg-gray-700 hover:bg-gray-600 text-text-primary'
@@ -391,14 +391,13 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                     <button
                         onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
                         disabled={currentPage === totalPages}
-                        className="px-3 py-1 bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded"
+                        className="min-h-[44px] min-w-[44px] flex items-center justify-center bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white rounded text-lg"
                     >
-                        Вперед →
+                        ›
                     </button>
 
-                    <span className="ml-4 text-text-secondary">
-                        Показано {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredWorks.length)}-
-                        {Math.min(currentPage * ITEMS_PER_PAGE, filteredWorks.length)} из {filteredWorks.length}
+                    <span className="ml-2 sm:ml-4 text-xs sm:text-sm text-text-secondary">
+                        {Math.min((currentPage - 1) * ITEMS_PER_PAGE + 1, filteredWorks.length)}-{Math.min(currentPage * ITEMS_PER_PAGE, filteredWorks.length)}/{filteredWorks.length}
                     </span>
                 </div>
             )}

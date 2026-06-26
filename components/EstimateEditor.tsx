@@ -214,6 +214,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [pasteTargetCategory, setPasteTargetCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
+    const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>(() => {
+        if (typeof window !== 'undefined' && window.innerWidth < 640) {
+            const initial: Record<string, boolean> = {};
+            ESTIMATE_CATEGORIES.forEach(c => { initial[c] = true; });
+            return initial;
+        }
+        return {};
+    });
+    const toggleCategoryCollapse = (cat: string) => {
+        setCollapsedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
+    };
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
     // Typeahead / debounce state
     const TYPEAHEAD_THRESHOLD = 10; // show typeahead only if more than 10 items
@@ -1017,7 +1028,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     return (
         <div className="space-y-6">
-            <div className="bg-surface p-6 rounded-lg shadow-2xl">
+            <div className="bg-surface p-2 sm:p-4 md:p-6 rounded-lg shadow-2xl">
                 <div className="flex justify-between items-center border-b border-border pb-4 mb-6">
                     <h2 className="text-2xl font-bold text-text-primary">{initialEstimateValue ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
                     <button onClick={() => onBackAction?.()} className="text-sm px-3 py-1 rounded-full border border-border text-text-secondary hover:bg-background transition-colors">&larr; Назад к истории</button>
@@ -1168,48 +1179,41 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                 </div>
 
-                <div className="space-y-8 mt-6">
+                <div className="space-y-3 sm:space-y-8 mt-4 sm:mt-6">
                     {ESTIMATE_CATEGORIES.map((category, catIndex) => {
                         const items = groupedItems.get(category) || [];
                         if (items.length === 0 && !visibleCategories.includes(category)) return null;
+                        const isCollapsed = Boolean(collapsedCategories[category]);
+                        const catTotal = categorySubtotals.get(category) || 0;
+                        const catItems = items;
+                        const worksTotal = catItems.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+                        const materialsTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.MATERIALS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+                        const deliveryTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
 
                         return (
                             <div key={category} className="border border-border rounded-lg bg-background/30">
-                                <div className="bg-gray-900/50 p-2 sm:p-3 flex flex-col sm:flex-row sm:justify-between sm:items-center rounded-t-lg border-b border-border gap-1">
-                                                <h3 className="text-sm sm:text-lg font-bold text-text-primary truncate">{catIndex + 1}. {category}</h3>
-                                                {(() => {
-                                                    const catTotal = categorySubtotals.get(category) || 0;
-                                                    const catItems = items;
-                                                    const worksTotal = catItems.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-                                                    const materialsTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.MATERIALS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-                                                    const deliveryTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-                                                    if (category === EstimateCategory.LOGISTICS) {
-                                                        return (
-                                                            <div className="text-xs sm:text-sm font-semibold text-text-secondary">
-                                                                <span className="sm:hidden">Итого: {catTotal.toLocaleString('ru-RU')} ₽ (Р:{worksTotal.toLocaleString('ru-RU')}₽, Д:{deliveryTotal.toLocaleString('ru-RU')}₽)</span>
-                                                                <span className="hidden sm:inline">Итого по разделу: {catTotal.toLocaleString('ru-RU')} ₽ (Работы: {worksTotal.toLocaleString('ru-RU')} ₽, Доставка: {deliveryTotal.toLocaleString('ru-RU')} ₽)</span>
-                                                            </div>
-                                                        );
-                                                    }
-                                                    return (
-                                                        <div className="text-xs sm:text-sm font-semibold text-text-secondary">
-                                                            <span className="sm:hidden">Итого: {catTotal.toLocaleString('ru-RU')} ₽ (Р:{worksTotal.toLocaleString('ru-RU')}₽, М:{materialsTotal.toLocaleString('ru-RU')}₽)</span>
-                                                            <span className="hidden sm:inline">Итого по разделу: {catTotal.toLocaleString('ru-RU')} ₽ (Работы: {worksTotal.toLocaleString('ru-RU')} ₽, Материалы: {materialsTotal.toLocaleString('ru-RU')} ₽)</span>
-                                                        </div>
-                                                    );
-                                                })()}
-                                    {visibleCategories.includes(category) && (
-                                        <div className="flex items-center gap-2 flex-wrap">
+                                <button
+                                    type="button"
+                                    onClick={() => toggleCategoryCollapse(category)}
+                                    className="w-full bg-gray-900/50 p-2 sm:p-3 flex items-center gap-2 rounded-t-lg border-b border-border text-left"
+                                >
+                                    <span className={`text-xs transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
+                                    <h3 className="text-xs sm:text-lg font-bold text-text-primary truncate flex-1">{catIndex + 1}. {category}</h3>
+                                    <span className="text-xs sm:text-sm font-semibold text-text-secondary shrink-0">
+                                        {catTotal.toLocaleString('ru-RU')} ₽
+                                    </span>
+                                    {visibleCategories.includes(category) && !isCollapsed && (
+                                        <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                                             {items.length > 0 && (
-                                                <button onClick={() => handleDuplicateSection(category)} className="text-blue-400 hover:text-blue-300 text-xs sm:text-sm min-h-[44px] px-2" title="Дублировать раздел">Дублировать</button>
+                                                <button onClick={() => handleDuplicateSection(category)} className="text-blue-400 hover:text-blue-300 text-xs min-h-[44px] px-1" title="Дублировать">⧉</button>
                                             )}
-                                            <button onClick={() => handleOpenPasteModal(category)} className="text-purple-400 hover:text-purple-300 text-xs sm:text-sm min-h-[44px] px-2" title="Вставить из другой сметы">Из другой</button>
-                                            <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-xs sm:text-sm min-h-[44px] px-2">Удалить</button>
+                                            <button onClick={() => handleOpenPasteModal(category)} className="text-purple-400 hover:text-purple-300 text-xs min-h-[44px] px-1" title="Из другой сметы">📋</button>
+                                            <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-xs min-h-[44px] px-1">✕</button>
                                         </div>
                                     )}
-                                </div>
-                                {/* Split into Работы и Материалы/Доставка внутри раздела */}
-                                <div className="p-3 space-y-4">
+                                </button>
+                                {!isCollapsed && (
+                                <div className="p-2 sm:p-3 space-y-3 sm:space-y-4">
                                     {((category: EstimateCategory) => {
                                         return (category === EstimateCategory.LOGISTICS) ? [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY] : [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS];
                                     })(category).map((subgroup) => {
@@ -1220,7 +1224,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                         const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
                                         return (
                                                 <div key={subgroup} className="border border-border rounded-md bg-background/20">
-                                                <div className="flex justify-between items-center p-2 bg-gray-900/30 border-b border-border rounded-t-md">
+                                                <div className="flex justify-between items-center p-1.5 sm:p-2 bg-gray-900/30 border-b border-border rounded-t-md">
                                                     <div className="font-semibold text-xs sm:text-sm">{subgroup === EstimateSubgroup.WORKS ? 'Работы' : subgroup === EstimateSubgroup.MATERIALS ? 'Материалы' : 'Доставка'}</div>
                                                     <div className="text-xs sm:text-sm font-medium text-text-secondary">{subTotal.toLocaleString('ru-RU')} ₽</div>
                                                 </div>
@@ -1381,7 +1385,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     </table>
                                                 </div>
                                                 {/* Mobile card list */}
-                                                <div className="md:hidden space-y-3 p-2">
+                                                <div className="md:hidden space-y-2 p-1.5 sm:p-2">
                                                     {subItems.length === 0 && (
                                                         <div className="text-sm text-text-secondary py-2">Нет позиций</div>
                                                     )}
@@ -1391,7 +1395,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                         const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                         return (
-                                                        <article key={item.id} className={"rounded-lg border border-border bg-background/40 p-3" + (validationResultValue?.invalidItemIds?.has(item.id) ? " border-red-500/40" : "")}>
+                                                        <article key={item.id} className={"rounded-lg border border-border bg-background/40 p-2 sm:p-3" + (validationResultValue?.invalidItemIds?.has(item.id) ? " border-red-500/40" : "")}>
                                                             <div className="space-y-2">
                                                                 {(subgroup === EstimateSubgroup.MATERIALS || subgroup === EstimateSubgroup.DELIVERY) ? (
                                                                     useTypeaheadMaterials ? (
@@ -1525,6 +1529,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                         );
                                     })}
                                 </div>
+                                )}
                             </div>
                         );
                     })}
