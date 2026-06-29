@@ -77,12 +77,34 @@ const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
 
 const getAuthenticatedUserId = async (): Promise<string | null> => {
   if (!isSupabaseConfigured()) {
+    // Try to get userId from cached session in localStorage
+    try {
+      const cached = localStorage.getItem('sb-auth-token');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const session = parsed?.current_session;
+        if (session?.user?.id) {
+          return session.user.id;
+        }
+      }
+    } catch {}
     return null;
   }
   const client = ensureSupabase();
   const { data, error } = await client.auth.getSession();
   if (error) {
     console.error('Supabase getSession error:', error);
+    // Try to get userId from cached session in localStorage
+    try {
+      const cached = localStorage.getItem('sb-auth-token');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const session = parsed?.current_session;
+        if (session?.user?.id) {
+          return session.user.id;
+        }
+      }
+    } catch {}
     return null;
   }
   return data.session?.user.id ?? null;

@@ -784,8 +784,22 @@ const App: React.FC = () => {
                     setOfflineMode(false);
                 } else {
                     clearRecoveryRequired();
-                    // No session — check if we should enter offline mode
                     if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
+                        // No session and offline — try to restore from localStorage
+                        try {
+                            const cached = localStorage.getItem('sb-auth-token');
+                            if (cached) {
+                                const parsed = JSON.parse(cached);
+                                const session = parsed?.current_session;
+                                if (session?.user) {
+                                    setSupabaseUser(session.user);
+                                    setOfflineMode(true);
+                                    return;
+                                }
+                            }
+                        } catch {
+                            // ignore localStorage errors
+                        }
                         setOfflineMode(true);
                     }
                 }
