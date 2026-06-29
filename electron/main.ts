@@ -8,7 +8,7 @@ let autoUpdater = null;
 let pendingAuthUrl = null;
 
 const LOG_FILE = path.join(app.getPath('userData'), 'app.log');
-const PROTOCOL_NAME = 'karkas-master';
+const PROTOCOL_NAME = 'karkasmaster';
 
 function log(...args) {
   const msg = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
@@ -129,7 +129,7 @@ function createWindow() {
       mainWindow.show();
 
       if (pendingAuthUrl) {
-        log('Sending pending auth URL to renderer');
+        log('Sending pending auth URL');
         mainWindow.webContents.send('auth-callback', pendingAuthUrl);
         pendingAuthUrl = null;
       }
@@ -151,7 +151,6 @@ function createWindow() {
   }
 }
 
-// Single instance lock - prevent multiple windows
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
@@ -163,7 +162,6 @@ if (!gotTheLock) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
-    // Windows: protocol URL is in commandLine
     const protocolUrl = commandLine.find(arg => arg.startsWith(PROTOCOL_NAME + '://'));
     if (protocolUrl) {
       sendAuthToRenderer(protocolUrl);
@@ -173,7 +171,6 @@ if (!gotTheLock) {
   app.whenReady().then(async () => {
     log('=== App is ready ===');
 
-    // Register custom protocol
     if (!app.isDefaultProtocolClient(PROTOCOL_NAME)) {
       app.setAsDefaultProtocolClient(PROTOCOL_NAME);
       log('Registered protocol:', PROTOCOL_NAME);
@@ -190,7 +187,6 @@ if (!gotTheLock) {
     });
   });
 
-  // Handle protocol URL (macOS/Linux)
   app.on('open-url', (event, url) => {
     event.preventDefault();
     log('open-url:', url);

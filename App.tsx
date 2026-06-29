@@ -650,7 +650,7 @@ const App: React.FC = () => {
         }
         const isElectron = !!window.electronAPI?.isElectron;
         const redirectTo = isElectron
-            ? 'karkas-master://auth-callback'
+            ? 'karkasmaster://auth-callback'
             : (import.meta.env.VITE_AUTH_REDIRECT_URL as string) ||
               (import.meta.env.VITE_SITE_URL as string) ||
               window.location.origin;
