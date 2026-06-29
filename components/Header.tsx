@@ -7,8 +7,10 @@ interface HeaderProps {
     userName?: string | null;
     onLogout?: () => void;
     onUserNameClick?: () => void;
+    onProfileClick?: () => void;
     subscriptionSummary?: unknown;
     onUpgradeClick?: () => void;
+    isElectron?: boolean;
 }
 
 const MOBILE_TABS = [
@@ -27,6 +29,14 @@ const DESKTOP_NAV_ITEMS = [
     { view: View.BUNDLES, label: 'Комплекты' },
     { view: View.ANALYTICS, label: 'Аналитика' },
     { view: View.WIKI, label: 'Wiki' },
+];
+
+const DESKTOP_NAV_ITEMS_ELECTRON = [
+    { view: View.HISTORY, label: 'Сметы' },
+    { view: View.PRICES, label: 'Цены' },
+    { view: View.WORKS, label: 'Работы' },
+    { view: View.BUNDLES, label: 'Комплекты' },
+    { view: View.ANALYTICS, label: 'Аналитика' },
 ] as const;
 
 const MORE_TABS = [
@@ -35,8 +45,9 @@ const MORE_TABS = [
     { view: View.WIKI, label: 'Wiki' },
 ];
 
-const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout, onUserNameClick }) => {
+const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, onLogout, onUserNameClick, onProfileClick, isElectron = false }) => {
     const [showMoreMenu, setShowMoreMenu] = useState(false);
+    const desktopNavItems = isElectron ? DESKTOP_NAV_ITEMS_ELECTRON : DESKTOP_NAV_ITEMS;
 
     const handleMoreSelect = useCallback((view: View) => {
         onViewChange(view);
@@ -62,7 +73,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                     </div>
                     <div className="flex items-center gap-4">
                         <nav className="flex gap-4">
-                            {DESKTOP_NAV_ITEMS.map(({ view, label }) => (
+                            {desktopNavItems.map(({ view, label }) => (
                                 <button
                                     key={view}
                                     onClick={() => onViewChange(view)}
@@ -76,7 +87,16 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                         </nav>
                         <div className="flex items-center gap-2">
                             {userName && (
-                                onUserNameClick ? (
+                                onProfileClick ? (
+                                    <button
+                                        type="button"
+                                        onClick={onProfileClick}
+                                        className="text-sm text-text-secondary max-w-[180px] truncate hover:text-text-primary transition-colors"
+                                        title="Профиль"
+                                    >
+                                        {userName}
+                                    </button>
+                                ) : onUserNameClick ? (
                                     <button
                                         type="button"
                                         onClick={onUserNameClick}

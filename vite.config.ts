@@ -3,14 +3,17 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
-export default defineConfig(() => {
-    return {
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
-      },
-      plugins: [
-        react(),
+export default defineConfig(({ mode }) => {
+  const isElectron = mode === 'electron';
+  
+  return {
+    server: {
+      port: 3000,
+      host: '0.0.0.0',
+    },
+    plugins: [
+      react(),
+      ...(isElectron ? [] : [
         VitePWA({
           registerType: 'autoUpdate',
           includeAssets: ['favicon.ico'],
@@ -40,23 +43,24 @@ export default defineConfig(() => {
             ],
           },
         }),
-      ],
-      // Removed embedding of GEMINI_API_KEY here so secrets are not baked into client bundles.
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
-      },
-      build: {
-        rollupOptions: {
-          output: {
-            manualChunks: {
-              wiki: ['./components/Wiki/index.tsx'],
-              vendor: ['react', 'react-dom'],
-              charts: ['recharts'],
-            },
+      ]),
+    ],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, '.'),
+      }
+    },
+    build: {
+      outDir: 'dist',
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            ...(isElectron ? {} : { wiki: ['./components/Wiki/index.tsx'] }),
+            vendor: ['react', 'react-dom'],
+            charts: ['recharts'],
           },
         },
       },
-    };
+    },
+  };
 });

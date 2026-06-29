@@ -9,6 +9,7 @@ import PdfStyleModal from './components/PdfStyleModal';
 import ContractNameModal from './components/ContractNameModal';
 import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
+import ProfileModal from './components/ProfileModal';
 import LandingPage from './components/LandingPage.tsx';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
@@ -453,6 +454,7 @@ const App: React.FC = () => {
     });
     const [wikiLoaded, setWikiLoaded] = useState(false);
     const [dataHashes, setDataHashes] = useState<Record<string, string>>({});
+    const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
     const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const autosaveSuppressedRef = useRef(false);
     const didHydrateRef = useRef(false);
@@ -1991,8 +1993,10 @@ const App: React.FC = () => {
                 userName={displayName}
                 onLogout={handleLogout}
                 onUserNameClick={handleOpenPasswordChange}
+                onProfileClick={() => setIsProfileModalOpen(true)}
                 subscriptionSummary={headerSubscriptionSummary}
                 onUpgradeClick={handleUpgradeClick}
+                isElectron={!!window.electronAPI?.isElectron}
             />
             {offlineModeRaw && (
                 <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-center text-sm text-amber-300">
@@ -2142,6 +2146,15 @@ const App: React.FC = () => {
                     defaultContractName={`Приложение № 1 к договору КМ ${pendingExportEstimate.estimateNumber}`}
                 />
             )}
+            <ProfileModal
+                isOpen={isProfileModalOpen}
+                onClose={() => setIsProfileModalOpen(false)}
+                user={user}
+                estimates={estimates}
+                materials={materials}
+                works={works}
+                bundles={bundles}
+            />
             {passwordRecoveryModal}
             <SyncToast
                 visible={sync.visible}
