@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   const isElectron = mode === 'electron';
   
   return {
+    base: isElectron ? './' : '/',
     server: {
       port: 3000,
       host: '0.0.0.0',
