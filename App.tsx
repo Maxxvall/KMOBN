@@ -868,23 +868,36 @@ const App: React.FC = () => {
 
         void initSession();
 
+        let lastAuthEvent = '';
         const { data } = sb.auth.onAuthStateChange((event, session) => {
             console.log('[AUTH] onAuthStateChange:', event, session?.user?.email || 'no user');
+
+            // If SIGNED_IN just happened, ignore brief SIGNED_OUT flicker
+            if (event === 'SIGNED_OUT' && lastAuthEvent === 'SIGNED_IN') {
+                console.log('[AUTH] Ignoring SIGNED_OUT flicker after SIGNED_IN');
+                return;
+            }
+
+            if (event === 'SIGNED_IN') {
+                lastAuthEvent = 'SIGNED_IN';
+                // Manually save session to localStorage as backup for Electron
+                if (session) {
+                    try {
+                        const storageKey = `sb-${SUPABASE_PROJECT_REF}-auth-token`;
+                        localStorage.setItem(storageKey, JSON.stringify({
+                            current_session: session,
+                        }));
+                        console.log('[AUTH] Manually saved session to localStorage:', storageKey);
+                    } catch (e) {
+                        console.error('[AUTH] Failed to manually save session:', e);
+                    }
+                }
+            } else if (event === 'SIGNED_OUT') {
+                lastAuthEvent = 'SIGNED_OUT';
+            }
+
             setSupabaseUser(session?.user ?? null);
             setOfflineMode(false);
-
-            // Manually save session to localStorage as backup for Electron
-            if (event === 'SIGNED_IN' && session) {
-                try {
-                    const storageKey = `sb-${SUPABASE_PROJECT_REF}-auth-token`;
-                    localStorage.setItem(storageKey, JSON.stringify({
-                        current_session: session,
-                    }));
-                    console.log('[AUTH] Manually saved session to localStorage:', storageKey);
-                } catch (e) {
-                    console.error('[AUTH] Failed to manually save session:', e);
-                }
-            }
 
             if (!session?.user) {
                 clearRecoveryRequired();

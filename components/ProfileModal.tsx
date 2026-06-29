@@ -329,6 +329,14 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 </button>
               </div>
 
+              {/* Current Version */}
+              {window.electronAPI?.isElectron && (
+                <div className="bg-gray-800 rounded-lg p-4 text-center">
+                  <p className="text-sm text-text-secondary">Текущая версия</p>
+                  <p className="text-lg font-bold text-text-primary">v1.6.1</p>
+                </div>
+              )}
+
               {/* Check for Updates */}
               {window.electronAPI?.isElectron && (
                 <div>
@@ -338,12 +346,12 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                       setUpdateStatus('');
                       try {
                         await window.electronAPI?.checkForUpdates?.();
-                        setUpdateStatus('Проверка завершена');
+                        setUpdateStatus('Проверка завершена. Если обновление доступно, оно будет скачано автоматически.');
                       } catch {
                         setUpdateStatus('Ошибка проверки');
                       }
                       setIsCheckingUpdate(false);
-                      setTimeout(() => setUpdateStatus(''), 3000);
+                      setTimeout(() => setUpdateStatus(''), 5000);
                     }}
                     disabled={isCheckingUpdate}
                     className="w-full px-4 py-2 bg-gray-800 border border-border rounded-lg text-text-primary hover:bg-gray-700 transition-colors disabled:opacity-60"
@@ -351,7 +359,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                     {isCheckingUpdate ? 'Проверяю...' : 'Проверить обновления'}
                   </button>
                   {updateStatus && (
-                    <p className="mt-2 text-center text-sm text-text-secondary">{updateStatus}</p>
+                    <p className="mt-2 text-center text-sm text-emerald-400">{updateStatus}</p>
                   )}
                 </div>
               )}
