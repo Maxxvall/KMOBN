@@ -655,6 +655,9 @@ const App: React.FC = () => {
 
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
+            options: {
+                redirectTo: window.location.origin,
+            },
         });
         if (error) {
             throw new Error(error.message);
