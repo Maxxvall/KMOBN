@@ -6,49 +6,14 @@ const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || 
 let supabase: SupabaseClient | null = null;
 
 if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-  // Custom storage adapter for Electron compatibility
-  const customStorage = {
-    getItem: (key: string): string | null => {
-      try {
-        return localStorage.getItem(key);
-      } catch {
-        return null;
-      }
-    },
-    setItem: (key: string, value: string): void => {
-      try {
-        localStorage.setItem(key, value);
-      } catch (e) {
-        console.error('[Supabase] Failed to write to localStorage:', e);
-      }
-    },
-    removeItem: (key: string): void => {
-      try {
-        localStorage.removeItem(key);
-      } catch {}
-    },
-  };
-
   supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
       flowType: 'pkce',
-      storage: customStorage,
     },
   });
-
-  // Log storage keys on startup for debugging
-  console.log('[Supabase] Initialized. Checking localStorage...');
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && key.startsWith('sb-')) {
-        console.log('[Supabase] Found auth key:', key);
-      }
-    }
-  } catch {}
 } else {
   console.warn('Supabase not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env');
 }
