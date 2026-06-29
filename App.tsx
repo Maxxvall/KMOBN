@@ -56,6 +56,7 @@ const Subscriptions = lazy(() => import('./components/Subscriptions'));
 const Wiki = lazy(() => import('./components/Wiki'));
 
 const AUTOSAVE_DELAY_MS = 8000;
+const SUPABASE_PROJECT_REF = 'grsmlxnfdhfmcerxjxob';
 
 
 type SaveMode = 'overwrite' | 'new';
@@ -812,6 +813,16 @@ const App: React.FC = () => {
                 if (data.session?.user) {
                     console.log('[AUTH] Online session active:', data.session.user.email);
                     setOfflineMode(false);
+                    // Manually save session as backup
+                    try {
+                        const storageKey = `sb-${SUPABASE_PROJECT_REF}-auth-token`;
+                        localStorage.setItem(storageKey, JSON.stringify({
+                            current_session: data.session,
+                        }));
+                        console.log('[AUTH] Manually saved session to localStorage:', storageKey);
+                    } catch (e) {
+                        console.error('[AUTH] Failed to manually save session:', e);
+                    }
                 } else {
                     clearRecoveryRequired();
                     if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
@@ -858,8 +869,23 @@ const App: React.FC = () => {
         void initSession();
 
         const { data } = sb.auth.onAuthStateChange((event, session) => {
+            console.log('[AUTH] onAuthStateChange:', event, session?.user?.email || 'no user');
             setSupabaseUser(session?.user ?? null);
             setOfflineMode(false);
+
+            // Manually save session to localStorage as backup for Electron
+            if (event === 'SIGNED_IN' && session) {
+                try {
+                    const storageKey = `sb-${SUPABASE_PROJECT_REF}-auth-token`;
+                    localStorage.setItem(storageKey, JSON.stringify({
+                        current_session: session,
+                    }));
+                    console.log('[AUTH] Manually saved session to localStorage:', storageKey);
+                } catch (e) {
+                    console.error('[AUTH] Failed to manually save session:', e);
+                }
+            }
+
             if (!session?.user) {
                 clearRecoveryRequired();
             }
