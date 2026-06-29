@@ -1,10 +1,11 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
 let store = null;
 let mainWindow = null;
 let autoUpdater = null;
+let pendingAuthUrl = null;
 
 const LOG_FILE = path.join(app.getPath('userData'), 'app.log');
 const PROTOCOL_NAME = 'karkas-master';
@@ -17,6 +18,18 @@ function log(...args) {
 
 function getDistPath() {
   return path.join(__dirname, '../dist');
+}
+
+function sendAuthToRenderer(url) {
+  log('Auth callback received:', url);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+    mainWindow.webContents.send('auth-callback', url);
+  } else {
+    pendingAuthUrl = url;
+    log('Window not ready, saved pending auth URL');
+  }
 }
 
 async function initStore() {
@@ -114,6 +127,12 @@ function createWindow() {
     mainWindow.once('ready-to-show', () => {
       log('Window ready-to-show');
       mainWindow.show();
+
+      if (pendingAuthUrl) {
+        log('Sending pending auth URL to renderer');
+        mainWindow.webContents.send('auth-callback', pendingAuthUrl);
+        pendingAuthUrl = null;
+      }
     });
 
     mainWindow.on('closed', () => {
@@ -132,34 +151,52 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(async () => {
-  log('=== App is ready ===');
+// Single instance lock - prevent multiple windows
+const gotTheLock = app.requestSingleInstanceLock();
 
-  // Register custom protocol for OAuth callbacks
-  if (!app.isDefaultProtocolClient(PROTOCOL_NAME)) {
-    app.setAsDefaultProtocolClient(PROTOCOL_NAME);
-    log('Registered protocol:', PROTOCOL_NAME);
-  }
-
-  await initStore();
-  await initAutoUpdater();
-  createWindow();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine) => {
+    log('Second instance detected');
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+    // Windows: protocol URL is in commandLine
+    const protocolUrl = commandLine.find(arg => arg.startsWith(PROTOCOL_NAME + '://'));
+    if (protocolUrl) {
+      sendAuthToRenderer(protocolUrl);
     }
   });
-});
 
-// Handle custom protocol (OAuth callback on Windows)
-app.on('open-url', (event, url) => {
-  event.preventDefault();
-  log('Protocol URL:', url);
-  if (mainWindow) {
-    mainWindow.webContents.send('auth-callback', url);
-  }
-});
+  app.whenReady().then(async () => {
+    log('=== App is ready ===');
+
+    // Register custom protocol
+    if (!app.isDefaultProtocolClient(PROTOCOL_NAME)) {
+      app.setAsDefaultProtocolClient(PROTOCOL_NAME);
+      log('Registered protocol:', PROTOCOL_NAME);
+    }
+
+    await initStore();
+    await initAutoUpdater();
+    createWindow();
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+
+  // Handle protocol URL (macOS/Linux)
+  app.on('open-url', (event, url) => {
+    event.preventDefault();
+    log('open-url:', url);
+    sendAuthToRenderer(url);
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
