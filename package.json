@@ -19,6 +19,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.28.0",
     "electron-store": "^10.0.0",
+    "electron-updater": "^6.8.9",
     "jspdf": "^3.0.3",
     "jspdf-autotable": "^5.0.2",
     "lodash.debounce": "^4.0.8",
@@ -72,6 +73,11 @@
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Maxxvall",
+      "repo": "KMOBN"
     }
   }
 }
