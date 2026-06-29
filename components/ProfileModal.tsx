@@ -259,23 +259,6 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 </p>
               </div>
 
-              {/* Top Materials */}
-              <div>
-                <p className="text-sm text-text-secondary mb-3">Топ-5常用 материалов</p>
-                {stats.topMaterials.length > 0 ? (
-                  <div className="space-y-2">
-                    {stats.topMaterials.map((material, index) => (
-                      <div key={index} className="flex items-center justify-between bg-gray-800 rounded-lg px-4 py-2">
-                        <span className="text-text-primary">{material.name}</span>
-                        <span className="text-text-secondary">{material.count} шт.</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-text-secondary">Нет данных</p>
-                )}
-              </div>
-
               {/* Time in App */}
               <div>
                 <p className="text-sm text-text-secondary mb-2">Время в приложении</p>

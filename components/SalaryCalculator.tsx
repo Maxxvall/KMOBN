@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Estimate, Worker, WorkAllocation, SalaryCalculation, EstimateSubgroup, SalaryMode } from '../types';
 import { saveSalaryCalculation, loadSalaryCalculationByEstimateId } from '../services/database';
-import TabDescription from './TabDescription';
+
 
 interface SalaryCalculatorProps {
     estimates: Estimate[];
@@ -209,28 +209,6 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
 
     return (
         <div className="container mx-auto px-4 py-8">
-            <TabDescription
-                storageKey="salary-calculator"
-                summary="Расчёт зарплаты работников на основе выполненных работ из сметы."
-                actions={[
-                    'Выбрать смету для расчёта зарплаты',
-                    'Добавить работников в проект',
-                    'Указать ставку (₽/час или ₽/день) или распределить по %',
-                    'Автоматически рассчитать сумму к выплате каждому',
-                ]}
-                steps={[
-                    'Выберите смету из списка.',
-                    'Выберите режим: Проценты или Ставка.',
-                    'Добавьте работников и укажите ставки (для режима "Ставка").',
-                    'Для каждой работы укажите часы/проценты.',
-                    'Данные сохраняются автоматически.',
-                ]}
-                examples={[
-                    'Режим "Ставка": Иван — 500 ₽/час, 40 часов = 20 000 ₽',
-                    'Режим "Проценты": Иван — 60%, Мария — 40% от стоимости работ.',
-                ]}
-                quickLinks={[]}
-            />
             <h1 className="text-3xl font-bold mb-6 text-text-primary">Калькулятор Зарплаты</h1>
 
             {/* Выбор сметы */}

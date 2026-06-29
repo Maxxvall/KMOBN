@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { Work, EstimateCategory, DuplicateGroup, findDuplicates } from '../types';
-import TabDescription from './TabDescription';
+
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import DuplicateCheckerDialog from './DuplicateCheckerDialog';
 
@@ -129,40 +129,6 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
 
     return (
         <div className="bg-surface p-3 sm:p-4 md:p-6 rounded-lg shadow-2xl">
-            <TabDescription
-                storageKey="works"
-                summary="База всех видов работ с ценами. Создайте единый справочник работ для быстрого добавления в сметы."
-                actions={[
-                    'Добавить новый вид работы с ценой',
-                    'Изменить цену работы',
-                    'Фильтровать работы по категориям',
-                    'Удалять неактуальные виды работ',
-                ]}
-                steps={[
-                    'Добавьте работу: название, категория, цена.',
-                    'При создании сметы выбирайте работы из этой базы.',
-                    'Цены работ можно корректировать по необходимости.',
-                    'Используйте категории для структурирования разделов.',
-                ]}
-                examples={[
-                    'Создайте работу «Монтаж окон ПВХ» для быстрого выбора в смете.',
-                    'Разнесите работы по категориям: фундамент, стены, кровля.',
-                ]}
-                quickLinks={[
-                    {
-                        id: 'works-walls',
-                        label: 'Ошибки при сборке стен',
-                        description: 'Частые дефекты и как их избежать.',
-                        wikiArticleId: 'walls-1',
-                    },
-                    {
-                        id: 'works-roof',
-                        label: 'Вентиляция кровли',
-                        description: 'Обязательные работы для кровли.',
-                        wikiArticleId: 'roof-1',
-                    },
-                ]}
-            />
             <h2 className="text-2xl font-bold text-text-primary mb-6">Виды работ</h2>
 
             {hiddenWorksCount > 0 && (

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
 import { exportData, importData, validateImportData } from '../services/database';
-import TabDescription from './TabDescription';
+
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import SmartEstimateWizard from './SmartEstimateWizard';
@@ -330,43 +330,6 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
 
     return (
         <div className="bg-surface p-3 sm:p-4 md:p-6 rounded-lg shadow-2xl">
-            <TabDescription
-                storageKey="history"
-                summary="Управление всеми сметами вашей компании. Создавайте, редактируйте, отслеживайте версии и экспортируйте готовые документы."
-                actions={[
-                    'Создать новую смету с нуля или из шаблона',
-                    'Редактировать существующие сметы',
-                    'Отслеживать историю версий каждой сметы',
-                    'Экспортировать смету в PDF (простой, цветной, договор)',
-                    'Фильтровать по статусу: Черновик, Отправлена, Согласована',
-                    'Удалять ненужные сметы или отдельные версии',
-                ]}
-                steps={[
-                    'Нажмите «Создать смету» для новой сметы.',
-                    'Заполните данные клиента, площадь, тип строения.',
-                    'Добавьте работы и материалы по категориям.',
-                    'Сохраните смету (перезапись или новая версия).',
-                    'Экспортируйте готовый документ для клиента.',
-                ]}
-                examples={[
-                    'Создайте шаблон типового проекта и используйте его повторно.',
-                    'Сравните версии перед отправкой клиенту.',
-                ]}
-                quickLinks={[
-                    {
-                        id: 'history-foundation',
-                        label: 'Чек-лист подготовки фундамента',
-                        description: 'Контроль качества перед сборкой каркаса.',
-                        wikiArticleId: 'foundation-1',
-                    },
-                    {
-                        id: 'history-roof',
-                        label: 'Вентиляция кровли',
-                        description: 'Как обеспечить долговечность кровли.',
-                        wikiArticleId: 'roof-1',
-                    },
-                ]}
-            />
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
                 <h2 className="text-2xl font-bold text-text-primary">История смет</h2>
                 <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">

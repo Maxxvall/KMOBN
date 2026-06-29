@@ -7,7 +7,7 @@ import WikiCategories from './WikiCategories';
 import WikiSubcategories from './WikiSubcategories';
 import WikiArticle from './WikiArticle';
 import WikiAIChat from './WikiAIChat';
-import TabDescription from '../TabDescription';
+
 
 type NavigationLevel = 'categories' | 'subcategories' | 'articles' | 'article';
 
@@ -149,41 +149,6 @@ const Wiki: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            {/* Tab description */}
-            <TabDescription
-                storageKey="wiki"
-                summary="База знаний по строительству. Выбирайте тему, подраздел и читайте полезные статьи. Используйте AI-помощника для быстрых ответов."
-                actions={[
-                    'Найти статьи по категориям и подразделам',
-                    'Использовать поиск по всей базе знаний',
-                    'Задать вопрос AI-помощнику',
-                    'Изучить нормативы и чек-листы',
-                ]}
-                steps={[
-                    'Выберите тему (категорию).',
-                    'Откройте подраздел внутри темы.',
-                    'Прочитайте нужную статью.',
-                    'Задайте вопрос AI, если нужна помощь.',
-                ]}
-                examples={[
-                    'Откройте «Фундамент» → «Подготовка основания» → «Дренаж и водоотведение».',
-                    'Спросите у AI про оптимальную толщину утеплителя для вашего региона.',
-                ]}
-                quickLinks={[
-                    {
-                        id: 'wiki-quick-foundation',
-                        label: 'Чек-лист подготовки фундамента',
-                        description: 'Быстрый контроль перед монтажом стен.',
-                        wikiArticleId: 'foundation-1',
-                    },
-                    {
-                        id: 'wiki-quick-vapor',
-                        label: 'Правильная укладка пароизоляции',
-                        description: 'Сохраните герметичность контура.',
-                        wikiArticleId: 'vapor-1',
-                    },
-                ]}
-            />
 
             {/* Header */}
             <div className="flex items-end justify-between gap-4">
