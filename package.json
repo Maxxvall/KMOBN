@@ -72,7 +72,8 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "Setup.${version}.exe"
     },
     "publish": {
       "provider": "github",

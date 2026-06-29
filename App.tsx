@@ -897,20 +897,40 @@ const App: React.FC = () => {
             localStorage.setItem('kmobn:appStartTime', String(Date.now()));
         }
 
-        const handleBeforeUnload = () => {
+        // Save time every 30 seconds
+        const interval = setInterval(() => {
             const start = parseInt(localStorage.getItem('kmobn:appStartTime') || '0', 10);
             if (start > 0) {
                 const sessionMinutes = Math.floor((Date.now() - start) / 60000);
-                const totalMinutes = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10) + sessionMinutes;
-                localStorage.setItem('kmobn:totalTimeSpent', String(totalMinutes));
-                localStorage.removeItem('kmobn:appStartTime');
+                const totalMinutes = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10);
+                // Only save if at least 1 minute passed
+                if (sessionMinutes >= 1) {
+                    const currentSavedTotal = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10);
+                    localStorage.setItem('kmobn:totalTimeSpent', String(currentSavedTotal + sessionMinutes));
+                    localStorage.setItem('kmobn:appStartTime', String(Date.now()));
+                }
+            }
+        }, 30000);
+
+        // Also save on visibility change (tab switch, minimize)
+        const handleVisibility = () => {
+            if (document.visibilityState === 'hidden') {
+                const start = parseInt(localStorage.getItem('kmobn:appStartTime') || '0', 10);
+                if (start > 0) {
+                    const sessionMinutes = Math.floor((Date.now() - start) / 60000);
+                    if (sessionMinutes >= 1) {
+                        const currentSavedTotal = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10);
+                        localStorage.setItem('kmobn:totalTimeSpent', String(currentSavedTotal + sessionMinutes));
+                        localStorage.setItem('kmobn:appStartTime', String(Date.now()));
+                    }
+                }
             }
         };
 
-        window.addEventListener('beforeunload', handleBeforeUnload);
+        document.addEventListener('visibilitychange', handleVisibility);
         return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
-            handleBeforeUnload();
+            clearInterval(interval);
+            document.removeEventListener('visibilitychange', handleVisibility);
         };
     }, []);
 
