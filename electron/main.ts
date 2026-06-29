@@ -105,9 +105,7 @@ function createWindow() {
     });
 
     mainWindow.webContents.on('console-message', (event, level, message) => {
-      if (level >= 2) {
-        log('[renderer]:', message);
-      }
+      log(`[renderer L${level}]:`, message);
     });
 
     mainWindow.once('ready-to-show', () => {

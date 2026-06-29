@@ -775,40 +775,55 @@ const App: React.FC = () => {
             // Helper: find Supabase auth token in localStorage (key varies by project)
             const findAuthSession = (): { user: any } | null => {
                 try {
+                    console.log('[AUTH] Scanning localStorage for sb-* keys...');
                     for (let i = 0; i < localStorage.length; i++) {
                         const key = localStorage.key(i);
                         if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                            console.log('[AUTH] Found key:', key);
                             const raw = localStorage.getItem(key);
                             if (raw) {
                                 const parsed = JSON.parse(raw);
                                 const session = parsed?.current_session || parsed?.session;
-                                if (session?.user) return session;
+                                console.log('[AUTH] Session keys:', Object.keys(parsed || {}));
+                                if (session?.user) {
+                                    console.log('[AUTH] User found:', session.user.email, session.user.id);
+                                    return session;
+                                }
                             }
                         }
                     }
-                } catch {}
+                    console.log('[AUTH] No sb-* auth token found in localStorage');
+                } catch (e) {
+                    console.error('[AUTH] Error reading localStorage:', e);
+                }
                 return null;
             };
 
+            console.log('[AUTH] initSession start. navigator.onLine:', navigator.onLine);
             try {
                 const { data, error } = await sb.auth.getSession();
                 if (error) {
-                    console.error('Supabase getSession error:', error);
+                    console.error('[AUTH] getSession error:', error.message);
                     throw error;
                 }
                 if (!isMounted) return;
+                console.log('[AUTH] getSession result:', data.session ? 'session found' : 'no session');
                 setSupabaseUser(data.session?.user ?? null);
                 if (data.session?.user) {
+                    console.log('[AUTH] Online session active:', data.session.user.email);
                     setOfflineMode(false);
                 } else {
                     clearRecoveryRequired();
                     if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
+                        console.log('[AUTH] No session, trying localStorage fallback...');
                         const cachedSession = findAuthSession();
                         if (cachedSession?.user) {
+                            console.log('[AUTH] Restored from localStorage:', cachedSession.user.email);
                             setSupabaseUser(cachedSession.user);
                             setOfflineMode(true);
                             return;
                         }
+                        console.log('[AUTH] No cached session found, entering offline mode');
                         setOfflineMode(true);
                     }
                 }
@@ -818,14 +833,17 @@ const App: React.FC = () => {
                     clearRecoveryFlag();
                 }
                 return;
-            } catch {
+            } catch (e) {
+                console.error('[AUTH] getSession exception:', e);
                 const cachedSession = findAuthSession();
                 if (cachedSession?.user) {
+                    console.log('[AUTH] Restored from localStorage after exception:', cachedSession.user.email);
                     if (!isMounted) return;
                     setSupabaseUser(cachedSession.user);
                     setOfflineMode(true);
                     return;
                 }
+                console.log('[AUTH] No cached session after exception');
             }
             if (!isMounted) return;
             setSupabaseUser(null);
