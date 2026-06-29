@@ -56,7 +56,6 @@ const Subscriptions = lazy(() => import('./components/Subscriptions'));
 const Wiki = lazy(() => import('./components/Wiki'));
 
 const AUTOSAVE_DELAY_MS = 8000;
-const SUPABASE_PROJECT_REF = 'grsmlxnfdhfmcerxjxob';
 
 
 type SaveMode = 'overwrite' | 'new';
@@ -776,68 +775,20 @@ const App: React.FC = () => {
         };
 
         const initSession = async () => {
-            // Helper: find Supabase auth token in localStorage (key varies by project)
-            const findAuthSession = (): { user: any } | null => {
-                try {
-                    console.log('[AUTH] Scanning localStorage for sb-* keys...');
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i);
-                        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
-                            console.log('[AUTH] Found key:', key);
-                            const raw = localStorage.getItem(key);
-                            if (raw) {
-                                const parsed = JSON.parse(raw);
-                                const session = parsed?.current_session || parsed?.session;
-                                console.log('[AUTH] Session keys:', Object.keys(parsed || {}));
-                                if (session?.user) {
-                                    console.log('[AUTH] User found:', session.user.email, session.user.id);
-                                    return session;
-                                }
-                            }
-                        }
-                    }
-                    console.log('[AUTH] No sb-* auth token found in localStorage');
-                } catch (e) {
-                    console.error('[AUTH] Error reading localStorage:', e);
-                }
-                return null;
-            };
-
-            console.log('[AUTH] initSession start. navigator.onLine:', navigator.onLine);
             try {
                 const { data, error } = await sb.auth.getSession();
                 if (error) {
-                    console.error('[AUTH] getSession error:', error.message);
+                    console.error('Supabase getSession error:', error);
                     throw error;
                 }
                 if (!isMounted) return;
-                console.log('[AUTH] getSession result:', data.session ? 'session found' : 'no session');
                 setSupabaseUser(data.session?.user ?? null);
                 if (data.session?.user) {
-                    console.log('[AUTH] Online session active:', data.session.user.email);
                     setOfflineMode(false);
-                    // Manually save session as backup
-                    try {
-                        const storageKey = `sb-${SUPABASE_PROJECT_REF}-auth-token`;
-                        localStorage.setItem(storageKey, JSON.stringify({
-                            current_session: data.session,
-                        }));
-                        console.log('[AUTH] Manually saved session to localStorage:', storageKey);
-                    } catch (e) {
-                        console.error('[AUTH] Failed to manually save session:', e);
-                    }
                 } else {
                     clearRecoveryRequired();
+                    // No session — check if we should enter offline mode
                     if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
-                        console.log('[AUTH] No session, trying localStorage fallback...');
-                        const cachedSession = findAuthSession();
-                        if (cachedSession?.user) {
-                            console.log('[AUTH] Restored from localStorage:', cachedSession.user.email);
-                            setSupabaseUser(cachedSession.user);
-                            setOfflineMode(true);
-                            return;
-                        }
-                        console.log('[AUTH] No cached session found, entering offline mode');
                         setOfflineMode(true);
                     }
                 }
@@ -847,17 +798,23 @@ const App: React.FC = () => {
                     clearRecoveryFlag();
                 }
                 return;
-            } catch (e) {
-                console.error('[AUTH] getSession exception:', e);
-                const cachedSession = findAuthSession();
-                if (cachedSession?.user) {
-                    console.log('[AUTH] Restored from localStorage after exception:', cachedSession.user.email);
-                    if (!isMounted) return;
-                    setSupabaseUser(cachedSession.user);
-                    setOfflineMode(true);
-                    return;
+            } catch {
+                // Offline or network error — try reading cached session from localStorage
+                try {
+                    const cached = localStorage.getItem('sb-auth-token');
+                    if (cached) {
+                        const parsed = JSON.parse(cached);
+                        const session = parsed?.current_session;
+                        if (session?.user) {
+                            if (!isMounted) return;
+                            setSupabaseUser(session.user);
+                            setOfflineMode(true);
+                            return;
+                        }
+                    }
+                } catch {
+                    // ignore localStorage errors
                 }
-                console.log('[AUTH] No cached session after exception');
             }
             if (!isMounted) return;
             setSupabaseUser(null);
@@ -871,37 +828,9 @@ const App: React.FC = () => {
 
         void initSession();
 
-        let lastAuthEvent = '';
         const { data } = sb.auth.onAuthStateChange((event, session) => {
-            console.log('[AUTH] onAuthStateChange:', event, session?.user?.email || 'no user');
-
-            // If SIGNED_IN just happened, ignore brief SIGNED_OUT flicker
-            if (event === 'SIGNED_OUT' && lastAuthEvent === 'SIGNED_IN') {
-                console.log('[AUTH] Ignoring SIGNED_OUT flicker after SIGNED_IN');
-                return;
-            }
-
-            if (event === 'SIGNED_IN') {
-                lastAuthEvent = 'SIGNED_IN';
-                // Manually save session to localStorage as backup for Electron
-                if (session) {
-                    try {
-                        const storageKey = `sb-${SUPABASE_PROJECT_REF}-auth-token`;
-                        localStorage.setItem(storageKey, JSON.stringify({
-                            current_session: session,
-                        }));
-                        console.log('[AUTH] Manually saved session to localStorage:', storageKey);
-                    } catch (e) {
-                        console.error('[AUTH] Failed to manually save session:', e);
-                    }
-                }
-            } else if (event === 'SIGNED_OUT') {
-                lastAuthEvent = 'SIGNED_OUT';
-            }
-
             setSupabaseUser(session?.user ?? null);
             setOfflineMode(false);
-
             if (!session?.user) {
                 clearRecoveryRequired();
             }
@@ -939,40 +868,28 @@ const App: React.FC = () => {
             localStorage.setItem('kmobn:appStartTime', String(Date.now()));
         }
 
-        // Save time every 30 seconds
-        const interval = setInterval(() => {
+        const saveTime = () => {
             const start = parseInt(localStorage.getItem('kmobn:appStartTime') || '0', 10);
             if (start > 0) {
                 const sessionMinutes = Math.floor((Date.now() - start) / 60000);
-                const totalMinutes = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10);
-                // Only save if at least 1 minute passed
                 if (sessionMinutes >= 1) {
                     const currentSavedTotal = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10);
                     localStorage.setItem('kmobn:totalTimeSpent', String(currentSavedTotal + sessionMinutes));
                     localStorage.setItem('kmobn:appStartTime', String(Date.now()));
                 }
             }
-        }, 30000);
-
-        // Also save on visibility change (tab switch, minimize)
-        const handleVisibility = () => {
-            if (document.visibilityState === 'hidden') {
-                const start = parseInt(localStorage.getItem('kmobn:appStartTime') || '0', 10);
-                if (start > 0) {
-                    const sessionMinutes = Math.floor((Date.now() - start) / 60000);
-                    if (sessionMinutes >= 1) {
-                        const currentSavedTotal = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10);
-                        localStorage.setItem('kmobn:totalTimeSpent', String(currentSavedTotal + sessionMinutes));
-                        localStorage.setItem('kmobn:appStartTime', String(Date.now()));
-                    }
-                }
-            }
         };
 
+        const interval = setInterval(saveTime, 30000);
+        const handleVisibility = () => {
+            if (document.visibilityState === 'hidden') saveTime();
+        };
         document.addEventListener('visibilitychange', handleVisibility);
+
         return () => {
             clearInterval(interval);
             document.removeEventListener('visibilitychange', handleVisibility);
+            saveTime();
         };
     }, []);
 
