@@ -10,6 +10,7 @@ import ContractNameModal from './components/ContractNameModal';
 import ScrollToTop from './components/ScrollToTop';
 import Login from './components/Login';
 import ProfileModal from './components/ProfileModal';
+import ErrorBoundary from './components/ErrorBoundary';
 import LandingPage from './components/LandingPage.tsx';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
@@ -1940,6 +1941,7 @@ const App: React.FC = () => {
 
     if (!isAuthenticated) {
         return (
+            <ErrorBoundary>
             <div className="min-h-screen bg-background text-text-primary">
                 <LandingPage onOpenLogin={() => setShowLoginModal(true)} onOfflineMode={() => setOfflineMode(true)} />
                 {showLoginModal && (
@@ -1978,10 +1980,12 @@ const App: React.FC = () => {
                 )}
                 {passwordRecoveryModal}
             </div>
+            </ErrorBoundary>
         );
     }
 
     return (
+        <ErrorBoundary>
         <SubscriptionProvider value={subscriptionContextValue}>
             <CatalogProvider value={catalogContextValue}>
                 <EstimateProvider value={estimateContextValue}>
@@ -2171,6 +2175,7 @@ const App: React.FC = () => {
                 </EstimateProvider>
             </CatalogProvider>
         </SubscriptionProvider>
+        </ErrorBoundary>
     );
 };
 
