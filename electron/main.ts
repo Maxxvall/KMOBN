@@ -5,10 +5,8 @@ const fs = require('fs');
 let store = null;
 let mainWindow = null;
 let autoUpdater = null;
-let pendingAuthUrl = null;
 
 const LOG_FILE = path.join(app.getPath('userData'), 'app.log');
-const PROTOCOL_NAME = 'karkasmaster';
 
 function log(...args) {
   const msg = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
@@ -18,18 +16,6 @@ function log(...args) {
 
 function getDistPath() {
   return path.join(__dirname, '../dist');
-}
-
-function sendAuthToRenderer(url) {
-  log('Auth callback received:', url);
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-    mainWindow.webContents.send('auth-callback', url);
-  } else {
-    pendingAuthUrl = url;
-    log('Window not ready, saved pending auth URL');
-  }
 }
 
 async function initStore() {
@@ -127,12 +113,6 @@ function createWindow() {
     mainWindow.once('ready-to-show', () => {
       log('Window ready-to-show');
       mainWindow.show();
-
-      if (pendingAuthUrl) {
-        log('Sending pending auth URL');
-        mainWindow.webContents.send('auth-callback', pendingAuthUrl);
-        pendingAuthUrl = null;
-      }
     });
 
     mainWindow.on('closed', () => {
@@ -156,26 +136,15 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', (event, commandLine) => {
-    log('Second instance detected');
+  app.on('second-instance', () => {
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
-    }
-    const protocolUrl = commandLine.find(arg => arg.startsWith(PROTOCOL_NAME + '://'));
-    if (protocolUrl) {
-      sendAuthToRenderer(protocolUrl);
     }
   });
 
   app.whenReady().then(async () => {
     log('=== App is ready ===');
-
-    if (!app.isDefaultProtocolClient(PROTOCOL_NAME)) {
-      app.setAsDefaultProtocolClient(PROTOCOL_NAME);
-      log('Registered protocol:', PROTOCOL_NAME);
-    }
-
     await initStore();
     await initAutoUpdater();
     createWindow();
@@ -185,12 +154,6 @@ if (!gotTheLock) {
         createWindow();
       }
     });
-  });
-
-  app.on('open-url', (event, url) => {
-    event.preventDefault();
-    log('open-url:', url);
-    sendAuthToRenderer(url);
   });
 }
 

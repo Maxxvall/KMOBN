@@ -9,5 +9,4 @@ contextBridge.exposeInMainWorld('electronAPI', {
   closeWindow: () => ipcRenderer.invoke('close-window'),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   isElectron: true,
-  onAuthCallback: (callback) => ipcRenderer.on('auth-callback', (_, url) => callback(url)),
 });

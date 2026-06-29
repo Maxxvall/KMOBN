@@ -648,25 +648,15 @@ const App: React.FC = () => {
         if (!supabase) {
             throw new Error('Supabase не настроен для входа через Google');
         }
-        const isElectron = !!window.electronAPI?.isElectron;
-        const redirectTo = isElectron
-            ? 'karkasmaster://auth-callback'
-            : (import.meta.env.VITE_AUTH_REDIRECT_URL as string) ||
-              (import.meta.env.VITE_SITE_URL as string) ||
-              window.location.origin;
 
-        const { data, error } = await supabase.auth.signInWithOAuth({
+        const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                redirectTo,
-                skipBrowserRedirect: isElectron,
+                redirectTo: window.location.origin,
             },
         });
         if (error) {
             throw new Error(error.message);
-        }
-        if (isElectron && data?.url) {
-            window.open(data.url, '_blank');
         }
     }, []);
 
@@ -867,31 +857,6 @@ const App: React.FC = () => {
             setShowPasswordRecoveryModal(true);
         }
     }, [recoveryIntent, setShowPasswordRecoveryModal]);
-
-    // Handle OAuth callback from custom protocol (Electron)
-    useEffect(() => {
-        if (!window.electronAPI?.onAuthCallback || !supabase) return;
-        const handler = (url: string) => {
-            const hash = url.split('#')[1];
-            if (hash) {
-                const params = new URLSearchParams(hash);
-                const accessToken = params.get('access_token');
-                const refreshToken = params.get('refresh_token');
-                if (accessToken && refreshToken) {
-                    supabase.auth.setSession({
-                        access_token: accessToken,
-                        refresh_token: refreshToken,
-                    }).then(({ data: sessionData }) => {
-                        if (sessionData?.user) {
-                            setSupabaseUser(sessionData.user);
-                            setOfflineMode(false);
-                        }
-                    });
-                }
-            }
-        };
-        window.electronAPI.onAuthCallback(handler);
-    }, [useSupabaseAuth, setSupabaseUser, setOfflineMode]);
 
     // Track app usage time
     useEffect(() => {
