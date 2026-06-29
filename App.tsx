@@ -648,12 +648,12 @@ const App: React.FC = () => {
         if (!supabase) {
             throw new Error('Supabase не настроен для входа через Google');
         }
+        if (!navigator.onLine) {
+            throw new Error('Для входа через Google нужен интернет');
+        }
 
         const { error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
-            options: {
-                redirectTo: window.location.origin,
-            },
         });
         if (error) {
             throw new Error(error.message);
@@ -772,6 +772,24 @@ const App: React.FC = () => {
         };
 
         const initSession = async () => {
+            // Helper: find Supabase auth token in localStorage (key varies by project)
+            const findAuthSession = (): { user: any } | null => {
+                try {
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                            const raw = localStorage.getItem(key);
+                            if (raw) {
+                                const parsed = JSON.parse(raw);
+                                const session = parsed?.current_session || parsed?.session;
+                                if (session?.user) return session;
+                            }
+                        }
+                    }
+                } catch {}
+                return null;
+            };
+
             try {
                 const { data, error } = await sb.auth.getSession();
                 if (error) {
@@ -785,20 +803,11 @@ const App: React.FC = () => {
                 } else {
                     clearRecoveryRequired();
                     if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
-                        // No session and offline — try to restore from localStorage
-                        try {
-                            const cached = localStorage.getItem('sb-auth-token');
-                            if (cached) {
-                                const parsed = JSON.parse(cached);
-                                const session = parsed?.current_session;
-                                if (session?.user) {
-                                    setSupabaseUser(session.user);
-                                    setOfflineMode(true);
-                                    return;
-                                }
-                            }
-                        } catch {
-                            // ignore localStorage errors
+                        const cachedSession = findAuthSession();
+                        if (cachedSession?.user) {
+                            setSupabaseUser(cachedSession.user);
+                            setOfflineMode(true);
+                            return;
                         }
                         setOfflineMode(true);
                     }
@@ -810,21 +819,12 @@ const App: React.FC = () => {
                 }
                 return;
             } catch {
-                // Offline or network error — try reading cached session from localStorage
-                try {
-                    const cached = localStorage.getItem('sb-auth-token');
-                    if (cached) {
-                        const parsed = JSON.parse(cached);
-                        const session = parsed?.current_session;
-                        if (session?.user) {
-                            if (!isMounted) return;
-                            setSupabaseUser(session.user);
-                            setOfflineMode(true);
-                            return;
-                        }
-                    }
-                } catch {
-                    // ignore localStorage errors
+                const cachedSession = findAuthSession();
+                if (cachedSession?.user) {
+                    if (!isMounted) return;
+                    setSupabaseUser(cachedSession.user);
+                    setOfflineMode(true);
+                    return;
                 }
             }
             if (!isMounted) return;

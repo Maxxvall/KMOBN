@@ -75,39 +75,34 @@ const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
   return [...records].sort(compareByStableOrder);
 };
 
-const getAuthenticatedUserId = async (): Promise<string | null> => {
-  if (!isSupabaseConfigured()) {
-    // Try to get userId from cached session in localStorage
-    try {
-      const cached = localStorage.getItem('sb-auth-token');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        const session = parsed?.current_session;
-        if (session?.user?.id) {
-          return session.user.id;
+const findCachedUserId = (): string | null => {
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const session = parsed?.current_session || parsed?.session;
+          if (session?.user?.id) return session.user.id;
         }
       }
-    } catch {}
-    return null;
+    }
+  } catch {}
+  return null;
+};
+
+const getAuthenticatedUserId = async (): Promise<string | null> => {
+  if (!isSupabaseConfigured()) {
+    return findCachedUserId();
   }
   const client = ensureSupabase();
   const { data, error } = await client.auth.getSession();
   if (error) {
     console.error('Supabase getSession error:', error);
-    // Try to get userId from cached session in localStorage
-    try {
-      const cached = localStorage.getItem('sb-auth-token');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        const session = parsed?.current_session;
-        if (session?.user?.id) {
-          return session.user.id;
-        }
-      }
-    } catch {}
-    return null;
+    return findCachedUserId();
   }
-  return data.session?.user.id ?? null;
+  return data.session?.user.id ?? findCachedUserId();
 };
 
 const requireUserId = async (): Promise<string> => {
