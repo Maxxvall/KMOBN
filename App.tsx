@@ -893,6 +893,30 @@ const App: React.FC = () => {
         window.electronAPI.onAuthCallback(handler);
     }, [useSupabaseAuth, setSupabaseUser, setOfflineMode]);
 
+    // Track app usage time
+    useEffect(() => {
+        const startTime = localStorage.getItem('kmobn:appStartTime');
+        if (!startTime) {
+            localStorage.setItem('kmobn:appStartTime', String(Date.now()));
+        }
+
+        const handleBeforeUnload = () => {
+            const start = parseInt(localStorage.getItem('kmobn:appStartTime') || '0', 10);
+            if (start > 0) {
+                const sessionMinutes = Math.floor((Date.now() - start) / 60000);
+                const totalMinutes = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10) + sessionMinutes;
+                localStorage.setItem('kmobn:totalTimeSpent', String(totalMinutes));
+                localStorage.removeItem('kmobn:appStartTime');
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+            handleBeforeUnload();
+        };
+    }, []);
+
     const handleUpdatePassword = useCallback(async () => {
         if (!supabase) return;
         if (!recoveryPassword) {
@@ -2038,7 +2062,7 @@ const App: React.FC = () => {
                     Оффлайн-режим — данные сохраняются локально. Синхронизация будет выполнена при восстановлении связи.
                 </div>
             )}
-            <div className="fixed top-3 right-4 z-50">
+            <div className="fixed bottom-4 left-4 z-50">
                 <StatusIndicators
                     isOnline={offlineSync.isOnline}
                     isSupabaseConnected={offlineSync.isSupabaseConnected}

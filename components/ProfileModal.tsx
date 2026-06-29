@@ -22,7 +22,6 @@ interface UserStats {
   totalEstimates: number;
   lastActivity: string;
   totalWorkVolume: number;
-  topMaterials: { name: string; count: number }[];
   totalTimeInApp: number;
 }
 
@@ -31,6 +30,18 @@ interface UserSettings {
   language: 'ru' | 'en';
   notifications: boolean;
 }
+
+const APP_START_KEY = 'kmobn:appStartTime';
+const TOTAL_TIME_KEY = 'kmobn:totalTimeSpent';
+
+const getTimeSpent = (): number => {
+  const total = parseInt(localStorage.getItem(TOTAL_TIME_KEY) || '0', 10);
+  const start = parseInt(localStorage.getItem(APP_START_KEY) || '0', 10);
+  if (start > 0) {
+    return total + Math.floor((Date.now() - start) / 60000);
+  }
+  return total;
+};
 
 const ProfileModal: React.FC<ProfileModalProps> = ({
   isOpen,
@@ -52,7 +63,6 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     totalEstimates: 0,
     lastActivity: new Date().toISOString(),
     totalWorkVolume: 0,
-    topMaterials: [],
     totalTimeInApp: 0,
   });
   const [settings, setSettings] = useState<UserSettings>({
@@ -60,15 +70,15 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     language: 'ru',
     notifications: true,
   });
+  const [updateStatus, setUpdateStatus] = useState<string>('');
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   useEffect(() => {
     if (!isOpen) return;
 
-    // Calculate statistics
     const totalEstimates = Array.isArray(estimates) ? estimates.length : 0;
     const lastActivity = new Date().toISOString();
     
-    // Calculate total work volume (sum of all estimates)
     const totalWorkVolume = Array.isArray(estimates)
       ? estimates.reduce((sum: number, est: any) => {
           const items = est.items || [];
@@ -78,26 +88,6 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
         }, 0)
       : 0;
 
-    // Calculate top materials
-    const materialCounts: Record<string, number> = {};
-    if (Array.isArray(estimates)) {
-      estimates.forEach((est: any) => {
-        const items = est.items || [];
-        items.forEach((item: any) => {
-          const name = item.name || item.material;
-          if (name) {
-            materialCounts[name] = (materialCounts[name] || 0) + (item.quantity || 1);
-          }
-        });
-      });
-    }
-
-    const topMaterials = Object.entries(materialCounts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 5)
-      .map(([name, count]) => ({ name, count }));
-
-    // Load saved settings
     const savedSettings = localStorage.getItem('profileSettings');
     if (savedSettings) {
       try {
@@ -111,8 +101,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
       totalEstimates,
       lastActivity,
       totalWorkVolume,
-      topMaterials,
-      totalTimeInApp: 0, // Would need to track this separately
+      totalTimeInApp: getTimeSpent(),
     });
   }, [isOpen, estimates, materials, works, bundles]);
 
@@ -339,6 +328,33 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   Очистить локальный кэш
                 </button>
               </div>
+
+              {/* Check for Updates */}
+              {window.electronAPI?.isElectron && (
+                <div>
+                  <button
+                    onClick={async () => {
+                      setIsCheckingUpdate(true);
+                      setUpdateStatus('');
+                      try {
+                        await window.electronAPI?.checkForUpdates?.();
+                        setUpdateStatus('Проверка завершена');
+                      } catch {
+                        setUpdateStatus('Ошибка проверки');
+                      }
+                      setIsCheckingUpdate(false);
+                      setTimeout(() => setUpdateStatus(''), 3000);
+                    }}
+                    disabled={isCheckingUpdate}
+                    className="w-full px-4 py-2 bg-gray-800 border border-border rounded-lg text-text-primary hover:bg-gray-700 transition-colors disabled:opacity-60"
+                  >
+                    {isCheckingUpdate ? 'Проверяю...' : 'Проверить обновления'}
+                  </button>
+                  {updateStatus && (
+                    <p className="mt-2 text-center text-sm text-text-secondary">{updateStatus}</p>
+                  )}
+                </div>
+              )}
 
               {/* Save Settings */}
               <div>

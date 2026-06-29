@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.invoke('minimize-window'),
   maximizeWindow: () => ipcRenderer.invoke('maximize-window'),
   closeWindow: () => ipcRenderer.invoke('close-window'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   isElectron: true,
   onAuthCallback: (callback) => ipcRenderer.on('auth-callback', (_, url) => callback(url)),
 });
