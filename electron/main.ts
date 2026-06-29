@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain, nativeTheme, dialog } = require('electron')
 const path = require('path');
 const fs = require('fs');
 
-let store;
+let store = null;
 let mainWindow = null;
 let autoUpdater = null;
 
@@ -20,7 +20,7 @@ function getDistPath() {
 
 async function initStore() {
   try {
-    const Store = (await import('electron-store')).default;
+    const { default: Store } = await import('electron-store');
     store = new Store();
     log('Store initialized');
   } catch (e) {
@@ -30,7 +30,7 @@ async function initStore() {
 
 async function initAutoUpdater() {
   try {
-    const { autoUpdater: updater } = require('electron-updater');
+    const { autoUpdater: updater } = await import('electron-updater');
     autoUpdater = updater;
     autoUpdater.logger = console;
 
@@ -73,15 +73,9 @@ function createWindow() {
   const distPath = getDistPath();
   const indexPath = path.join(distPath, 'index.html');
   const iconPath = path.join(__dirname, '../public/icon.png');
-  const fs2 = require('fs');
 
   log('=== Creating window ===');
-  log('Dist path:', distPath);
-  log('Index path:', indexPath);
-  log('App path:', app.getAppPath());
-  log('NODE_ENV:', process.env.NODE_ENV);
-  log('index.html exists:', fs2.existsSync(indexPath));
-  log('dist contents:', fs2.readdirSync(distPath).join(', '));
+  log('Index exists:', fs.existsSync(indexPath));
 
   try {
     mainWindow = new BrowserWindow({
@@ -94,7 +88,6 @@ function createWindow() {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
-        devTools: true,
       },
       titleBarStyle: 'hiddenInset',
       backgroundColor: '#111827',
@@ -103,7 +96,6 @@ function createWindow() {
 
     mainWindow.loadFile(indexPath);
 
-    // Log renderer errors
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
       log('did-fail-load:', errorCode, errorDescription, validatedURL);
     });
@@ -112,28 +104,22 @@ function createWindow() {
       log('render-process-gone:', details.reason, details.exitCode);
     });
 
-    mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
-      const levels = ['verbose', 'info', 'warning', 'error'];
-      const msg = `[renderer ${levels[level] || level}]: ${message}`;
-      log(msg);
-    });
-
-    mainWindow.webContents.on('did-finish-load', () => {
-      log('Page loaded successfully');
+    mainWindow.webContents.on('console-message', (event, level, message) => {
+      if (level >= 2) {
+        log('[renderer]:', message);
+      }
     });
 
     mainWindow.once('ready-to-show', () => {
       log('Window ready-to-show');
       mainWindow.show();
-      // Open DevTools in production for debugging (remove later)
-      mainWindow.webContents.openDevTools();
     });
 
     mainWindow.on('closed', () => {
       mainWindow = null;
     });
 
-    if (process.env.NODE_ENV !== 'development' && autoUpdater) {
+    if (autoUpdater) {
       setTimeout(() => {
         autoUpdater.checkForUpdatesAndNotify().catch((e) => {
           log('Check for updates failed:', e.message);
@@ -141,14 +127,12 @@ function createWindow() {
       }, 5000);
     }
   } catch (e) {
-    log('Window creation error:', e.message, e.stack);
+    log('Window creation error:', e.message);
   }
 }
 
 app.whenReady().then(async () => {
   log('=== App is ready ===');
-  log('userData:', app.getPath('userData'));
-
   await initStore();
   await initAutoUpdater();
   createWindow();
@@ -171,7 +155,6 @@ app.on('certificate-error', (event, webContents, url, error, certificate, callba
   callback(true);
 });
 
-// IPC handlers
 ipcMain.handle('get-store', (_, key) => {
   return store ? store.get(key) : null;
 });
@@ -207,7 +190,7 @@ ipcMain.handle('close-window', () => {
 });
 
 ipcMain.handle('check-for-updates', () => {
-  if (process.env.NODE_ENV !== 'development' && autoUpdater) {
+  if (autoUpdater) {
     autoUpdater.checkForUpdatesAndNotify().catch((e) => {
       log('Manual update check failed:', e.message);
     });

@@ -2153,7 +2153,7 @@ const App: React.FC = () => {
             <ProfileModal
                 isOpen={isProfileModalOpen}
                 onClose={() => setIsProfileModalOpen(false)}
-                user={user}
+                user={supabaseUser}
                 estimates={estimates}
                 materials={materials}
                 works={works}
