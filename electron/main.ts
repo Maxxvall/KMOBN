@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -7,6 +7,7 @@ let mainWindow = null;
 let autoUpdater = null;
 
 const LOG_FILE = path.join(app.getPath('userData'), 'app.log');
+const PROTOCOL_NAME = 'karkas-master';
 
 function log(...args) {
   const msg = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
@@ -133,6 +134,13 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   log('=== App is ready ===');
+
+  // Register custom protocol for OAuth callbacks
+  if (!app.isDefaultProtocolClient(PROTOCOL_NAME)) {
+    app.setAsDefaultProtocolClient(PROTOCOL_NAME);
+    log('Registered protocol:', PROTOCOL_NAME);
+  }
+
   await initStore();
   await initAutoUpdater();
   createWindow();
@@ -142,6 +150,15 @@ app.whenReady().then(async () => {
       createWindow();
     }
   });
+});
+
+// Handle custom protocol (OAuth callback on Windows)
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  log('Protocol URL:', url);
+  if (mainWindow) {
+    mainWindow.webContents.send('auth-callback', url);
+  }
 });
 
 app.on('window-all-closed', () => {
