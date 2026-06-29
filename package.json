@@ -1,8 +1,7 @@
 {
   "name": "karkas-master",
   "private": true,
-  "version": "1.4.0",
-  "type": "module",
+  "version": "1.4.1",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
