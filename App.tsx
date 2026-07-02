@@ -908,10 +908,7 @@ const App: React.FC = () => {
 
     // Track app usage time
     useEffect(() => {
-        const startTime = localStorage.getItem('kmobn:appStartTime');
-        if (!startTime) {
-            localStorage.setItem('kmobn:appStartTime', String(Date.now()));
-        }
+        localStorage.setItem('kmobn:appStartTime', String(Date.now()));
 
         const saveTime = () => {
             const start = parseInt(localStorage.getItem('kmobn:appStartTime') || '0', 10);
@@ -979,6 +976,21 @@ const App: React.FC = () => {
             return () => clearTimeout(timer);
         }
     }, [offlineSync.syncedCount, setSync]);
+
+    // Reset loadedFlags after sync so data is re-fetched from Supabase/cache
+    useEffect(() => {
+        if (offlineSync.syncedTables.length > 0) {
+            setLoadedFlags(prev => {
+                const next = { ...prev };
+                for (const table of offlineSync.syncedTables) {
+                    if (table in next) {
+                        (next as any)[table] = false;
+                    }
+                }
+                return next;
+            });
+        }
+    }, [offlineSync.syncedTables]);
 
     const loadHistoryData = useCallback(async (showToast: boolean) => {
         if (loadedFlags.estimates && loadedFlags.templates) return;
