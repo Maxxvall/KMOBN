@@ -652,14 +652,25 @@ const App: React.FC = () => {
             throw new Error('Для входа через Google нужен интернет');
         }
 
-        const { error } = await supabase.auth.signInWithOAuth({
+        const isElectron = !!window.electronAPI?.isElectron;
+        const redirectTo = isElectron
+            ? 'karkasmaster://auth-callback'
+            : (import.meta.env.VITE_AUTH_REDIRECT_URL as string) ||
+              (import.meta.env.VITE_SITE_URL as string) ||
+              window.location.origin;
+
+        const { data, error } = await supabase.auth.signInWithOAuth({
             provider: 'google',
             options: {
-                redirectTo: window.location.origin,
+                redirectTo,
+                skipBrowserRedirect: isElectron,
             },
         });
         if (error) {
             throw new Error(error.message);
+        }
+        if (isElectron && data?.url) {
+            await window.electronAPI.openExternal(data.url);
         }
     }, []);
 
@@ -801,16 +812,26 @@ const App: React.FC = () => {
             } catch {
                 // Offline or network error — try reading cached session from localStorage
                 try {
-                    const cached = localStorage.getItem('sb-auth-token');
-                    if (cached) {
-                        const parsed = JSON.parse(cached);
-                        const session = parsed?.current_session;
-                        if (session?.user) {
-                            if (!isMounted) return;
-                            setSupabaseUser(session.user);
-                            setOfflineMode(true);
-                            return;
+                    let cachedUser = null;
+                    for (let i = 0; i < localStorage.length; i++) {
+                        const key = localStorage.key(i);
+                        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                            const raw = localStorage.getItem(key);
+                            if (raw) {
+                                const parsed = JSON.parse(raw);
+                                const session = parsed?.current_session || parsed?.session;
+                                if (session?.user) {
+                                    cachedUser = session.user;
+                                    break;
+                                }
+                            }
                         }
+                    }
+                    if (cachedUser) {
+                        if (!isMounted) return;
+                        setSupabaseUser(cachedUser);
+                        setOfflineMode(true);
+                        return;
                     }
                 } catch {
                     // ignore localStorage errors
@@ -854,6 +875,30 @@ const App: React.FC = () => {
             data.subscription.unsubscribe();
         };
     }, [useSupabaseAuth, setRecoveryRequired, setShowPasswordRecoveryModal, setSupabaseUser, setOfflineMode]);
+
+    // Handle OAuth callback from custom protocol (Electron)
+    useEffect(() => {
+        if (!window.electronAPI?.onAuthCallback || !supabase) return;
+        const handler = (url: string) => {
+            try {
+                const parsedUrl = new URL(url);
+                const code = parsedUrl.searchParams.get('code');
+                if (code) {
+                    supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+                        if (error) {
+                            console.error('OAuth exchange error:', error);
+                        } else if (data?.user) {
+                            setSupabaseUser(data.user);
+                            setOfflineMode(false);
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('OAuth callback parse error:', e);
+            }
+        };
+        window.electronAPI.onAuthCallback(handler);
+    }, [useSupabaseAuth, setSupabaseUser, setOfflineMode]);
 
     useEffect(() => {
         if (recoveryIntent) {
@@ -925,6 +970,15 @@ const App: React.FC = () => {
             setRecoverySubmitting(false);
         }
     }, [recoveryPassword, setRecoveryPassword, setRecoveryRequired, setRecoverySubmitting, setShowPasswordRecoveryModal, setSync]);
+
+    // Show toast after successful offline sync
+    useEffect(() => {
+        if (offlineSync.syncedCount > 0) {
+            setSync({ visible: true, message: `Данные синхронизированы (${offlineSync.syncedCount})`, type: 'success' });
+            const timer = setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            return () => clearTimeout(timer);
+        }
+    }, [offlineSync.syncedCount, setSync]);
 
     const loadHistoryData = useCallback(async (showToast: boolean) => {
         if (loadedFlags.estimates && loadedFlags.templates) return;

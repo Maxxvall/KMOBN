@@ -7,6 +7,8 @@ export interface ElectronAPI {
   closeWindow: () => Promise<void>;
   checkForUpdates: () => Promise<void>;
   isElectron: boolean;
+  openExternal?: (url: string) => Promise<void>;
+  onAuthCallback?: (callback: (url: string) => void) => void;
 }
 
 declare global {

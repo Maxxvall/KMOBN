@@ -23,6 +23,7 @@ export const useOfflineSync = () => {
   });
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [syncedCount, setSyncedCount] = useState(0);
   const syncedRef = useRef(false);
 
   useEffect(() => {
@@ -101,6 +102,7 @@ export const useOfflineSync = () => {
       await offlineQueue.clear();
       setPendingChanges([]);
       setSyncStatus('idle');
+      setSyncedCount(changes.length);
     } catch (error) {
       console.error('Sync failed:', error);
       setSyncStatus('error');
@@ -128,5 +130,6 @@ export const useOfflineSync = () => {
     syncStatus,
     syncNow,
     queueChange,
+    syncedCount,
   };
 };
