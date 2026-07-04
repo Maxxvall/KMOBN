@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 
 type LoginProps = {
-  onLogin: (username: string, password: string) => Promise<void> | void;
+  onLogin?: (username: string, password: string) => Promise<void> | void;
   onGoogleLogin: () => Promise<void> | void;
   onEmailLogin?: (email: string, password: string) => Promise<void> | void;
   onEmailSignup?: (payload: { name: string; email: string; password: string; phone?: string }) => Promise<void> | void;
@@ -41,6 +41,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
         if (!onEmailLogin) throw new Error('Вход по email недоступен');
         await onEmailLogin(username.trim(), password);
       } else {
+        if (!onLogin) throw new Error('Локальный вход отключен');
         await onLogin(username.trim(), password);
       }
     } catch (err) {

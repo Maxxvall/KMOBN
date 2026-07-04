@@ -31,10 +31,4 @@ export const useOptionalCatalogContext = (): CatalogContextValue | undefined => 
   return useContext(CatalogContext);
 };
 
-export const useCatalogContext = (): CatalogContextValue => {
-  const context = useOptionalCatalogContext();
-  if (!context) {
-    throw new Error('useCatalogContext must be used within CatalogProvider');
-  }
-  return context;
-};
+

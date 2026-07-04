@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Estimate, EstimateItem, EstimateCategory } from '../types';
-import { ESTIMATE_CATEGORIES } from '../constants';
+import { ESTIMATE_CATEGORIES } from '../types';
 
 interface VersionComparisonModalProps {
     oldVersion: Estimate;

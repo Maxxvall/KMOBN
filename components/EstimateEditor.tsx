@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle } from '../types';
-import { ESTIMATE_CATEGORIES } from '../constants';
+import { ESTIMATE_CATEGORIES } from '../types';
 import { generateEstimateWithAI } from '../services/geminiService';
 import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';

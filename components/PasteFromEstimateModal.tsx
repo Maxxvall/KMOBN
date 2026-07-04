@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Estimate, EstimateCategory, EstimateItem } from '../types';
-import { ESTIMATE_CATEGORIES } from '../constants';
+import { ESTIMATE_CATEGORIES } from '../types';
 
 interface PasteFromEstimateModalProps {
     isOpen: boolean;

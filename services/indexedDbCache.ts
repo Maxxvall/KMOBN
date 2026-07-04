@@ -1,5 +1,3 @@
-import { fnv1aHash } from './hashing';
-
 export type CacheTableKey =
   | 'estimates'
   | 'templates'
@@ -104,7 +102,7 @@ const stableStringify = (value: unknown): string => {
   return JSON.stringify(value);
 };
 
-const hashRecord = (record: unknown): string => fnv1aHash(stableStringify(record));
+const hashRecord = (record: unknown): string => stableStringify(record);
 
 // In-memory hash cache — avoids recomputing hashes for records that haven't changed
 const hashMemoryCache = new Map<string, string>();

@@ -33,10 +33,4 @@ export const useOptionalSubscriptionContext = (): SubscriptionContextValue | und
   return useContext(SubscriptionContext);
 };
 
-export const useSubscriptionContext = (): SubscriptionContextValue => {
-  const context = useOptionalSubscriptionContext();
-  if (!context) {
-    throw new Error('useSubscriptionContext must be used within SubscriptionProvider');
-  }
-  return context;
-};
+

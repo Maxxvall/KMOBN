@@ -1,4 +1,4 @@
-import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, GenerationParams, Material, Work } from '../types';
+import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, GenerationParams, Material, Work, normalizeKey, safeNumber } from '../types';
 import { aiCache } from './aiCache';
 import { AI_CONFIG, hasOpenRouterKey } from './aiConfig';
 import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, filterToLatestEstimateVersions, pickFewShotExamples, scoreEstimateQuality } from './estimateIntelligence';
@@ -113,11 +113,6 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, 
 
   signal?.addEventListener('abort', handleAbort, { once: true });
 });
-
-const safeNumber = (v: any, fallback = 0): number => {
-  const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
-  return Number.isFinite(n) ? n : fallback;
-};
 
 const normalizeUnitText = (unitRaw: string): string => {
   const u = String(unitRaw || '').trim().toLowerCase();
@@ -1044,8 +1039,6 @@ const toEstimateItemsWithPrefix = (aiItems: any[], idPrefix: string): EstimateIt
     })
     .filter(Boolean) as EstimateItem[];
 };
-
-const normalizeKey = (s: string) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
 const normalizeTokens = (s: string): string[] => {
   const cleaned = normalizeKey(s)

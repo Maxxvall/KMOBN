@@ -10,15 +10,9 @@ import {
     AutoAddedSummary,
     SmartWizardWarning,
     Work,
+    normalizeKey,
+    safeNumber,
 } from '../types';
-
-const normalizeKey = (s: string): string =>
-    String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-const safeNumber = (v: unknown, fallback = 0): number => {
-    const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
-    return Number.isFinite(n) ? n : fallback;
-};
 
 const median = (arr: number[]): number => {
     if (arr.length === 0) return 0;

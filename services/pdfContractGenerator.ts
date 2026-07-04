@@ -2,7 +2,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateItem, EstimateSubgroup } from '../types';
-import { ESTIMATE_CATEGORIES } from '../constants';
+import { ESTIMATE_CATEGORIES } from '../types';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
 
 const formatCurrency = (value: number) => `${value.toLocaleString('ru-RU')} ₽`;

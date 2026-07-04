@@ -1,4 +1,4 @@
-import { Estimate, EstimateItem } from '../types';
+import { Estimate, EstimateItem, normalizeKey, safeNumber } from '../types';
 import { aiCache } from './aiCache';
 
 export type LearningContext = {
@@ -35,13 +35,6 @@ export type AggregatedLearning = {
 };
 
 const STORAGE_KEY = 'kmobn:aiLearning:v1';
-
-const normalizeKey = (s: string) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
-
-const safeNumber = (v: any, fallback = 0): number => {
-  const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
-  return Number.isFinite(n) ? n : fallback;
-};
 
 const ctxSignature = (ctx: LearningContext): string => {
   const parts = [

@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { ESTIMATE_CATEGORIES } from '../constants';
+import { ESTIMATE_CATEGORIES } from '../types';
 import { EstimateCategory, EstimateItem, EstimateSubgroup } from '../types';
 
 export type NotInDbItem = {

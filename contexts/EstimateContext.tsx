@@ -38,10 +38,4 @@ export const useOptionalEstimateContext = (): EstimateContextValue | undefined =
   return useContext(EstimateContext);
 };
 
-export const useEstimateContext = (): EstimateContextValue => {
-  const context = useOptionalEstimateContext();
-  if (!context) {
-    throw new Error('useEstimateContext must be used within EstimateProvider');
-  }
-  return context;
-};
+

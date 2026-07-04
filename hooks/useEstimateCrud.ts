@@ -12,7 +12,7 @@ type UseEstimateCrudParams = {
   subscriptionLimits: SubscriptionLimits;
   subscriptionLoading: boolean;
   goToView: (view: View) => void;
-  openAccessModal: (title: string, description: string) => void;
+  openAccessModal?: (title: string, description: string) => void;
   recalculateEstimatePrices: (estimate: Estimate) => Estimate;
   consumeDeleteLimit: () => void;
   setEstimates: React.Dispatch<React.SetStateAction<Estimate[]>>;
@@ -52,7 +52,7 @@ export const useEstimateCrud = ({
   const handleCreateNew = useCallback(() => {
     // Don't block action while subscription is loading — allow creation with subsequent check
     if (!subscriptionLoading && !canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
-      openAccessModal('Лимит смет исчерпан', 'Перейдите на платный план, чтобы создавать больше смет.');
+      openAccessModal?.('Лимит смет исчерпан', 'Перейдите на платный план, чтобы создавать больше смет.');
       return;
     }
     setCurrentEstimate(null);

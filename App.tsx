@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback, useEffect, useRef, useReducer, lazy, Suspense } from 'react';
+import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
 import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey } from './types';
@@ -18,7 +18,7 @@ import { useOfflineSync } from './hooks/useOfflineSync';
 import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
-import { validateEstimate } from './services/estimateValidation';
+import { validateEstimate, type EstimateValidationResult } from './services/estimateValidation';
 import { hashData } from './services/hashing';
 import { EstimateProvider } from './contexts/EstimateContext';
 import { CatalogProvider } from './contexts/CatalogContext';
@@ -188,49 +188,6 @@ type SaveState = {
     saveError: string | null;
 };
 
-type FieldAction<S> = {
-    [K in keyof S]: {
-        type: 'set';
-        field: K;
-        value: React.SetStateAction<S[K]>;
-    }
-}[keyof S];
-
-const resolveStateAction = <T,>(current: T, value: React.SetStateAction<T>): T => {
-    return typeof value === 'function'
-        ? (value as (previous: T) => T)(current)
-        : value;
-};
-
-const createFieldReducer = <S extends Record<string, unknown>>() => {
-    return (state: S, action: FieldAction<S>): S => {
-        const currentValue = state[action.field];
-        const nextValue = resolveStateAction(currentValue, action.value as React.SetStateAction<typeof currentValue>);
-
-        if (Object.is(currentValue, nextValue)) {
-            return state;
-        }
-
-        return {
-            ...state,
-            [action.field]: nextValue,
-        };
-    };
-};
-
-const makeFieldSetter = <S extends Record<string, unknown>, K extends keyof S>(
-    dispatch: React.Dispatch<FieldAction<S>>,
-    field: K,
-): React.Dispatch<React.SetStateAction<S[K]>> => {
-    return (value) => {
-        dispatch({ type: 'set', field, value } as FieldAction<S>);
-    };
-};
-
-const uiReducer = createFieldReducer<UiState>();
-const authReducer = createFieldReducer<AuthState>();
-const editorReducer = createFieldReducer<EditorState>();
-const saveReducer = createFieldReducer<SaveState>();
 
 const initialSyncState: SyncState = { visible: false, message: '', type: 'info' };
 
@@ -280,10 +237,10 @@ const createInitialAuthState = (): AuthState => ({
 
 const App: React.FC = () => {
     const useSupabaseAuth = isSupabaseConfigured();
-    const [authState, dispatchAuth] = useReducer(authReducer, undefined, createInitialAuthState);
-    const [uiState, dispatchUi] = useReducer(uiReducer, initialUiState);
-    const [editorState, dispatchEditor] = useReducer(editorReducer, initialEditorState);
-    const [saveState, dispatchSave] = useReducer(saveReducer, initialSaveState);
+    const [authState, setAuthState] = useState(createInitialAuthState);
+    const [uiState, setUiState] = useState(initialUiState);
+    const [editorState, setEditorState] = useState(initialEditorState);
+    const [saveState, setSaveState] = useState(initialSaveState);
     const [offlineModeRaw, setOfflineModeRaw] = useState(() => {
         try { return localStorage.getItem(OFFLINE_MODE_KEY) === 'true'; } catch { return false; }
     });
@@ -331,73 +288,31 @@ const App: React.FC = () => {
         lastSaved,
         saveError,
     } = saveState;
-    const authSetters = useMemo(() => ({
-        setSupabaseUser: makeFieldSetter(dispatchAuth, 'supabaseUser'),
-        setSubscription: makeFieldSetter(dispatchAuth, 'subscription'),
-        setSubscriptionLoading: makeFieldSetter(dispatchAuth, 'subscriptionLoading'),
-        setPaymentLoading: makeFieldSetter(dispatchAuth, 'paymentLoading'),
-        setRecoveryRequired: makeFieldSetter(dispatchAuth, 'recoveryRequired'),
-        setRecoveryPassword: makeFieldSetter(dispatchAuth, 'recoveryPassword'),
-        setRecoverySubmitting: makeFieldSetter(dispatchAuth, 'recoverySubmitting'),
-    }), []);
-    const uiSetters = useMemo(() => ({
-        setView: makeFieldSetter(dispatchUi, 'view'),
-        setSync: makeFieldSetter(dispatchUi, 'sync'),
-        setShowPasswordRecoveryModal: makeFieldSetter(dispatchUi, 'showPasswordRecoveryModal'),
-        setShowLoginModal: makeFieldSetter(dispatchUi, 'showLoginModal'),
-        setShowPdfStyleModal: makeFieldSetter(dispatchUi, 'showPdfStyleModal'),
-        setShowContractNameModal: makeFieldSetter(dispatchUi, 'showContractNameModal'),
-        setShowSaveOptions: makeFieldSetter(dispatchUi, 'showSaveOptions'),
-        setShowUnsavedModal: makeFieldSetter(dispatchUi, 'showUnsavedModal'),
-        setPendingView: makeFieldSetter(dispatchUi, 'pendingView'),
-        setAccessModal: makeFieldSetter(dispatchUi, 'accessModal'),
-    }), []);
-    const editorSetters = useMemo(() => ({
-        setCurrentEstimate: makeFieldSetter(dispatchEditor, 'currentEstimate'),
-        setPendingExportEstimate: makeFieldSetter(dispatchEditor, 'pendingExportEstimate'),
-        setEditorValidationResult: makeFieldSetter(dispatchEditor, 'editorValidationResult'),
-        setEditorDirty: makeFieldSetter(dispatchEditor, 'editorDirty'),
-        setEditorDraft: makeFieldSetter(dispatchEditor, 'editorDraft'),
-        setViewAfterSave: makeFieldSetter(dispatchEditor, 'viewAfterSave'),
-    }), []);
-    const saveSetters = useMemo(() => ({
-        setIsSaving: makeFieldSetter(dispatchSave, 'isSaving'),
-        setLastSaved: makeFieldSetter(dispatchSave, 'lastSaved'),
-        setSaveError: makeFieldSetter(dispatchSave, 'saveError'),
-    }), []);
-    const {
-        setSupabaseUser,
-        setSubscription,
-        setSubscriptionLoading,
-        setPaymentLoading,
-        setRecoveryRequired,
-        setRecoveryPassword,
-        setRecoverySubmitting,
-    } = authSetters;
-    const {
-        setView,
-        setSync,
-        setShowPasswordRecoveryModal,
-        setShowLoginModal,
-        setShowPdfStyleModal,
-        setShowContractNameModal,
-        setShowSaveOptions,
-        setShowUnsavedModal,
-        setPendingView,
-    } = uiSetters;
-    const {
-        setCurrentEstimate,
-        setPendingExportEstimate,
-        setEditorValidationResult,
-        setEditorDirty,
-        setEditorDraft,
-        setViewAfterSave,
-    } = editorSetters;
-    const {
-        setIsSaving,
-        setLastSaved,
-        setSaveError,
-    } = saveSetters;
+    const setSupabaseUser = useCallback((v: React.SetStateAction<User | null>) => setAuthState(p => ({ ...p, supabaseUser: typeof v === 'function' ? (v as (prev: User | null) => User | null)(p.supabaseUser) : v })), []);
+    const setSubscription = useCallback((v: React.SetStateAction<UserSubscription | null>) => setAuthState(p => ({ ...p, subscription: typeof v === 'function' ? (v as (prev: UserSubscription | null) => UserSubscription | null)(p.subscription) : v })), []);
+    const setSubscriptionLoading = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, subscriptionLoading: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.subscriptionLoading) : v })), []);
+    const setPaymentLoading = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, paymentLoading: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.paymentLoading) : v })), []);
+    const setRecoveryRequired = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, recoveryRequired: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.recoveryRequired) : v })), []);
+    const setRecoveryPassword = useCallback((v: React.SetStateAction<string>) => setAuthState(p => ({ ...p, recoveryPassword: typeof v === 'function' ? (v as (prev: string) => string)(p.recoveryPassword) : v })), []);
+    const setRecoverySubmitting = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, recoverySubmitting: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.recoverySubmitting) : v })), []);
+    const setView = useCallback((v: React.SetStateAction<View>) => setUiState(p => ({ ...p, view: typeof v === 'function' ? (v as (prev: View) => View)(p.view) : v })), []);
+    const setSync = useCallback((v: React.SetStateAction<SyncState>) => setUiState(p => ({ ...p, sync: typeof v === 'function' ? (v as (prev: SyncState) => SyncState)(p.sync) : v })), []);
+    const setShowPasswordRecoveryModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showPasswordRecoveryModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showPasswordRecoveryModal) : v })), []);
+    const setShowLoginModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showLoginModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showLoginModal) : v })), []);
+    const setShowPdfStyleModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showPdfStyleModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showPdfStyleModal) : v })), []);
+    const setShowContractNameModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showContractNameModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showContractNameModal) : v })), []);
+    const setShowSaveOptions = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showSaveOptions: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showSaveOptions) : v })), []);
+    const setShowUnsavedModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showUnsavedModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showUnsavedModal) : v })), []);
+    const setPendingView = useCallback((v: React.SetStateAction<View | null>) => setUiState(p => ({ ...p, pendingView: typeof v === 'function' ? (v as (prev: View | null) => View | null)(p.pendingView) : v })), []);
+    const setCurrentEstimate = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, currentEstimate: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.currentEstimate) : v })), []);
+    const setPendingExportEstimate = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, pendingExportEstimate: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.pendingExportEstimate) : v })), []);
+    const setEditorValidationResult = useCallback((v: React.SetStateAction<EstimateValidationResult | null>) => setEditorState(p => ({ ...p, editorValidationResult: typeof v === 'function' ? (v as (prev: EstimateValidationResult | null) => EstimateValidationResult | null)(p.editorValidationResult) : v })), []);
+    const setEditorDirty = useCallback((v: React.SetStateAction<boolean>) => setEditorState(p => ({ ...p, editorDirty: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.editorDirty) : v })), []);
+    const setEditorDraft = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, editorDraft: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.editorDraft) : v })), []);
+    const setViewAfterSave = useCallback((v: React.SetStateAction<View>) => setEditorState(p => ({ ...p, viewAfterSave: typeof v === 'function' ? (v as (prev: View) => View)(p.viewAfterSave) : v })), []);
+    const setIsSaving = useCallback((v: React.SetStateAction<boolean>) => setSaveState(p => ({ ...p, isSaving: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.isSaving) : v })), []);
+    const setLastSaved = useCallback((v: React.SetStateAction<Date | null>) => setSaveState(p => ({ ...p, lastSaved: typeof v === 'function' ? (v as (prev: Date | null) => Date | null)(p.lastSaved) : v })), []);
+    const setSaveError = useCallback((v: React.SetStateAction<string | null>) => setSaveState(p => ({ ...p, saveError: typeof v === 'function' ? (v as (prev: string | null) => string | null)(p.saveError) : v })), []);
     const recoveryIntent = recoveryRequired || hasRecoveryFlagInUrl();
     const isAuthenticated = useMemo(() => {
         return (Boolean(supabaseUser) || offlineModeRaw) && !recoveryIntent;
@@ -470,35 +385,6 @@ const App: React.FC = () => {
         works: false,
         bundles: false,
     });
-    const prevEstimatesRef = useRef(estimates);
-    const prevMaterialsRef = useRef(materials);
-    const prevWorksRef = useRef(works);
-    const prevBundlesRef = useRef(bundles);
-
-    useEffect(() => {
-        if (prevEstimatesRef.current !== estimates) {
-            dirtyTablesRef.current.estimates = true;
-            prevEstimatesRef.current = estimates;
-        }
-    }, [estimates]);
-    useEffect(() => {
-        if (prevMaterialsRef.current !== materials) {
-            dirtyTablesRef.current.materials = true;
-            prevMaterialsRef.current = materials;
-        }
-    }, [materials]);
-    useEffect(() => {
-        if (prevWorksRef.current !== works) {
-            dirtyTablesRef.current.works = true;
-            prevWorksRef.current = works;
-        }
-    }, [works]);
-    useEffect(() => {
-        if (prevBundlesRef.current !== bundles) {
-            dirtyTablesRef.current.bundles = true;
-            prevBundlesRef.current = bundles;
-        }
-    }, [bundles]);
 
     const needsReload = useCallback((key: string, data: unknown): boolean => {
         const currentHash = hashData(data);
@@ -511,7 +397,7 @@ const App: React.FC = () => {
         if (dataHashes[detail.key] === nextHash) return;
 
         if (detail.key === 'estimates') {
-            if (saveInFlightRef.current) return; // Skip cache updates while saving to avoid race condition
+            if (saveInFlightRef.current) return;
             const loaded = detail.data as Estimate[];
             const { normalized, changed } = normalizeEstimateChains(loaded);
             setEstimates(normalized);
@@ -523,35 +409,18 @@ const App: React.FC = () => {
             return;
         }
 
-        if (detail.key === 'templates') {
-            const loaded = detail.data as ProjectTemplate[];
-            setTemplates(loaded);
-            setLoadedFlags(prev => ({ ...prev, templates: true }));
-            setDataHashes(prev => ({ ...prev, templates: hashData(loaded) }));
-            return;
-        }
-
-        if (detail.key === 'materials') {
-            const loaded = detail.data as Material[];
-            setMaterials(loaded);
-            setLoadedFlags(prev => ({ ...prev, materials: true }));
-            setDataHashes(prev => ({ ...prev, materials: hashData(loaded) }));
-            return;
-        }
-
-        if (detail.key === 'works') {
-            const loaded = detail.data as Work[];
-            setWorks(loaded);
-            setLoadedFlags(prev => ({ ...prev, works: true }));
-            setDataHashes(prev => ({ ...prev, works: hashData(loaded) }));
-            return;
-        }
-
-        if (detail.key === 'bundles') {
-            const loaded = detail.data as WorkBundle[];
-            setBundles(loaded);
-            setLoadedFlags(prev => ({ ...prev, bundles: true }));
-            setDataHashes(prev => ({ ...prev, bundles: hashData(loaded) }));
+        const setterMap: Record<string, [React.Dispatch<React.SetStateAction<unknown>>, string]> = {
+            templates: [setTemplates as React.Dispatch<React.SetStateAction<unknown>>, 'templates'],
+            materials: [setMaterials as React.Dispatch<React.SetStateAction<unknown>>, 'materials'],
+            works: [setWorks as React.Dispatch<React.SetStateAction<unknown>>, 'works'],
+            bundles: [setBundles as React.Dispatch<React.SetStateAction<unknown>>, 'bundles'],
+        };
+        const entry = setterMap[detail.key];
+        if (entry) {
+            const [setter, flag] = entry;
+            setter(detail.data);
+            setLoadedFlags(prev => ({ ...prev, [flag]: true }));
+            setDataHashes(prev => ({ ...prev, [flag]: hashData(detail.data) }));
         }
     }, [dataHashes]);
 
@@ -577,12 +446,6 @@ const App: React.FC = () => {
         return () => window.removeEventListener('kmobn:data-imported', handler);
     }, []);
 
-    const handleLogin = useCallback(async (_username: string, _password: string) => {
-        if (!useSupabaseAuth) {
-            throw new Error('Supabase не настроен');
-        }
-        throw new Error('Локальный вход отключен');
-    }, [useSupabaseAuth]);
 
     useEffect(() => {
         if (!supabaseUser) {
@@ -1082,36 +945,6 @@ const App: React.FC = () => {
     }, [subscriptionTier]);
 
     useEffect(() => {
-        if (loadedFlags.estimates) {
-            setDataHashes(prev => ({ ...prev, estimates: hashData(estimates) }));
-        }
-    }, [estimates, loadedFlags.estimates]);
-
-    useEffect(() => {
-        if (loadedFlags.templates) {
-            setDataHashes(prev => ({ ...prev, templates: hashData(templates) }));
-        }
-    }, [loadedFlags.templates, templates]);
-
-    useEffect(() => {
-        if (loadedFlags.materials) {
-            setDataHashes(prev => ({ ...prev, materials: hashData(materials) }));
-        }
-    }, [loadedFlags.materials, materials]);
-
-    useEffect(() => {
-        if (loadedFlags.works) {
-            setDataHashes(prev => ({ ...prev, works: hashData(works) }));
-        }
-    }, [loadedFlags.works, works]);
-
-    useEffect(() => {
-        if (loadedFlags.bundles) {
-            setDataHashes(prev => ({ ...prev, bundles: hashData(bundles) }));
-        }
-    }, [bundles, loadedFlags.bundles]);
-
-    useEffect(() => {
         if (!isAuthenticated) return;
         const historyChanged = needsReload('estimates', estimates) || needsReload('templates', templates);
         const materialsChanged = needsReload('materials', materials);
@@ -1263,13 +1096,6 @@ const App: React.FC = () => {
         }
     }, [setView, setCurrentEstimate]);
 
-    const openAccessModal = useCallback((_title: string, _description: string) => {
-        // Subscription gate hidden — no-op
-    }, []);
-
-    const handleUpgradeClick = useCallback(() => {
-        // Subscription page hidden — no-op
-    }, []);
 
     const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info', duration = 3200) => {
         setSync({ visible: true, message, type });
@@ -1385,7 +1211,6 @@ const App: React.FC = () => {
         subscriptionLimits,
         subscriptionLoading,
         goToView,
-        openAccessModal,
         recalculateEstimatePrices,
         consumeDeleteLimit,
         setEstimates,
@@ -1591,7 +1416,6 @@ const App: React.FC = () => {
         link?: string
     ) => {
         if (!canCreateMaterial(subscriptionUsage, subscriptionLimits)) {
-            openAccessModal('Лимит материалов исчерпан', 'Перейдите на платный план, чтобы добавлять больше материалов.');
             return;
         }
 
@@ -1633,7 +1457,7 @@ const App: React.FC = () => {
             console.error('Failed to add material:', error);
             alert('Не удалось добавить материал.');
         }
-    }, [materials, subscriptionUsage, subscriptionLimits, openAccessModal, markDraftEstimatesWithPriceChange]);
+    }, [materials, subscriptionUsage, subscriptionLimits, markDraftEstimatesWithPriceChange]);
 
     const handleForceAddMaterial = useCallback(async (material: Material) => {
         try {
@@ -1689,7 +1513,6 @@ const App: React.FC = () => {
 
     const handleAddWork = useCallback(async (name: string, category: EstimateCategory, price: number) => {
         if (!canCreateWork(subscriptionUsage, subscriptionLimits)) {
-            openAccessModal('Лимит работ исчерпан', 'Перейдите на платный план, чтобы добавлять больше работ.');
             return;
         }
 
@@ -1728,7 +1551,7 @@ const App: React.FC = () => {
             console.error('Failed to add work:', error);
             alert('Не удалось добавить работу.');
         }
-    }, [works, subscriptionUsage, subscriptionLimits, openAccessModal, markDraftEstimatesWithPriceChange]);
+    }, [works, subscriptionUsage, subscriptionLimits, markDraftEstimatesWithPriceChange]);
 
     const handleForceAddWork = useCallback(async (work: Work) => {
         try {
@@ -1783,7 +1606,6 @@ const App: React.FC = () => {
 
     const handleAddBundle = useCallback(async (bundle: WorkBundle) => {
         if (!canCreateBundle(subscriptionUsage, subscriptionLimits)) {
-            openAccessModal('Лимит комплектов исчерпан', 'Перейдите на платный план, чтобы создавать больше комплектов.');
             return;
         }
         const nextBundle: WorkBundle = {
@@ -1797,7 +1619,7 @@ const App: React.FC = () => {
             console.error('Failed to add bundle:', error);
             alert('Не удалось добавить комплект.');
         }
-    }, [subscriptionUsage, subscriptionLimits, openAccessModal]);
+    }, [subscriptionUsage, subscriptionLimits]);
 
     const handleUpdateBundle = useCallback(async (bundle: WorkBundle) => {
         try {
@@ -2053,7 +1875,6 @@ const App: React.FC = () => {
                                 ×
                             </button>
                             <Login
-                                onLogin={handleLogin}
                                 onGoogleLogin={handleGoogleLogin}
                                 onEmailLogin={handleEmailLogin}
                                 onEmailSignup={handleEmailSignup}
@@ -2096,7 +1917,6 @@ const App: React.FC = () => {
                 onUserNameClick={handleOpenPasswordChange}
                 onProfileClick={() => setIsProfileModalOpen(true)}
                 subscriptionSummary={headerSubscriptionSummary}
-                onUpgradeClick={handleUpgradeClick}
                 isElectron={!!window.electronAPI?.isElectron}
             />
             {offlineModeRaw && (
@@ -2124,7 +1944,6 @@ const App: React.FC = () => {
                         )}
                         {view === View.EDITOR && (
                             <EstimateEditor
-                                onUpgradeRequest={handleUpgradeClick}
                             />
                         )}
                         {view === View.PRICES && (

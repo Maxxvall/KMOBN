@@ -11,18 +11,9 @@ type VisibleSubscriptionData = {
     bundles: WorkBundle[];
 };
 
-export const formatDateKey = (date = new Date()): string => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-};
+export const formatDateKey = (date = new Date()): string => date.toISOString().slice(0, 10);
 
-export const formatMonthKey = (date = new Date()): string => {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    return `${y}-${m}`;
-};
+export const formatMonthKey = (date = new Date()): string => date.toISOString().slice(0, 7);
 
 const normalizeExpiredSubscription = (subscription: UserSubscription, now = new Date()): {
     subscription: UserSubscription;

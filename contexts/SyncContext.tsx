@@ -23,10 +23,4 @@ export const useOptionalSyncContext = (): SyncContextValue | undefined => {
   return useContext(SyncContext);
 };
 
-export const useSyncContext = (): SyncContextValue => {
-  const context = useOptionalSyncContext();
-  if (!context) {
-    throw new Error('useSyncContext must be used within SyncProvider');
-  }
-  return context;
-};
+

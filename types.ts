@@ -239,7 +239,23 @@ export interface SalaryCalculation {
     mode?: SalaryMode;
 }
 
-export const normalizeKey = (name: string): string => name.trim().toLowerCase();
+export const normalizeKey = (s: unknown): string => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+export const safeNumber = (v: unknown, fallback = 0): number => {
+  const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));
+  return Number.isFinite(n) ? n : fallback;
+};
+
+export const ESTIMATE_CATEGORIES: EstimateCategory[] = [
+    EstimateCategory.FOUNDATION,
+    EstimateCategory.GRILLAGE,
+    EstimateCategory.WALLS,
+    EstimateCategory.ROOF,
+    EstimateCategory.DEMOLITION,
+    EstimateCategory.WINDOWS,
+    EstimateCategory.ELECTRICAL,
+    EstimateCategory.LOGISTICS,
+];
 
 export interface DuplicateGroup<T extends { id: string; name: string; price: number }> {
     normalizedKey: string;

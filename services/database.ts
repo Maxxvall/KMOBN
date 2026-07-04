@@ -365,39 +365,33 @@ export const saveMaterials = async (materials: Material[]): Promise<void> => {
 
 export const loadMaterials = async (options?: LoadTableOptions): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials, options);
 
-export const addMaterial = async (material: Material): Promise<void> => {
+async function addOrUpdateRecord<T extends { id: string }>(
+  table: CacheTableKey,
+  upserter: (records: any[], userId: string) => Promise<{ data?: any; error: any }>,
+  record: T,
+  mode: 'add' | 'update',
+): Promise<void> {
   const userId = await getAuthenticatedUserId();
   const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<Material>('materials', cacheUserId);
-  await syncCachedRecords('materials', cacheUserId, [...cached, material]);
+  const cached = await getCachedRecords<T>(table, cacheUserId);
+  const updated = mode === 'add'
+    ? [...cached, record]
+    : cached.map(c => c.id === record.id ? record : c);
+  await syncCachedRecords(table, cacheUserId, updated);
 
   if (navigator.onLine && isSupabaseConfigured() && userId) {
     try {
-      await upsertRecords(upsertMaterials, [material]);
+      await upsertRecords(upserter, [record]);
     } catch {
-      await offlineQueue.add({ table: 'materials', operation: 'upsert', data: [material] });
+      await offlineQueue.add({ table, operation: 'upsert', data: [record] });
     }
   } else {
-    await offlineQueue.add({ table: 'materials', operation: 'upsert', data: [material] });
+    await offlineQueue.add({ table, operation: 'upsert', data: [record] });
   }
-};
+}
 
-export const updateMaterial = async (material: Material): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<Material>('materials', cacheUserId);
-  await syncCachedRecords('materials', cacheUserId, cached.map(c => c.id === material.id ? material : c));
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertMaterials, [material]);
-    } catch {
-      await offlineQueue.add({ table: 'materials', operation: 'upsert', data: [material] });
-    }
-  } else {
-    await offlineQueue.add({ table: 'materials', operation: 'upsert', data: [material] });
-  }
-};
+export const addMaterial = (material: Material) => addOrUpdateRecord('materials', upsertMaterials, material, 'add');
+export const updateMaterial = (material: Material) => addOrUpdateRecord('materials', upsertMaterials, material, 'update');
 
 export const deleteMaterial = async (materialId: string): Promise<void> => {
   await deleteRecord('materials', materialId);
@@ -425,39 +419,8 @@ export const saveWorks = async (works: Work[]): Promise<void> => {
 
 export const loadWorks = async (options?: LoadTableOptions): Promise<Work[]> => readTableCached<Work>('works', fetchWorks, options);
 
-export const addWork = async (work: Work): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<Work>('works', cacheUserId);
-  await syncCachedRecords('works', cacheUserId, [...cached, work]);
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertWorks, [work]);
-    } catch {
-      await offlineQueue.add({ table: 'works', operation: 'upsert', data: [work] });
-    }
-  } else {
-    await offlineQueue.add({ table: 'works', operation: 'upsert', data: [work] });
-  }
-};
-
-export const updateWork = async (work: Work): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<Work>('works', cacheUserId);
-  await syncCachedRecords('works', cacheUserId, cached.map(c => c.id === work.id ? work : c));
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertWorks, [work]);
-    } catch {
-      await offlineQueue.add({ table: 'works', operation: 'upsert', data: [work] });
-    }
-  } else {
-    await offlineQueue.add({ table: 'works', operation: 'upsert', data: [work] });
-  }
-};
+export const addWork = (work: Work) => addOrUpdateRecord('works', upsertWorks, work, 'add');
+export const updateWork = (work: Work) => addOrUpdateRecord('works', upsertWorks, work, 'update');
 
 export const deleteWork = async (workId: string): Promise<void> => {
   await deleteRecord('works', workId);
@@ -491,39 +454,8 @@ export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundl
   }));
 };
 
-export const addBundle = async (bundle: WorkBundle): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<WorkBundle>('bundles', cacheUserId);
-  await syncCachedRecords('bundles', cacheUserId, [...cached, bundle]);
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertBundles, [bundle]);
-    } catch {
-      await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: [bundle] });
-    }
-  } else {
-    await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: [bundle] });
-  }
-};
-
-export const updateBundle = async (bundle: WorkBundle): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<WorkBundle>('bundles', cacheUserId);
-  await syncCachedRecords('bundles', cacheUserId, cached.map(c => c.id === bundle.id ? bundle : c));
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertBundles, [bundle]);
-    } catch {
-      await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: [bundle] });
-    }
-  } else {
-    await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: [bundle] });
-  }
-};
+export const addBundle = (bundle: WorkBundle) => addOrUpdateRecord('bundles', upsertBundles, bundle, 'add');
+export const updateBundle = (bundle: WorkBundle) => addOrUpdateRecord('bundles', upsertBundles, bundle, 'update');
 
 export const deleteBundle = async (bundleId: string): Promise<void> => {
   await deleteRecord('bundles', bundleId);

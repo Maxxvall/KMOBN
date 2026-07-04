@@ -2,7 +2,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
-import { ESTIMATE_CATEGORIES } from '../constants';
+import { ESTIMATE_CATEGORIES } from '../types';
 import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 
 export const generatePdf = async (estimate: Estimate) => {
