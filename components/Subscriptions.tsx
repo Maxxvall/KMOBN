@@ -184,7 +184,7 @@ const Subscriptions: React.FC<{
                                     }
                                 }}
                                 disabled={isDisabled}
-                                className={`mt-6 w-full rounded-md px-4 py-2 font-semibold transition-colors ${
+                                className={`mt-6 w-full min-h-[44px] rounded-md px-4 py-2.5 font-semibold transition-colors active:scale-95 ${
                                     isDisabled
                                         ? 'bg-gray-700 text-text-secondary cursor-not-allowed'
                                         : 'bg-primary text-white hover:bg-primary-hover'

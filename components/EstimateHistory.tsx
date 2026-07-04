@@ -141,6 +141,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const materialsList = catalogContext?.materials ?? [];
     const worksList = catalogContext?.works ?? [];
     const [showQuickStart, setShowQuickStart] = useState(false);
+    const [showFilters, setShowFilters] = useState(false);
+    const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '';
 
     const handleExportData = async () => {
         try {
@@ -330,18 +332,95 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
 
     return (
         <div className="bg-surface p-3 sm:p-4 md:p-6 rounded-lg shadow-2xl">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
-                <h2 className="text-2xl font-bold text-text-primary">История смет</h2>
-                <div className="flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 sm:mb-6 gap-3">
+                <h2 className="text-xl sm:text-2xl font-bold text-text-primary">История смет</h2>
+                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+                    {/* Mobile: show filter toggle + create button only */}
+                    <div className="flex gap-3 w-full sm:hidden">
+                        <button
+                            onClick={() => setShowFilters(prev => !prev)}
+                            className={`flex-1 min-h-[44px] font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm flex items-center justify-center gap-2 ${hasActiveFilters ? 'bg-amber-600 hover:bg-amber-700 text-white' : 'bg-gray-600 hover:bg-gray-500 text-text-primary'}`}
+                        >
+                            Фильтры
+                            {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-white" />}
+                        </button>
+                        <button onClick={() => setShowQuickStart(true)} className="flex-1 min-h-[44px] bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
+                            Быстрый старт
+                        </button>
+                        <button onClick={() => createNewAction?.()} className="flex-1 min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm active:scale-95">
+                            Новая
+                        </button>
+                    </div>
+                    {/* Desktop: show all actions inline */}
+                    <div className="hidden sm:flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
+                        <input
+                            type="text"
+                            placeholder="Фильтр по клиенту..."
+                            className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
+                            value={filterClient}
+                            onChange={(e) => setFilterClient(e.target.value)}
+                        />
+                        <select
+                            className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
+                            value={filterStatus}
+                            onChange={(e) => setFilterStatus(e.target.value as EstimateStatus | 'all')}
+                        >
+                            <option value="all">Все статусы</option>
+                            {Object.values(EstimateStatus).map(status => (
+                                <option key={status} value={status}>{status}</option>
+                            ))}
+                        </select>
+                        <input
+                            type="text"
+                            placeholder="Тип строения"
+                            className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
+                            value={filterBuildingType}
+                            onChange={(e) => setFilterBuildingType(e.target.value)}
+                        />
+                        <div className="flex gap-2 w-full sm:w-auto">
+                            <input
+                                type="number"
+                                placeholder="Площадь от"
+                                className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full"
+                                value={filterAreaMin}
+                                onChange={(e) => setFilterAreaMin(e.target.value)}
+                            />
+                            <input
+                                type="number"
+                                placeholder="до"
+                                className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full"
+                                value={filterAreaMax}
+                                onChange={(e) => setFilterAreaMax(e.target.value)}
+                            />
+                        </div>
+                        <button onClick={handleExportData} className="min-h-[44px] bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
+                            Экспорт
+                        </button>
+                        <button onClick={handleImportData} className="min-h-[44px] bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
+                            Импорт
+                        </button>
+                        <button onClick={() => setShowQuickStart(true)} className="min-h-[44px] bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
+                            Быстрый старт
+                        </button>
+                        <button onClick={() => createNewAction?.()} className="min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto active:scale-95">
+                            Создать новую
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Mobile collapsible filters */}
+            {showFilters && (
+                <div className="sm:hidden mb-4 space-y-3 p-3 bg-background/40 rounded-lg border border-border">
                     <input
                         type="text"
                         placeholder="Фильтр по клиенту..."
-                        className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
+                        className="min-h-[44px] w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                         value={filterClient}
                         onChange={(e) => setFilterClient(e.target.value)}
                     />
                     <select
-                        className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
+                        className="min-h-[44px] w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                         value={filterStatus}
                         onChange={(e) => setFilterStatus(e.target.value as EstimateStatus | 'all')}
                     >
@@ -353,40 +432,36 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     <input
                         type="text"
                         placeholder="Тип строения"
-                        className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
+                        className="min-h-[44px] w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                         value={filterBuildingType}
                         onChange={(e) => setFilterBuildingType(e.target.value)}
                     />
-                    <div className="flex gap-2 w-full sm:w-auto">
+                    <div className="flex gap-2">
                         <input
                             type="number"
                             placeholder="Площадь от"
-                            className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full"
+                            className="min-h-[44px] flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                             value={filterAreaMin}
                             onChange={(e) => setFilterAreaMin(e.target.value)}
                         />
                         <input
                             type="number"
                             placeholder="до"
-                            className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full"
+                            className="min-h-[44px] flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                             value={filterAreaMax}
                             onChange={(e) => setFilterAreaMax(e.target.value)}
                         />
                     </div>
-                    <button onClick={handleExportData} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
-                        Экспорт данных
-                    </button>
-                    <button onClick={handleImportData} className="bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
-                        Импорт данных
-                    </button>
-                    <button onClick={() => setShowQuickStart(true)} className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
-                        Быстрый старт
-                    </button>
-                          <button onClick={() => createNewAction?.()} className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
-                       Создать новую
-                    </button>
+                    <div className="flex gap-2">
+                        <button onClick={handleExportData} className="flex-1 min-h-[44px] bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
+                            Экспорт
+                        </button>
+                        <button onClick={handleImportData} className="flex-1 min-h-[44px] bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
+                            Импорт
+                        </button>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* Desktop table */}
             <div className="overflow-x-auto hidden md:block">

@@ -129,7 +129,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
 
     return (
         <div className="bg-surface p-3 sm:p-4 md:p-6 rounded-lg shadow-2xl">
-            <h2 className="text-2xl font-bold text-text-primary mb-6">Виды работ</h2>
+            <h2 className="text-xl sm:text-2xl font-bold text-text-primary mb-6">Виды работ</h2>
 
             {hiddenWorksCount > 0 && (
                 <div className="mb-6 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">

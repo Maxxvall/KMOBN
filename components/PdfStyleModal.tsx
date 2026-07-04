@@ -15,15 +15,15 @@ const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle })
 
     return (
         <div
-            className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4"
+            className="fixed inset-0 bg-black bg-opacity-75 flex items-end sm:items-center justify-center z-50 p-4 pb-4 sm:pb-4"
             onClick={onClose}
             role="dialog"
             aria-modal="true"
             onKeyDown={handleKeyDown}
         >
             <FocusLock returnFocus>
-                <div className="bg-surface rounded-lg shadow-2xl max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
-                    <h2 className="text-2xl font-bold text-text-primary mb-4">Выберите формат экспорта</h2>
+                <div className="bg-surface rounded-lg shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                    <h2 className="text-xl sm:text-2xl font-bold text-text-primary mb-4">Выберите формат экспорта</h2>
                     <p className="text-text-secondary mb-6">Выберите, в каком стиле вы хотите скачать смету:</p>
                     
                     <div className="space-y-4">
@@ -54,7 +54,7 @@ const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle })
                     
                     <button
                         onClick={onClose}
-                        className="w-full mt-6 bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition duration-300"
+                        className="w-full mt-6 min-h-[44px] bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-md transition duration-300 active:scale-95"
                     >
                         Отмена
                     </button>

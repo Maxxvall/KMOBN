@@ -1031,7 +1031,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             <div className="bg-surface p-2 sm:p-4 md:p-6 rounded-lg shadow-2xl">
                 <div className="flex justify-between items-center border-b border-border pb-4 mb-6">
                     <h2 className="text-2xl font-bold text-text-primary">{initialEstimateValue ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
-                    <button onClick={() => onBackAction?.()} className="text-sm px-3 py-1 rounded-full border border-border text-text-secondary hover:bg-background transition-colors">&larr; Назад к истории</button>
+                        <button onClick={() => onBackAction?.()} className="text-sm px-3 py-1 rounded-full border border-border text-text-secondary hover:bg-background transition-colors active:scale-95 min-h-[44px]">&larr; Назад к истории</button>
                 </div>
 
                 {hasValidationIssues && (
@@ -1173,7 +1173,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             <span className="text-text-secondary whitespace-nowrap">Д: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="text-sm font-bold text-primary whitespace-nowrap">ИТОГ: {estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
                         </div>
-                        <button onClick={handleSave} className="min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 ml-3 whitespace-nowrap text-sm">
+                        <button onClick={handleSave} className="min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 ml-3 whitespace-nowrap text-sm active:scale-95">
                             Сохранить
                         </button>
                     </div>

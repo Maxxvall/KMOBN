@@ -142,14 +142,14 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4 pb-4 sm:pb-4">
       <div className="bg-surface rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-xl font-bold text-text-primary">Профиль</h2>
           <button
             onClick={onClose}
-            className="text-text-secondary hover:text-text-primary transition-colors p-2"
+            className="text-text-secondary hover:text-text-primary transition-colors p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -167,7 +167,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 py-3 px-4 text-sm font-medium transition-colors ${
+              className={`flex-1 min-h-[44px] py-3 px-4 text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'text-primary border-b-2 border-primary'
                   : 'text-text-secondary hover:text-text-primary'
@@ -218,7 +218,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   type="text"
                   value={profile.name}
                   onChange={(e) => setProfile({ ...profile, name: e.target.value })}
-                  className="w-full px-4 py-2 bg-gray-800 border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
+                  className="w-full px-4 py-2.5 min-h-[44px] bg-gray-800 border border-border rounded-lg text-base text-text-primary focus:outline-none focus:border-primary"
                 />
               </div>
             </div>
@@ -268,7 +268,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 <select
                   value={settings.theme}
                   onChange={(e) => setSettings({ ...settings, theme: e.target.value as 'light' | 'dark' })}
-                  className="w-full px-4 py-2 bg-gray-800 border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
+                  className="w-full px-4 py-2.5 min-h-[44px] bg-gray-800 border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
                 >
                   <option value="dark">Тёмная</option>
                   <option value="light">Светлая</option>
@@ -283,7 +283,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 <select
                   value={settings.language}
                   onChange={(e) => setSettings({ ...settings, language: e.target.value as 'ru' | 'en' })}
-                  className="w-full px-4 py-2 bg-gray-800 border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
+                  className="w-full px-4 py-2.5 min-h-[44px] bg-gray-800 border border-border rounded-lg text-text-primary focus:outline-none focus:border-primary"
                 >
                   <option value="ru">Русский</option>
                   <option value="en">English</option>
@@ -313,7 +313,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               <div>
                 <button
                   onClick={handleExportData}
-                  className="w-full px-4 py-2 bg-gray-800 border border-border rounded-lg text-text-primary hover:bg-gray-700 transition-colors"
+                  className="w-full min-h-[44px] px-4 py-2.5 bg-gray-800 border border-border rounded-lg text-text-primary hover:bg-gray-700 transition-colors active:scale-95"
                 >
                   Экспорт данных (JSON)
                 </button>
@@ -323,7 +323,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               <div>
                 <button
                   onClick={handleClearCache}
-                  className="w-full px-4 py-2 bg-red-600/20 border border-red-600/50 rounded-lg text-red-400 hover:bg-red-600/30 transition-colors"
+                  className="w-full min-h-[44px] px-4 py-2.5 bg-red-600/20 border border-red-600/50 rounded-lg text-red-400 hover:bg-red-600/30 transition-colors active:scale-95"
                 >
                   Очистить локальный кэш
                 </button>
@@ -333,7 +333,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               {window.electronAPI?.isElectron && (
                 <div className="bg-gray-800 rounded-lg p-4 text-center">
                   <p className="text-sm text-text-secondary">Текущая версия</p>
-                  <p className="text-lg font-bold text-text-primary">v1.6.1</p>
+                  <p className="text-lg font-bold text-text-primary">v1.7.0</p>
                 </div>
               )}
 
@@ -354,7 +354,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                       setTimeout(() => setUpdateStatus(''), 5000);
                     }}
                     disabled={isCheckingUpdate}
-                    className="w-full px-4 py-2 bg-gray-800 border border-border rounded-lg text-text-primary hover:bg-gray-700 transition-colors disabled:opacity-60"
+                    className="w-full min-h-[44px] px-4 py-2.5 bg-gray-800 border border-border rounded-lg text-text-primary hover:bg-gray-700 transition-colors disabled:opacity-60 active:scale-95"
                   >
                     {isCheckingUpdate ? 'Проверяю...' : 'Проверить обновления'}
                   </button>
@@ -368,7 +368,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               <div>
                 <button
                   onClick={handleSaveSettings}
-                  className="w-full px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors"
+                  className="w-full min-h-[44px] px-4 py-2.5 bg-primary text-white rounded-lg hover:bg-primary/80 transition-colors active:scale-95"
                 >
                   Сохранить настройки
                 </button>

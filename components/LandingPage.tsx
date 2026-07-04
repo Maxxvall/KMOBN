@@ -29,7 +29,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                                 href="https://vk.ru/kmobn"
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
+                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
                                 aria-label="ВКонтакте"
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -40,7 +40,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                                 href="https://t.me/karkasmaster40"
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
+                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
                                 aria-label="Telegram"
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -51,7 +51,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                                 href="https://www.youtube.com/@KarkasMasterObninsk/videos"
                                 target="_blank"
                                 rel="noreferrer"
-                                className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
+                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
                                 aria-label="YouTube"
                             >
                                 <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -65,7 +65,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                         <button
                             type="button"
                             onClick={onOpenLogin}
-                            className="rounded-md bg-primary px-5 py-2 text-text-primary font-medium hover:bg-primary-hover"
+                            className="rounded-md bg-primary px-5 py-2.5 min-h-[44px] text-text-primary font-medium hover:bg-primary-hover active:scale-95 transition-transform"
                         >
                             Войти
                         </button>
@@ -73,7 +73,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                             <button
                                 type="button"
                                 onClick={onOfflineMode}
-                                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-5 py-2 text-amber-300 font-medium hover:bg-amber-500/20 transition"
+                                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-5 py-2.5 min-h-[44px] text-amber-300 font-medium hover:bg-amber-500/20 transition active:scale-95"
                             >
                                 Оффлайн-режим
                             </button>
@@ -89,7 +89,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                         <p className="mx-auto inline-flex items-center gap-2 rounded-full border border-border bg-surface/80 px-4 py-1 text-xs uppercase tracking-[0.2em] text-text-secondary">
                             Платформа для смет и знаний
                         </p>
-                        <h1 className="mt-6 text-4xl font-semibold leading-tight sm:text-5xl lg:text-6xl">
+                        <h1 className="mt-6 text-3xl sm:text-4xl lg:text-5xl xl:text-6xl font-semibold leading-tight">
                             Сметы, материалы и работы
                             <br />
                             в едином профессиональном пространстве
@@ -102,7 +102,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                             <button
                                 type="button"
                                 onClick={onOpenLogin}
-                                className="rounded-md bg-primary px-8 py-3 text-base font-semibold text-text-primary hover:bg-primary-hover"
+                                className="rounded-md bg-primary px-8 py-3.5 min-h-[48px] text-base font-semibold text-text-primary hover:bg-primary-hover active:scale-95 transition-transform"
                             >
                                 Начать работу
                             </button>
@@ -168,7 +168,7 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                 <section className="mx-auto mt-16 max-w-6xl px-4">
                     <div className="grid gap-8 rounded-2xl border border-border bg-surface/70 p-8 md:grid-cols-2">
                         <div>
-                            <h3 className="text-2xl font-semibold">Стандартизируйте экспертизу через Wiki</h3>
+                            <h3 className="text-xl sm:text-2xl font-semibold">Стандартизируйте экспертизу через Wiki</h3>
                             <p className="mt-3 text-sm text-text-secondary">
                                 Предоставляйте всем участникам команды доступ к инструкциям, нормам и типовым узлам —
                                 обновления становятся мгновенно доступны в рабочих процессах.
@@ -201,12 +201,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
 
                 <section className="mx-auto mt-16 max-w-5xl px-4 pb-10">
                     <div className="rounded-2xl border border-border bg-surface p-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
-                        <h3 className="text-2xl font-semibold">Войдите и начните работать за минуту</h3>
+                        <h3 className="text-xl sm:text-2xl font-semibold">Войдите и начните работать за минуту</h3>
                         <p className="mt-3 text-sm text-text-secondary">Все данные защищены и видны только вашему аккаунту.</p>
                         <button
                             type="button"
                             onClick={onOpenLogin}
-                            className="mt-6 rounded-md bg-primary px-8 py-3 text-base font-semibold text-text-primary hover:bg-primary-hover"
+                            className="mt-6 rounded-md bg-primary px-8 py-3.5 min-h-[48px] text-base font-semibold text-text-primary hover:bg-primary-hover active:scale-95 transition-transform"
                         >
                             Войти в систему
                         </button>
@@ -218,33 +218,33 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                 <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-6 text-sm text-text-secondary sm:flex-row">
                     <div>© 2026 Каркас Мастер. Премиальная платформа смет.</div>
                     <div className="flex items-center gap-3" aria-label="Социальные сети">
-                        <a
-                            href="https://vk.ru/kmobn"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
-                            aria-label="ВКонтакте"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path fill="currentColor" d="M12 0C5.373 0 0 5.373 0 12c0 6.627 5.373 12 12 12s12-5.373 12-12C24 5.373 18.627 0 12 0zm4.406 16.5c-.145.395-.52.649-.951.649-.844 0-1.628-.205-2.38-.614-.748-.406-1.182-.72-1.58-1.03-.31-.24-.488-.317-.66-.317-.092 0-.172.06-.172.317v1.4c0 .38-.177.556-.487.556h-.888c-.384 0-.6-.227-.6-.63V8.6c0-.384.14-.544.467-.544h1.107c.28 0 .397.097.462.33.274.9.97 1.66 1.756 2.076.344.2.528.244.658.244.071 0 .163-.03.163-.316V8.6c0-.384.129-.546.46-.546h1.06c.357 0 .495.172.35.493-.96 2.35-1.99 3.7-3.18 4.56.61.084 1.4.08 2.03-.08.6-.16 1.06-.43 1.42-.8.25-.25.47-.33.66-.33.086 0 .18.03.18.31v1.37c0 .37-.13.67-.33.98z" />
-                            </svg>
-                        </a>
-                        <a
-                            href="https://t.me/karkasmaster40"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
-                            aria-label="Telegram"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path fill="currentColor" d="M21.6 3.4c-.2-.8-.9-1.2-1.6-.9L3.4 10.1c-.7.3-.7 1.2.1 1.5l4.5 1.4 1.4 4.5c.3.8 1.1 1 1.6.6L21.6 5.1c.6-.5.7-1.2.4-1.7z" />
-                            </svg>
-                        </a>
-                        <a
-                            href="https://www.youtube.com/@KarkasMasterObninsk/videos"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex h-9 w-9 items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
+                            <a
+                                href="https://vk.ru/kmobn"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
+                                aria-label="ВКонтакте"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path fill="currentColor" d="M12 0C5.373 0 0 5.373 0 12c0 6.627 5.373 12 12 12s12-5.373 12-12C24 5.373 18.627 0 12 0zm4.406 16.5c-.145.395-.52.649-.951.649-.844 0-1.628-.205-2.38-.614-.748-.406-1.182-.72-1.58-1.03-.31-.24-.488-.317-.66-.317-.092 0-.172.06-.172.317v1.4c0 .38-.177.556-.487.556h-.888c-.384 0-.6-.227-.6-.63V8.6c0-.384.14-.544.467-.544h1.107c.28 0 .397.097.462.33.274.9.97 1.66 1.756 2.076.344.2.528.244.658.244.071 0 .163-.03.163-.316V8.6c0-.384.129-.546.46-.546h1.06c.357 0 .495.172.35.493-.96 2.35-1.99 3.7-3.18 4.56.61.084 1.4.08 2.03-.08.6-.16 1.06-.43 1.42-.8.25-.25.47-.33.66-.33.086 0 .18.03.18.31v1.37c0 .37-.13.67-.33.98z" />
+                                </svg>
+                            </a>
+                            <a
+                                href="https://t.me/karkasmaster40"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
+                                aria-label="Telegram"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                    <path fill="currentColor" d="M21.6 3.4c-.2-.8-.9-1.2-1.6-.9L3.4 10.1c-.7.3-.7 1.2.1 1.5l4.5 1.4 1.4 4.5c.3.8 1.1 1 1.6.6L21.6 5.1c.6-.5.7-1.2.4-1.7z" />
+                                </svg>
+                            </a>
+                            <a
+                                href="https://www.youtube.com/@KarkasMasterObninsk/videos"
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
                             aria-label="YouTube"
                         >
                             <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">

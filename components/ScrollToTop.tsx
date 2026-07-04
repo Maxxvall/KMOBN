@@ -18,7 +18,7 @@ const ScrollToTop: React.FC = () => {
             {isVisible && (
                 <button
                     onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-                    className="fixed bottom-8 right-8 bg-primary hover:bg-primary-hover text-white p-3 rounded-full shadow-lg transition-all duration-300 z-50 hover:scale-110"
+                    className="fixed bottom-24 right-4 sm:right-8 bg-primary hover:bg-primary-hover text-white p-3 rounded-full shadow-lg transition-all duration-300 z-50 hover:scale-110 active:scale-95 min-h-[44px] min-w-[44px] flex items-center justify-center"
                     aria-label="Наверх"
                 >
                     ↑

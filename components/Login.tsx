@@ -131,7 +131,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
             <input
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2.5 min-h-[44px] text-base text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
               autoComplete={useSupabaseAuth ? 'email' : 'username'}
             />
           </div>
@@ -142,7 +142,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
+              className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2.5 min-h-[44px] text-base text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
               autoComplete="current-password"
             />
           </div>
@@ -160,23 +160,23 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
                 <button
                   type="submit"
                   disabled={!canSubmit}
-                  className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                  className="flex-1 min-h-[44px] rounded-md bg-primary px-4 py-2.5 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover active:scale-95 transition-transform"
                 >
                   {isSubmitting ? 'Проверка…' : 'Войти'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowSignupModal(true)}
-                  className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
+                  className="flex-1 min-h-[44px] rounded-md border border-border bg-background px-4 py-2.5 text-text-primary font-medium hover:bg-surface active:scale-95 transition-transform"
                 >
                   Зарегистрироваться
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowResetModal(true)}
-                className="text-sm text-text-secondary hover:text-text-primary"
-              >
+                <button
+                  type="button"
+                  onClick={() => setShowResetModal(true)}
+                  className="text-sm text-text-secondary hover:text-text-primary min-h-[44px] flex items-center"
+                >
                 Забыли пароль?
               </button>
             </div>
@@ -184,7 +184,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
             <button
               type="submit"
               disabled={!canSubmit}
-              className="w-full rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+              className="w-full min-h-[44px] rounded-md bg-primary px-4 py-2.5 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover active:scale-95 transition-transform"
             >
               {isSubmitting ? 'Проверка…' : 'Войти'}
             </button>
@@ -197,7 +197,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
               type="button"
               onClick={handleGoogleLogin}
               disabled={isGoogleSubmitting}
-              className="w-full rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface disabled:opacity-60"
+              className="w-full min-h-[44px] rounded-md border border-border bg-background px-4 py-2.5 text-text-primary font-medium hover:bg-surface disabled:opacity-60 active:scale-95 transition-transform"
             >
               <span className="flex items-center justify-center gap-2">
                 <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
@@ -214,14 +214,14 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
       </div>
 
       {showSignupModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 px-4 pb-4 sm:pb-0">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-text-primary">Регистрация</h2>
               <button
                 type="button"
                 onClick={() => setShowSignupModal(false)}
-                className="text-text-secondary hover:text-text-primary"
+                className="text-text-secondary hover:text-text-primary min-h-[44px] min-w-[44px] flex items-center justify-center text-xl"
               >
                 ×
               </button>
@@ -232,7 +232,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
                 <input
                   value={signupName}
                   onChange={(e) => setSignupName(e.target.value)}
-                  className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
+                  className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2.5 min-h-[44px] text-base text-text-primary"
                 />
               </div>
               <div>
@@ -240,7 +240,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
                 <input
                   value={signupEmail}
                   onChange={(e) => setSignupEmail(e.target.value)}
-                  className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
+                  className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2.5 min-h-[44px] text-base text-text-primary"
                   autoComplete="email"
                 />
               </div>
@@ -250,7 +250,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
                   type="password"
                   value={signupPassword}
                   onChange={(e) => setSignupPassword(e.target.value)}
-                  className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
+                  className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2.5 min-h-[44px] text-base text-text-primary"
                   autoComplete="new-password"
                 />
               </div>
@@ -259,7 +259,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
                 <input
                   value={signupPhone}
                   onChange={(e) => setSignupPhone(e.target.value)}
-                  className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
+                  className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2.5 min-h-[44px] text-base text-text-primary"
                 />
               </div>
               <div className="mt-6 flex gap-2">
@@ -267,14 +267,14 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
                   type="button"
                   onClick={handleSignup}
                   disabled={isSignupSubmitting}
-                  className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                  className="flex-1 min-h-[44px] rounded-md bg-primary px-4 py-2.5 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover active:scale-95 transition-transform"
                 >
                   {isSignupSubmitting ? 'Сохраняю…' : 'Зарегистрироваться'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowSignupModal(false)}
-                  className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
+                  className="flex-1 min-h-[44px] rounded-md border border-border bg-background px-4 py-2.5 text-text-primary font-medium hover:bg-surface active:scale-95 transition-transform"
                 >
                   Отмена
                 </button>
@@ -285,14 +285,14 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
       )}
 
       {showResetModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 px-4 pb-4 sm:pb-0">
+          <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold text-text-primary">Восстановление пароля</h2>
               <button
                 type="button"
                 onClick={() => setShowResetModal(false)}
-                className="text-text-secondary hover:text-text-primary"
+                className="text-text-secondary hover:text-text-primary min-h-[44px] min-w-[44px] flex items-center justify-center text-xl"
               >
                 ×
               </button>
@@ -302,7 +302,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
               <input
                 value={resetEmail}
                 onChange={(e) => setResetEmail(e.target.value)}
-                className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2 text-text-primary"
+                className="mt-1 w-full rounded-md bg-background border border-border px-3 py-2.5 min-h-[44px] text-base text-text-primary"
                 autoComplete="email"
               />
               {resetMessage && (
@@ -314,14 +314,14 @@ const Login: React.FC<LoginProps> = ({ onLogin, onGoogleLogin, onEmailLogin, onE
                 type="button"
                 onClick={handleResetPassword}
                 disabled={isResetSubmitting}
-                className="flex-1 rounded-md bg-primary px-4 py-2 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover"
+                className="flex-1 min-h-[44px] rounded-md bg-primary px-4 py-2.5 text-text-primary font-medium disabled:opacity-60 hover:bg-primary-hover active:scale-95 transition-transform"
               >
                 {isResetSubmitting ? 'Отправляю…' : 'Отправить ссылку'}
               </button>
               <button
                 type="button"
                 onClick={() => setShowResetModal(false)}
-                className="flex-1 rounded-md border border-border bg-background px-4 py-2 text-text-primary font-medium hover:bg-surface"
+                className="flex-1 min-h-[44px] rounded-md border border-border bg-background px-4 py-2.5 text-text-primary font-medium hover:bg-surface active:scale-95 transition-transform"
               >
                 Закрыть
               </button>

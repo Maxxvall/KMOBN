@@ -726,7 +726,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         return (
             <div className="space-y-6">
                 <div className="flex justify-between items-center">
-                    <h1 className="text-3xl font-bold text-text-primary">Аналитика смет</h1>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-text-primary">Аналитика смет</h1>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <SkeletonBlock className="h-24" />
@@ -747,7 +747,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         return (
             <div className="space-y-6">
                 <div className="flex justify-between items-center">
-                    <h1 className="text-3xl font-bold text-text-primary">Аналитика смет</h1>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-text-primary">Аналитика смет</h1>
                 </div>
                 <EmptyState
                     title="Пока нет данных для аналитики"
@@ -807,7 +807,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3">
                 <div>
-                    <h1 className="text-3xl font-bold text-text-primary">Аналитика смет</h1>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-text-primary">Аналитика смет</h1>
                     <div className="text-sm text-text-secondary mt-1">
                         Клик по сегменту круговой диаграммы фильтрует сравнения и тренды.
                     </div>

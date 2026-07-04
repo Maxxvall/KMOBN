@@ -77,7 +77,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                 <button
                                     key={view}
                                     onClick={() => onViewChange(view)}
-                                    className={`px-4 py-2 rounded-md font-semibold transition duration-300 ${
+                                    className={`px-4 py-2 rounded-md font-semibold transition duration-300 active:scale-95 ${
                                         currentView === view ? 'bg-primary text-white' : 'bg-surface text-text-primary hover:bg-gray-700'
                                     }`}
                                 >
@@ -185,7 +185,7 @@ const Header: React.FC<HeaderProps> = ({ currentView, onViewChange, userName, on
                                             onViewChange(view);
                                         }
                                     }}
-                                    className={`w-full flex flex-col items-center justify-center min-h-[56px] py-1 text-xs transition-colors ${
+                                    className={`w-full flex flex-col items-center justify-center min-h-[56px] py-1 text-xs transition-colors active:scale-95 ${
                                         isActive
                                             ? 'text-primary'
                                             : 'text-text-secondary active:text-text-primary'

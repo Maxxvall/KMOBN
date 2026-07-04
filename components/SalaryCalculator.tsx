@@ -208,8 +208,8 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
     // ─── Render ─────────────────────────────────────────────────────────────
 
     return (
-        <div className="container mx-auto px-4 py-8">
-            <h1 className="text-3xl font-bold mb-6 text-text-primary">Калькулятор Зарплаты</h1>
+        <div className="container mx-auto px-3 sm:px-4 py-6 sm:py-8">
+            <h1 className="text-2xl sm:text-3xl font-bold mb-6 text-text-primary">Калькулятор Зарплаты</h1>
 
             {/* Выбор сметы */}
             <div className="mb-6 bg-surface p-4 rounded-lg shadow">
@@ -217,7 +217,7 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                 <select
                     value={selectedEstimateId}
                     onChange={(e) => handleEstimateChange(e.target.value)}
-                    className="w-full p-2 border border-border rounded-md bg-background text-text-primary"
+                    className="w-full min-h-[44px] p-2 border border-border rounded-md bg-background text-text-primary"
                 >
                     <option value="">-- Выберите смету --</option>
                     {activeEstimates.map(e => (
@@ -235,13 +235,13 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                             <div className="inline-flex rounded-lg border border-border bg-background overflow-hidden">
                                 <button
                                     onClick={() => setMode('percent')}
-                                    className={`px-4 py-2 text-sm transition ${mode === 'percent' ? 'bg-primary text-white' : 'text-text-primary hover:bg-background/70'}`}
+                                    className={`min-h-[44px] px-4 py-2 text-sm transition ${mode === 'percent' ? 'bg-primary text-white' : 'text-text-primary hover:bg-background/70'}`}
                                 >
                                     Проценты
                                 </button>
                                 <button
                                     onClick={() => setMode('rate')}
-                                    className={`px-4 py-2 text-sm transition ${mode === 'rate' ? 'bg-primary text-white' : 'text-text-primary hover:bg-background/70'}`}
+                                    className={`min-h-[44px] px-4 py-2 text-sm transition ${mode === 'rate' ? 'bg-primary text-white' : 'text-text-primary hover:bg-background/70'}`}
                                 >
                                     Ставка (₽/час или ₽/день)
                                 </button>
@@ -272,9 +272,9 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                                 onChange={(e) => setNewWorkerName(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleAddWorker()}
                                 placeholder="Имя работника"
-                                className="flex-1 p-2 border border-border rounded-md bg-background text-text-primary"
+                                className="flex-1 min-h-[44px] p-2 border border-border rounded-md bg-background text-text-primary"
                             />
-                            <button onClick={handleAddWorker} className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark transition">
+                            <button onClick={handleAddWorker} className="min-h-[44px] px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark transition active:scale-95">
                                 Добавить
                             </button>
                         </div>
@@ -287,7 +287,7 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                                             <span className="text-text-primary font-medium">{worker.name}</span>
                                             <div className="flex items-center gap-3">
                                                 <span className="text-lg font-semibold text-primary">{formatPrice(workerTotals[worker.id] || 0)}</span>
-                                                <button onClick={() => handleRemoveWorker(worker.id)} className="text-red-500 hover:text-red-700 font-bold">✕</button>
+                                                <button onClick={() => handleRemoveWorker(worker.id)} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-red-500 hover:text-red-700 font-bold active:scale-95">✕</button>
                                             </div>
                                         </div>
                                         {mode === 'rate' && (
@@ -295,13 +295,13 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                                                 <div className="flex items-center gap-1">
                                                     <button
                                                         onClick={() => handleRateTypeChange(worker.id, 'hour')}
-                                                        className={`px-2 py-1 text-xs rounded transition ${worker.rateType === 'hour' ? 'bg-primary text-white' : 'bg-background border border-border text-text-secondary'}`}
+                                                        className={`min-h-[36px] px-3 py-1 text-xs rounded transition ${worker.rateType === 'hour' ? 'bg-primary text-white' : 'bg-background border border-border text-text-secondary'}`}
                                                     >
                                                         ₽/час
                                                     </button>
                                                     <button
                                                         onClick={() => handleRateTypeChange(worker.id, 'day')}
-                                                        className={`px-2 py-1 text-xs rounded transition ${worker.rateType === 'day' ? 'bg-primary text-white' : 'bg-background border border-border text-text-secondary'}`}
+                                                        className={`min-h-[36px] px-3 py-1 text-xs rounded transition ${worker.rateType === 'day' ? 'bg-primary text-white' : 'bg-background border border-border text-text-secondary'}`}
                                                     >
                                                         ₽/день
                                                     </button>
@@ -313,7 +313,7 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                                                     value={worker.rateType === 'day' ? (worker.ratePerDay || '') : (worker.ratePerHour || '')}
                                                     onChange={(e) => handleRateChange(worker.id, worker.rateType === 'day' ? 'ratePerDay' : 'ratePerHour', e.target.value)}
                                                     placeholder="Ставка ₽"
-                                                    className="w-28 p-1 text-center border border-border rounded bg-background text-text-primary text-sm"
+                                                    className="w-28 min-h-[36px] p-1 text-center border border-border rounded bg-background text-text-primary text-sm"
                                                 />
                                                 {workerHours[worker.id] !== undefined && (
                                                     <span className="text-xs text-text-secondary">
@@ -337,7 +337,8 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                             <h2 className="text-xl font-semibold mb-4 text-text-primary">
                                 {mode === 'percent' ? 'Распределение работ (%)' : 'Распределение времени (часы/дни)'}
                             </h2>
-                            <table className="w-full text-sm">
+                            {/* Desktop table */}
+                            <table className="w-full text-sm hidden md:table">
                                 <thead>
                                     <tr className="border-b border-border">
                                         <th className="text-left p-2 text-text-primary font-semibold">Вид работы</th>
@@ -390,9 +391,55 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                                 </tbody>
                             </table>
 
+                            {/* Mobile card list */}
+                            <div className="md:hidden space-y-3">
+                                {workAllocations.map(wa => {
+                                    const totalPct = workTotalPercentages[wa.workItemId] || 0;
+                                    return (
+                                        <div key={wa.workItemId} className={`rounded-lg border border-border bg-background/40 p-3 ${mode === 'percent' && totalPct > 100 ? 'border-red-500/40' : mode === 'percent' && totalPct === 100 ? 'border-green-500/40' : ''}`}>
+                                            <div className="flex items-start justify-between gap-2 mb-2">
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="font-semibold text-text-primary text-sm truncate">{wa.workItemName}</div>
+                                                    <div className="text-xs text-text-secondary">{formatPrice(wa.workItemTotal)}</div>
+                                                </div>
+                                                {mode === 'percent' && (
+                                                    <span className={`shrink-0 text-xs font-semibold ${totalPct > 100 ? 'text-red-500' : totalPct === 100 ? 'text-green-500' : 'text-text-secondary'}`}>
+                                                        {totalPct.toFixed(1)}%
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {workers.map(w => (
+                                                    <div key={w.id}>
+                                                        <label className="text-xs text-text-secondary block mb-1 truncate">{w.name}</label>
+                                                        {mode === 'percent' ? (
+                                                            <input
+                                                                type="number" min="0" max="100" step="0.1"
+                                                                value={wa.allocations[w.id] || ''}
+                                                                onChange={(e) => handleAllocationChange(wa.workItemId, w.id, e.target.value)}
+                                                                placeholder="0"
+                                                                className="w-full min-h-[44px] p-2 text-center border border-border rounded bg-background text-text-primary text-sm"
+                                                            />
+                                                        ) : (
+                                                            <input
+                                                                type="number" min="0" step="0.5"
+                                                                value={wa.hours?.[w.id] || ''}
+                                                                onChange={(e) => handleHoursChange(wa.workItemId, w.id, e.target.value)}
+                                                                placeholder="0"
+                                                                className="w-full min-h-[44px] p-2 text-center border border-border rounded bg-background text-text-primary text-sm"
+                                                            />
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
                             {/* Итоги */}
                             <div className="mt-6 pt-4 border-t border-border">
-                                <div className="grid grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     <div>
                                         <h3 className="text-lg font-semibold text-text-primary mb-2">Итоги по работникам:</h3>
                                         {workers.map(w => (
@@ -409,7 +456,7 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
                                             </div>
                                         ))}
                                     </div>
-                                    <div className="text-right">
+                                    <div className="sm:text-right">
                                         <div className="mb-2">
                                             <span className="text-text-secondary">Всего работ: </span>
                                             <span className="font-semibold text-text-primary">{formatPrice(totalWorks)}</span>
