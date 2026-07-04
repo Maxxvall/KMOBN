@@ -126,6 +126,7 @@ const VersionDropdown: React.FC<{
 const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates: _templates, onCreateNew, onEdit, onDelete, onDeleteVersion, onGeneratePdf }) => {
     const estimateContext = useOptionalEstimateContext();
     const estimateList = useMemo(() => estimates ?? estimateContext?.estimates ?? [], [estimates, estimateContext?.estimates]);
+    const allEstimatesList = useMemo(() => estimateContext?.allEstimates ?? estimateList, [estimateContext?.allEstimates, estimateList]);
     const createNewAction = onCreateNew ?? estimateContext?.actions.onCreateNew;
     const editAction = onEdit ?? estimateContext?.actions.onEdit;
     const deleteAction = onDelete ?? estimateContext?.actions.onDelete;
@@ -257,8 +258,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
 
     const filteredEstimates = useMemo(() => {
         if (filterStatus === EstimateStatus.ARCHIVED) {
-            // Show only archived estimates when "В архиве" is selected
-            return estimateList
+            // Show only archived estimates — use full list to bypass subscription limit
+            return allEstimatesList
                 .filter(e => e.isArchived || e.status === EstimateStatus.ARCHIVED)
                 .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
                 .filter(e => filterBuildingType === '' || e.buildingType.toLowerCase().includes(filterBuildingType.toLowerCase()))
@@ -282,7 +283,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 return e.area >= min && e.area <= max;
             })
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [estimateList, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
+    }, [estimateList, allEstimatesList, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
     
     const getVersionHistory = (estimate: Estimate) => {
         const groupKey = estimate.estimateNumber;
