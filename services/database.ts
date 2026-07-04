@@ -169,12 +169,9 @@ const readTableCached = async <T extends { id: string }>(
 ): Promise<T[]> => {
   const userId = await getAuthenticatedUserId();
   const cacheUserId = getCacheUserId(userId);
-  console.log(`[DB:${key}] userId=${userId}, cacheUserId=${cacheUserId}`);
   const cached = normalizeStableOrder(await getCachedRecords<T>(key, cacheUserId));
   const canFetch = isSupabaseConfigured() && !!userId;
   const limitedCached = typeof options?.limit === 'number' ? cached.slice(0, options.limit) : cached;
-
-  console.log(`[DB:${key}] cached=${cached.length}, canFetch=${canFetch}`);
 
   if (cached.length > 0) {
     if (canFetch) {
@@ -184,20 +181,16 @@ const readTableCached = async <T extends { id: string }>(
   }
 
   if (!canFetch) {
-    console.log(`[DB:${key}] No cache and can't fetch, returning empty`);
     return limitedCached;
   }
 
-  console.log(`[DB:${key}] Fetching from Supabase...`);
   const { data, error } = await fetcher(userId as string, options);
   if (error) {
     console.error(`[DB:${key}] Supabase fetch error:`, error);
     return limitedCached;
   }
   const records = normalizeStableOrder((data ?? []) as T[]);
-  console.log(`[DB:${key}] Fetched ${records.length} records from Supabase, caching...`);
   await syncCachedRecords(key, cacheUserId, records);
-  console.log(`[DB:${key}] Cached successfully`);
   return typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
 };
 
