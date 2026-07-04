@@ -1,12 +1,13 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
-import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
+import { filterToLatestEstimateVersions, findEstimateVersionDuplicates, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
 import { exportData, importData, validateImportData } from '../services/database';
 
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import SmartEstimateWizard from './SmartEstimateWizard';
+import EstimateDuplicateDialog from './EstimateDuplicateDialog';
 
 interface EstimateHistoryProps {
     estimates?: Estimate[];
@@ -129,6 +130,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const editAction = onEdit ?? estimateContext?.actions.onEdit;
     const deleteAction = onDelete ?? estimateContext?.actions.onDelete;
     const deleteVersionAction = onDeleteVersion ?? estimateContext?.actions.onDeleteVersion;
+    const deleteVersionDuplicatesAction = estimateContext?.actions.onDeleteVersionDuplicates;
     const generatePdfAction = onGeneratePdf ?? estimateContext?.actions.onGeneratePdf;
 
     const [filterClient, setFilterClient] = useState('');
@@ -142,7 +144,20 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const worksList = catalogContext?.works ?? [];
     const [showQuickStart, setShowQuickStart] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
+    const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
+    const [duplicateGroups, setDuplicateGroups] = useState<EstimateDuplicateGroup[]>([]);
     const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '';
+
+    const handleCheckDuplicates = () => {
+        const groups = findEstimateVersionDuplicates(estimateList);
+        setDuplicateGroups(groups);
+        setShowDuplicateDialog(true);
+    };
+
+    const handleDeleteDuplicates = async (estimateNumber: string, idsToDelete: string[]) => {
+        if (!deleteVersionDuplicatesAction) return;
+        await deleteVersionDuplicatesAction(estimateNumber, idsToDelete);
+    };
 
     const handleExportData = async () => {
         try {
@@ -399,6 +414,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         <button onClick={handleImportData} className="min-h-[44px] bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
                             Импорт
                         </button>
+                        <button onClick={handleCheckDuplicates} className="min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
+                            Дубли версий
+                        </button>
                         <button onClick={() => setShowQuickStart(true)} className="min-h-[44px] bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
                             Быстрый старт
                         </button>
@@ -458,6 +476,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         </button>
                         <button onClick={handleImportData} className="flex-1 min-h-[44px] bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
                             Импорт
+                        </button>
+                        <button onClick={handleCheckDuplicates} className="flex-1 min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
+                            Дубли
                         </button>
                     </div>
                 </div>
@@ -584,6 +605,13 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     existingEstimateNumbers={estimateList.map(e => e.estimateNumber)}
                 />
             )}
+
+            <EstimateDuplicateDialog
+                isOpen={showDuplicateDialog}
+                onClose={() => setShowDuplicateDialog(false)}
+                duplicateGroups={duplicateGroups}
+                onDelete={handleDeleteDuplicates}
+            />
         </div>
     );
 };

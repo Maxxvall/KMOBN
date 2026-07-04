@@ -7,6 +7,7 @@ type EstimateActions = {
   onEdit?: (estimate: Estimate) => void;
   onDelete?: (estimate: Estimate) => void;
   onDeleteVersion?: (estimate: Estimate) => void;
+  onDeleteVersionDuplicates?: (estimateNumber: string, idsToDelete: string[]) => Promise<void>;
   onGeneratePdf?: (estimate: Estimate) => void;
   onRequestSave?: (estimate: Estimate) => void;
   onDraftChange?: (estimate: Estimate) => void;

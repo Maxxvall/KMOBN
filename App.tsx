@@ -1203,6 +1203,7 @@ const App: React.FC = () => {
         handleSaveEstimate,
         handleDeleteEstimate,
         handleDeleteEstimateVersion,
+        handleDeleteVersionDuplicates,
         handleSaveAsTemplate,
         handleDeleteTemplate,
     } = useEstimateCrud({
@@ -1711,6 +1712,7 @@ const App: React.FC = () => {
             onEdit: handleEdit,
             onDelete: handleDeleteEstimate,
             onDeleteVersion: handleDeleteEstimateVersion,
+            onDeleteVersionDuplicates: handleDeleteVersionDuplicates,
             onGeneratePdf: handleGeneratePdf,
             onRequestSave: handleSaveRequest,
             onDraftChange: handleDraftChange,
@@ -1732,6 +1734,7 @@ const App: React.FC = () => {
         handleEdit,
         handleDeleteEstimate,
         handleDeleteEstimateVersion,
+        handleDeleteVersionDuplicates,
         handleGeneratePdf,
         handleSaveRequest,
         handleDraftChange,

@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { addTemplate as addTemplateToDb, deleteEstimateById, deleteEstimatesByNumber, deleteTemplate as deleteTemplateFromDb, saveEstimates } from '../services/database';
+import { addTemplate as addTemplateToDb, deleteEstimateById, deleteEstimates, deleteEstimatesByNumber, deleteTemplate as deleteTemplateFromDb, saveEstimates } from '../services/database';
 import { validateEstimate } from '../services/estimateValidation';
 import { canCreateEstimate, canDeleteEstimate } from '../services/subscriptionService';
 import { Estimate, EstimateStatus, ProjectTemplate, SubscriptionLimits, SubscriptionUsage, View } from '../types';
@@ -266,43 +266,42 @@ export const useEstimateCrud = ({
         consumeDeleteLimit();
         setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
       } else {
-        const remainingVersions = versionHistory.filter(e => e.id !== estimateToDelete.id);
-        const hasChildren = remainingVersions.some(e => e.parentId === estimateToDelete.id);
-        const isRootVersion = !estimateToDelete.parentId || hasChildren;
-        const shouldNormalize = remainingVersions.length > 0 && (isRootVersion || isLatest);
+        const deletedId = estimateToDelete.id;
+        const remainingVersions = versionHistory.filter(e => e.id !== deletedId);
+        const newRoot = [...remainingVersions].sort((a, b) => {
+          const vA = typeof a.version === 'number' ? a.version : 0;
+          const vB = typeof b.version === 'number' ? b.version : 0;
+          if (vB !== vA) return vB - vA;
+          return new Date(b.date).getTime() - new Date(a.date).getTime();
+        })[0];
 
-        if (shouldNormalize) {
-          const [newRoot] = [...remainingVersions].sort((a, b) => {
-            if (b.version !== a.version) return b.version - a.version;
-            return new Date(b.date).getTime() - new Date(a.date).getTime();
-          });
-          const reparented = remainingVersions.map(e => {
-            const isNewRoot = e.id === newRoot.id;
-            return {
-              ...e,
-              parentId: isNewRoot ? undefined : newRoot.id,
-              // Не трогаем isArchived и status — оставляем оригинальные значения
-              // Для нового корня снимаем isArchived если он был (на случай если пользователь архивировал)
-              ...(isNewRoot ? { isArchived: false } : {}),
-            };
-          });
-
-          await deleteEstimateById(estimateToDelete.id);
-          const updatedEstimates = estimates
-            .filter(e => e.id !== estimateToDelete.id)
-            .map(e => reparented.find(r => r.id === e.id) ?? e);
-          await saveEstimates(updatedEstimates);
-          setEstimates(updatedEstimates);
-          consumeDeleteLimit();
-          setSync({ visible: true, message: 'Версия удалена, главная обновлена', type: 'success' });
-        } else {
-          await deleteEstimateById(estimateToDelete.id);
-          const updatedEstimates = estimates.filter(e => e.id !== estimateToDelete.id);
-          await saveEstimates(updatedEstimates);
-          setEstimates(updatedEstimates);
-          consumeDeleteLimit();
-          setSync({ visible: true, message: 'Версия сметы удалена', type: 'success' });
+        // Reparent: ensure all remaining versions point to valid root
+        const reparentMap = new Map<string, { parentId?: string; isArchived?: boolean }>();
+        for (const e of remainingVersions) {
+          if (e.id === newRoot.id) {
+            // New root: remove parentId, keep status as-is
+            reparentMap.set(e.id, { parentId: undefined });
+          } else {
+            // Non-root: ensure parentId points to new root if it was pointing to deleted version
+            const needsReparent = e.parentId === deletedId || e.parentId === undefined;
+            reparentMap.set(e.id, {
+              parentId: needsReparent ? newRoot.id : e.parentId,
+            });
+          }
         }
+
+        await deleteEstimateById(deletedId);
+        const updatedEstimates = estimates
+          .filter(e => e.id !== deletedId)
+          .map(e => {
+            const patch = reparentMap.get(e.id);
+            return patch ? { ...e, ...patch } : e;
+          });
+        await saveEstimates(updatedEstimates);
+        setEstimates(updatedEstimates);
+        consumeDeleteLimit();
+        const msg = isLatest ? 'Версия удалена, главная обновлена' : 'Версия сметы удалена';
+        setSync({ visible: true, message: msg, type: 'success' });
       }
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
     } catch (error) {
@@ -311,6 +310,21 @@ export const useEstimateCrud = ({
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
     }
   }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit, setSync]);
+
+  const handleDeleteVersionDuplicates = useCallback(async (estimateNumber: string, idsToDelete: string[]) => {
+    if (idsToDelete.length === 0) return;
+    try {
+      await deleteEstimates(idsToDelete);
+      const deleteSet = new Set(idsToDelete);
+      const updatedEstimates = estimates.filter(e => !deleteSet.has(e.id));
+      await saveEstimates(updatedEstimates);
+      setEstimates(updatedEstimates);
+      consumeDeleteLimit();
+    } catch (error) {
+      console.error('Failed to delete version duplicates:', error);
+      throw error;
+    }
+  }, [estimates, setEstimates, consumeDeleteLimit]);
 
   const handleSaveAsTemplate = useCallback(async (estimate: Estimate) => {
     const templateName = prompt('Введите название шаблона:');
@@ -351,6 +365,7 @@ export const useEstimateCrud = ({
     handleSaveEstimate,
     handleDeleteEstimate,
     handleDeleteEstimateVersion,
+    handleDeleteVersionDuplicates,
     handleSaveAsTemplate,
     handleDeleteTemplate,
   };

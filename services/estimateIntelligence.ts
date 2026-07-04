@@ -1,4 +1,5 @@
 import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, Material, Work, normalizeKey, safeNumber } from '../types';
+import { hashData } from './hashing';
 
 export type DependencySeverity = 'critical' | 'important' | 'optional';
 
@@ -438,4 +439,100 @@ export function pickFewShotExamples(
     qualityScore: x.q.score,
     example: summarizeEstimateExample(x.e.items || [], 5),
   }));
+}
+
+// ── Estimate version deduplication ──
+
+function contentFingerprint(e: Estimate): string {
+  const sortedItems = [...(e.items || [])]
+    .map(it => ({
+      name: it.name,
+      unit: it.unit,
+      quantity: it.quantity,
+      price: it.price,
+      total: it.total,
+      category: it.category,
+      subgroup: it.subgroup ?? null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return hashData({
+    items: sortedItems,
+    total: e.total,
+    client: e.client,
+    area: e.area,
+    buildingType: e.buildingType,
+  });
+}
+
+export type EstimateDuplicateGroup = {
+  estimateNumber: string;
+  latestVersionId: string;
+  latestVersion: Estimate;
+  identicalToLatest: Estimate[];
+  identicalPairs: Estimate[][];
+};
+
+export function findEstimateVersionDuplicates(estimates: Estimate[]): EstimateDuplicateGroup[] {
+  const byNumber = new Map<string, Estimate[]>();
+  for (const e of estimates || []) {
+    if (!e?.estimateNumber) continue;
+    const list = byNumber.get(e.estimateNumber) || [];
+    list.push(e);
+    byNumber.set(e.estimateNumber, list);
+  }
+
+  const result: EstimateDuplicateGroup[] = [];
+
+  for (const [number, versions] of byNumber) {
+    if (versions.length < 2) continue;
+
+    const sorted = [...versions].sort((a, b) => {
+      const vA = typeof a.version === 'number' ? a.version : 0;
+      const vB = typeof b.version === 'number' ? b.version : 0;
+      if (vB !== vA) return vB - vA;
+      return new Date(b.date).getTime() - new Date(a.date).getTime();
+    });
+
+    const latest = sorted[0];
+    const older = sorted.slice(1);
+
+    const latestHash = contentFingerprint(latest);
+    const identicalToLatest: Estimate[] = [];
+    const remaining: Estimate[] = [];
+
+    for (const e of older) {
+      if (contentFingerprint(e) === latestHash) {
+        identicalToLatest.push(e);
+      } else {
+        remaining.push(e);
+      }
+    }
+
+    // Group remaining by content hash to find identical pairs
+    const hashGroups = new Map<string, Estimate[]>();
+    for (const e of remaining) {
+      const h = contentFingerprint(e);
+      const group = hashGroups.get(h) || [];
+      group.push(e);
+      hashGroups.set(h, group);
+    }
+    const identicalPairs: Estimate[][] = [];
+    for (const group of hashGroups.values()) {
+      if (group.length >= 2) {
+        identicalPairs.push(group);
+      }
+    }
+
+    if (identicalToLatest.length > 0 || identicalPairs.length > 0) {
+      result.push({
+        estimateNumber: number,
+        latestVersionId: latest.id,
+        latestVersion: latest,
+        identicalToLatest,
+        identicalPairs,
+      });
+    }
+  }
+
+  return result;
 }
