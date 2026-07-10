@@ -210,6 +210,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiAddedToCatalogNames, setAiAddedToCatalogNames] = useState<Set<string>>(new Set());
     const [showComparison, setShowComparison] = useState(false);
     const [bundlePickerOpen, setBundlePickerOpen] = useState(false);
+    const [quickBundleWorkId, setQuickBundleWorkId] = useState<string | null>(null);
+    const [quickBundleItemIds, setQuickBundleItemIds] = useState<Set<string>>(new Set());
+    const [quickBundleName, setQuickBundleName] = useState('');
+    const [quickBundleModalOpen, setQuickBundleModalOpen] = useState(false);
+    const [quickBundleNotice, setQuickBundleNotice] = useState<string | null>(null);
     const [pasteModalOpen, setPasteModalOpen] = useState(false);
     const [pasteTargetCategory, setPasteTargetCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
@@ -977,6 +982,107 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setBundlePickerOpen(false);
     }, [bundlesValue]);
 
+    const quickBundleWork = useMemo(
+        () => estimate.items.find(item => item.id === quickBundleWorkId && (item.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS) ?? null,
+        [estimate.items, quickBundleWorkId],
+    );
+
+    const quickBundleLinkedItems = useMemo(() => {
+        if (!quickBundleWork) return [];
+        return estimate.items.filter(item =>
+            quickBundleItemIds.has(item.id) &&
+            item.id !== quickBundleWork.id &&
+            item.category === quickBundleWork.category &&
+            item.subgroup === EstimateSubgroup.MATERIALS &&
+            item.name.trim()
+        );
+    }, [estimate.items, quickBundleItemIds, quickBundleWork]);
+
+    const quickBundleDraftItems = useMemo(
+        () => quickBundleWork ? [quickBundleWork, ...quickBundleLinkedItems] : [],
+        [quickBundleLinkedItems, quickBundleWork],
+    );
+
+    const resetQuickBundleDraft = useCallback(() => {
+        setQuickBundleWorkId(null);
+        setQuickBundleItemIds(new Set());
+        setQuickBundleName('');
+        setQuickBundleModalOpen(false);
+    }, []);
+
+    const handleQuickBundleWorkSelect = useCallback((item: EstimateItem) => {
+        if (!item.name.trim()) return;
+        setQuickBundleNotice(null);
+        setQuickBundleItemIds(new Set());
+        setQuickBundleWorkId(prev => prev === item.id ? null : item.id);
+    }, []);
+
+    const handleQuickBundleMaterialToggle = useCallback((item: EstimateItem) => {
+        if (!quickBundleWork || item.category !== quickBundleWork.category || item.subgroup !== EstimateSubgroup.MATERIALS || !item.name.trim()) return;
+        setQuickBundleNotice(null);
+        setQuickBundleItemIds(prev => {
+            const next = new Set(prev);
+            if (next.has(item.id)) {
+                next.delete(item.id);
+            } else {
+                next.add(item.id);
+            }
+            return next;
+        });
+    }, [quickBundleWork]);
+
+    const handleQuickBundleDragStart = useCallback((event: React.DragEvent, item: EstimateItem) => {
+        if (!item.name.trim()) {
+            event.preventDefault();
+            return;
+        }
+        event.dataTransfer.effectAllowed = 'copy';
+        event.dataTransfer.setData('application/x-work-item-id', item.id);
+        setQuickBundleNotice(null);
+        setQuickBundleItemIds(new Set());
+        setQuickBundleWorkId(item.id);
+    }, []);
+
+    const handleQuickBundleDrop = useCallback((event: React.DragEvent, item: EstimateItem) => {
+        event.preventDefault();
+        const workId = event.dataTransfer.getData('application/x-work-item-id') || quickBundleWorkId;
+        const work = estimate.items.find(candidate => candidate.id === workId && (candidate.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS);
+        if (!work || item.category !== work.category || item.subgroup !== EstimateSubgroup.MATERIALS || !item.name.trim()) return;
+        setQuickBundleNotice(null);
+        setQuickBundleWorkId(work.id);
+        setQuickBundleItemIds(prev => {
+            const next = new Set(prev);
+            next.add(item.id);
+            return next;
+        });
+    }, [estimate.items, quickBundleWorkId]);
+
+    const openQuickBundleSave = useCallback(() => {
+        if (!quickBundleWork || quickBundleLinkedItems.length === 0) return;
+        setQuickBundleName(quickBundleWork.name);
+        setQuickBundleModalOpen(true);
+    }, [quickBundleLinkedItems.length, quickBundleWork]);
+
+    const handleQuickBundleSave = useCallback(async () => {
+        const name = quickBundleName.trim();
+        if (!name || !quickBundleWork?.name.trim() || quickBundleLinkedItems.length === 0 || !catalogContext?.onAddBundle) return;
+        const now = Date.now();
+        const bundle: WorkBundle = {
+            id: `bundle-${now}`,
+            name,
+            mainWorkId: quickBundleWork.id,
+            category: quickBundleWork.category,
+            sortOrder: now,
+            items: quickBundleDraftItems.map(item => ({
+                ...item,
+                id: `item-bundle-${now}-${Math.random().toString(36).slice(2, 9)}`,
+            })),
+        };
+        await catalogContext.onAddBundle(bundle);
+        resetQuickBundleDraft();
+        setQuickBundleNotice(`Компонент "${name}" сохранён.`);
+    }, [catalogContext, quickBundleDraftItems, quickBundleLinkedItems.length, quickBundleName, quickBundleWork, resetQuickBundleDraft]);
+
     const handleSave = () => {
         if (!estimate.client) {
             alert("Пожалуйста, укажите имя клиента.");
@@ -1179,6 +1285,44 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                 </div>
 
+                {(quickBundleWork || quickBundleNotice) && (
+                    <div className="mt-4 rounded-lg border border-primary/40 bg-primary/10 p-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div className="min-w-0">
+                                <div className="text-sm font-semibold text-text-primary">
+                                    {quickBundleWork
+                                        ? `Быстрый компонент: ${quickBundleWork.name}`
+                                        : quickBundleNotice}
+                                </div>
+                                {quickBundleWork && (
+                                    <div className="text-xs text-text-secondary">
+                                        Материалов выбрано: {quickBundleLinkedItems.length}. Нажмите на материалы или перетащите плюс от работы.
+                                    </div>
+                                )}
+                            </div>
+                            {quickBundleWork && (
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={openQuickBundleSave}
+                                        disabled={quickBundleLinkedItems.length === 0}
+                                        className="min-h-[44px] rounded-md bg-primary px-3 py-2 text-sm font-bold text-white transition hover:bg-primary-hover disabled:bg-gray-600 disabled:text-text-secondary"
+                                    >
+                                        Сохранить компонент
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={resetQuickBundleDraft}
+                                        className="min-h-[44px] rounded-md border border-border px-3 py-2 text-sm font-semibold text-text-secondary transition hover:bg-background"
+                                    >
+                                        Очистить
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
                 <div className="space-y-3 sm:space-y-8 mt-4 sm:mt-6">
                     {ESTIMATE_CATEGORIES.map((category, catIndex) => {
                         const items = groupedItems.get(category) || [];
@@ -1232,7 +1376,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     <table className="min-w-full">
                                                         <thead className="bg-gray-900/30">
                                                             <tr>
-                                                                <th className="p-2 text-left font-semibold text-sm text-text-secondary w-2/5">Наименование</th>
+                                                                <th className="p-2 text-center font-semibold text-sm text-text-secondary w-12">Связь</th>
+                                                                <th className="p-2 text-left font-semibold text-sm text-text-secondary w-1/3">Наименование</th>
                                                                 <th className="p-2 w-10"></th>
                                                                 <th className="p-2 text-left font-semibold text-sm text-text-secondary">Ед. изм.</th>
                                                                 <th className="p-2 text-right font-semibold text-sm text-text-secondary">Кол-во</th>
@@ -1244,7 +1389,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         <tbody>
                                                             {subItems.length === 0 && (
                                                                 <tr>
-                                                                    <td className="p-2 text-sm text-text-secondary" colSpan={7}>Нет позиций</td>
+                                                                    <td className="p-2 text-sm text-text-secondary" colSpan={8}>Нет позиций</td>
                                                                 </tr>
                                                             )}
                                                             {renderedSubItems.map((item) => {
@@ -1252,9 +1397,42 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 const filteredWorks = filteredWorksByCategory.get(category) || [];
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
+                                                                const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
+                                                                const isQuickBundleWorkRow = quickBundleWork?.id === item.id;
+                                                                const isQuickBundleLinked = quickBundleItemIds.has(item.id);
+                                                                const isQuickBundleMaterialTarget = Boolean(quickBundleWork && item.category === quickBundleWork.category && itemSubgroup === EstimateSubgroup.MATERIALS && item.name.trim());
                                                                 return (
                                                                 <React.Fragment key={item.id}>
-                                                                <tr className={"border-b border-border last:border-b-0" + (validationResultValue?.invalidItemIds?.has(item.id) ? " bg-red-500/5" : "")}>
+                                                                <tr className={"border-b border-border last:border-b-0" + (validationResultValue?.invalidItemIds?.has(item.id) ? " bg-red-500/5" : "") + (isQuickBundleWorkRow || isQuickBundleLinked ? " bg-primary/5" : "")}>
+                                                                    <td className="p-1 text-center align-middle">
+                                                                        {itemSubgroup === EstimateSubgroup.WORKS ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                draggable={Boolean(item.name.trim())}
+                                                                                onDragStart={event => handleQuickBundleDragStart(event, item)}
+                                                                                onClick={() => handleQuickBundleWorkSelect(item)}
+                                                                                disabled={!item.name.trim()}
+                                                                                className={`mx-auto flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full border text-lg font-bold transition ${isQuickBundleWorkRow ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-secondary hover:border-primary hover:text-primary'} disabled:cursor-not-allowed disabled:opacity-40`}
+                                                                                title="Выбрать работу для компонента"
+                                                                            >
+                                                                                +
+                                                                            </button>
+                                                                        ) : itemSubgroup === EstimateSubgroup.MATERIALS ? (
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleQuickBundleMaterialToggle(item)}
+                                                                                onDragOver={event => { if (isQuickBundleMaterialTarget) event.preventDefault(); }}
+                                                                                onDrop={event => handleQuickBundleDrop(event, item)}
+                                                                                disabled={!isQuickBundleMaterialTarget}
+                                                                                className={`mx-auto flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full border text-sm font-bold transition ${isQuickBundleLinked ? 'border-primary bg-primary text-white' : isQuickBundleMaterialTarget ? 'border-primary/60 bg-primary/10 text-primary hover:bg-primary/20' : 'border-border bg-background text-text-secondary opacity-50'} disabled:cursor-not-allowed`}
+                                                                                title="Добавить материал в компонент"
+                                                                            >
+                                                                                {isQuickBundleLinked ? '✓' : '•'}
+                                                                            </button>
+                                                                        ) : (
+                                                                            <span className="text-text-secondary">-</span>
+                                                                        )}
+                                                                    </td>
                                                                     <td className="p-1">
                                                                         { (subgroup === EstimateSubgroup.MATERIALS || subgroup === EstimateSubgroup.DELIVERY) ? (
                                                                             useTypeaheadMaterials ? (
@@ -1368,7 +1546,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 </tr>
                                                                 {openNotes[item.id] && (
                                                                     <tr>
-                                                                        <td colSpan={7} className="p-1 bg-gray-900/20">
+                                                                        <td colSpan={8} className="p-1 bg-gray-900/20">
                                                                             <textarea
                                                                                 value={item.note || ''}
                                                                                 onChange={e => updateItem(item.id, 'note', e.target.value)}
@@ -1394,9 +1572,37 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         const filteredWorks = filteredWorksByCategory.get(category) || [];
                                                         const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                         const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
+                                                        const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
+                                                        const isQuickBundleWorkRow = quickBundleWork?.id === item.id;
+                                                        const isQuickBundleLinked = quickBundleItemIds.has(item.id);
+                                                        const isQuickBundleMaterialTarget = Boolean(quickBundleWork && item.category === quickBundleWork.category && itemSubgroup === EstimateSubgroup.MATERIALS && item.name.trim());
                                                         return (
-                                                        <article key={item.id} className={"rounded-lg border border-border bg-background/40 p-2 sm:p-3" + (validationResultValue?.invalidItemIds?.has(item.id) ? " border-red-500/40" : "")}>
+                                                        <article key={item.id} className={"rounded-lg border border-border bg-background/40 p-2 sm:p-3" + (validationResultValue?.invalidItemIds?.has(item.id) ? " border-red-500/40" : "") + (isQuickBundleWorkRow || isQuickBundleLinked ? " border-primary/60 bg-primary/5" : "")}>
                                                             <div className="space-y-2">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-xs font-semibold text-text-secondary">
+                                                                        {itemSubgroup === EstimateSubgroup.WORKS ? 'Работа' : itemSubgroup === EstimateSubgroup.MATERIALS ? 'Материал' : 'Доставка'}
+                                                                    </span>
+                                                                    {itemSubgroup === EstimateSubgroup.WORKS ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleQuickBundleWorkSelect(item)}
+                                                                            disabled={!item.name.trim()}
+                                                                            className={`min-h-[36px] rounded-full border px-3 text-sm font-bold transition ${isQuickBundleWorkRow ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-secondary hover:border-primary hover:text-primary'} disabled:cursor-not-allowed disabled:opacity-40`}
+                                                                        >
+                                                                            + связать
+                                                                        </button>
+                                                                    ) : itemSubgroup === EstimateSubgroup.MATERIALS ? (
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => handleQuickBundleMaterialToggle(item)}
+                                                                            disabled={!isQuickBundleMaterialTarget}
+                                                                            className={`min-h-[36px] rounded-full border px-3 text-sm font-bold transition ${isQuickBundleLinked ? 'border-primary bg-primary text-white' : isQuickBundleMaterialTarget ? 'border-primary/60 bg-primary/10 text-primary' : 'border-border bg-background text-text-secondary opacity-50'} disabled:cursor-not-allowed`}
+                                                                        >
+                                                                            {isQuickBundleLinked ? '✓ добавлен' : '+ материал'}
+                                                                        </button>
+                                                                    ) : null}
+                                                                </div>
                                                                 {(subgroup === EstimateSubgroup.MATERIALS || subgroup === EstimateSubgroup.DELIVERY) ? (
                                                                     useTypeaheadMaterials ? (
                                                                         <div className="relative">
@@ -1620,6 +1826,57 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 currentArea={estimate.area}
                 currentBuildingType={estimate.buildingType}
             />
+            {quickBundleModalOpen && quickBundleWork && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+                    <div className="w-full max-w-md rounded-lg border border-border bg-surface p-4 shadow-2xl">
+                        <div className="mb-4">
+                            <h3 className="text-lg font-bold text-text-primary">Сохранить компонент</h3>
+                            <p className="mt-1 text-sm text-text-secondary">
+                                Будет сохранено: 1 работа и {quickBundleLinkedItems.length} материал(ов).
+                            </p>
+                        </div>
+                        <label className="mb-2 block text-sm font-semibold text-text-secondary">
+                            Название компонента
+                        </label>
+                        <input
+                            type="text"
+                            value={quickBundleName}
+                            onChange={event => setQuickBundleName(event.target.value)}
+                            onKeyDown={event => {
+                                if (event.key === 'Enter') void handleQuickBundleSave();
+                                if (event.key === 'Escape') setQuickBundleModalOpen(false);
+                            }}
+                            className={inputStyles + " min-h-[44px]"}
+                            autoFocus
+                        />
+                        <div className="mt-4 max-h-44 overflow-y-auto rounded-md border border-border bg-background/40 p-2">
+                            {quickBundleDraftItems.map(item => (
+                                <div key={item.id} className="flex items-center justify-between gap-3 py-1 text-sm">
+                                    <span className="min-w-0 truncate text-text-primary">{item.name}</span>
+                                    <span className="shrink-0 text-xs text-text-secondary">{item.subgroup || EstimateSubgroup.WORKS}</span>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setQuickBundleModalOpen(false)}
+                                className="min-h-[44px] rounded-md border border-border px-4 py-2 font-semibold text-text-secondary transition hover:bg-background"
+                            >
+                                Отмена
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => void handleQuickBundleSave()}
+                                disabled={!quickBundleName.trim()}
+                                className="min-h-[44px] rounded-md bg-primary px-4 py-2 font-bold text-white transition hover:bg-primary-hover disabled:bg-gray-600 disabled:text-text-secondary"
+                            >
+                                Сохранить
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <BundlePickerModal
                 isOpen={bundlePickerOpen}
                 onClose={() => setBundlePickerOpen(false)}
