@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Estimate } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
 
@@ -10,8 +10,6 @@ import {
     Legend,
     Line,
     LineChart,
-    Pie,
-    PieChart,
     ResponsiveContainer,
     Tooltip,
     XAxis,
@@ -26,6 +24,8 @@ interface AnalyticsProps {
 }
 
 type PeriodPreset = 'month' | 'quarter' | 'year' | 'all';
+type AnalyticsMode = 'overview' | 'compare' | 'details';
+type DetailFilterPreset = 'all' | 'growth' | 'decrease' | 'added' | 'removed' | 'price' | 'quantity' | 'significant' | 'same';
 
 const STORAGE_KEY = 'kmobn:analytics:filters:v1';
 
@@ -35,6 +35,8 @@ const CHART_COLORS = ['#7C3AED', '#06B6D4', '#22C55E', '#F59E0B', '#EF4444', '#3
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const formatRub = (value: number) => `${Math.round(value).toLocaleString('ru-RU')} ₽`;
+const formatSignedRub = (value: number) => `${value > 0 ? '+' : ''}${formatRub(value)}`;
+const formatSignedPercent = (value: number) => `${value > 0 ? '+' : ''}${value}%`;
 
 const dateKey = (input: string | Date) => {
     const d = input instanceof Date ? input : new Date(input);
@@ -283,13 +285,11 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
     const [selectedEstimate1, setSelectedEstimate1] = useState<string>('');
     const [selectedEstimate2, setSelectedEstimate2] = useState<string>('');
     const [selectedCategory, setSelectedCategory] = useState<string>('');
+    const [activeMode, setActiveMode] = useState<AnalyticsMode>('compare');
     const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('quarter');
-    const [showOnlyDifferent, setShowOnlyDifferent] = useState<boolean>(false);
-    const [showOnlySignificant, setShowOnlySignificant] = useState<boolean>(false);
-    const [showOnlySame, setShowOnlySame] = useState<boolean>(false);
+    const [detailPreset, setDetailPreset] = useState<DetailFilterPreset>('all');
     const [significantThreshold, setSignificantThreshold] = useState<number>(10);
     const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
-    const [activePieIndex, setActivePieIndex] = useState<number | null>(null);
 
     const [categoryTableQuery, setCategoryTableQuery] = useState('');
     const [itemQuery, setItemQuery] = useState('');
@@ -305,10 +305,27 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
             if (typeof saved.selectedEstimate1 === 'string') setSelectedEstimate1(saved.selectedEstimate1);
             if (typeof saved.selectedEstimate2 === 'string') setSelectedEstimate2(saved.selectedEstimate2);
             if (typeof saved.selectedCategory === 'string') setSelectedCategory(saved.selectedCategory);
+            if (saved.activeMode === 'overview' || saved.activeMode === 'compare' || saved.activeMode === 'details') setActiveMode(saved.activeMode);
             if (saved.periodPreset === 'month' || saved.periodPreset === 'quarter' || saved.periodPreset === 'year' || saved.periodPreset === 'all') setPeriodPreset(saved.periodPreset);
-            if (typeof saved.showOnlyDifferent === 'boolean') setShowOnlyDifferent(saved.showOnlyDifferent);
-            if (typeof saved.showOnlySignificant === 'boolean') setShowOnlySignificant(saved.showOnlySignificant);
-            if (typeof saved.showOnlySame === 'boolean') setShowOnlySame(saved.showOnlySame);
+            if (
+                saved.detailPreset === 'all' ||
+                saved.detailPreset === 'growth' ||
+                saved.detailPreset === 'decrease' ||
+                saved.detailPreset === 'added' ||
+                saved.detailPreset === 'removed' ||
+                saved.detailPreset === 'price' ||
+                saved.detailPreset === 'quantity' ||
+                saved.detailPreset === 'significant' ||
+                saved.detailPreset === 'same'
+            ) {
+                setDetailPreset(saved.detailPreset);
+            } else if (saved.showOnlySignificant === true) {
+                setDetailPreset('significant');
+            } else if (saved.showOnlyDifferent === true) {
+                setDetailPreset('growth');
+            } else if (saved.showOnlySame === true) {
+                setDetailPreset('same');
+            }
             if (typeof saved.significantThreshold === 'number') setSignificantThreshold(saved.significantThreshold);
         } catch {
             // ignore
@@ -323,17 +340,16 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                 selectedEstimate1,
                 selectedEstimate2,
                 selectedCategory,
+                activeMode,
                 periodPreset,
-                showOnlyDifferent,
-                showOnlySignificant,
-                showOnlySame,
+                detailPreset,
                 significantThreshold,
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         } catch {
             // ignore
         }
-    }, [periodPreset, selectedCategory, selectedEstimate1, selectedEstimate2, showOnlyDifferent, showOnlySignificant, showOnlySame, significantThreshold]);
+    }, [activeMode, detailPreset, periodPreset, selectedCategory, selectedEstimate1, selectedEstimate2, significantThreshold]);
 
     // Берем только актуальные версии смет
     const activeEstimates = useMemo(() => filterToLatestEstimateVersions(estimates), [estimates]);
@@ -394,11 +410,14 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
     }, [categoryCosts]);
 
     const totalEstimates = estimatesInPeriod.length;
+    const totalEstimateValue = useMemo(() => {
+        return estimatesInPeriod.reduce((s, e) => s + (e.total || 0), 0);
+    }, [estimatesInPeriod]);
+
     const averageEstimate = useMemo(() => {
         if (!totalEstimates) return 0;
-        const sum = estimatesInPeriod.reduce((s, e) => s + (e.total || 0), 0);
-        return sum / totalEstimates;
-    }, [estimatesInPeriod, totalEstimates]);
+        return totalEstimateValue / totalEstimates;
+    }, [totalEstimateValue, totalEstimates]);
 
     // Маржинальность: работы / (работы + материалы) × 100
     const marginData = useMemo(() => {
@@ -441,18 +460,6 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
     const averageCostPerSqm = useMemo(() => {
         if (!costPerSqmData.length) return 0;
         return Math.round(costPerSqmData.reduce((s, d) => s + d.costPerSqm, 0) / costPerSqmData.length);
-    }, [costPerSqmData]);
-
-    const costByBuildingType = useMemo(() => {
-        const byType: Record<string, { sum: number; count: number }> = {};
-        costPerSqmData.forEach(d => {
-            if (!byType[d.buildingType]) byType[d.buildingType] = { sum: 0, count: 0 };
-            byType[d.buildingType].sum += d.costPerSqm;
-            byType[d.buildingType].count++;
-        });
-        return Object.entries(byType)
-            .map(([type, v]) => ({ type, avg: Math.round(v.sum / v.count), count: v.count }))
-            .sort((a, b) => b.avg - a.avg);
     }, [costPerSqmData]);
 
     const periodDynamics = useMemo(() => {
@@ -610,7 +617,13 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         return periodPreset === 'month' ? 'последний месяц' : periodPreset === 'quarter' ? 'последний квартал' : 'последний год';
     }, [periodPreset]);
 
-    const categoryPieData = categoryCosts;
+    const overviewCategoryBars = useMemo(() => {
+        const total = categoryCosts.reduce((s, c) => s + c.value, 0) || 1;
+        return categoryCosts.slice(0, 6).map(c => ({
+            ...c,
+            share: Math.round((c.value / total) * 100),
+        }));
+    }, [categoryCosts]);
 
     const stackedCategoryMeta = useMemo(() => {
         const limit = 6;
@@ -701,6 +714,158 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         });
     }, [categorySeriesByDay, categorySort.dir, categorySort.key, categoryTableQuery, detailedComparison, selectedCategory, trendDays]);
 
+    const comparisonAnalytics = useMemo(() => {
+        if (!detailedComparison?.est1 || !detailedComparison?.est2) return null;
+
+        const sourceCategories = selectedCategory
+            ? detailedComparison.categoriesComparison.filter(c => c.category === selectedCategory)
+            : detailedComparison.categoriesComparison;
+
+        const total1 = selectedCategory
+            ? sourceCategories.reduce((s, c) => s + (c.v1 || 0), 0)
+            : Math.round(detailedComparison.est1.total || 0);
+        const total2 = selectedCategory
+            ? sourceCategories.reduce((s, c) => s + (c.v2 || 0), 0)
+            : Math.round(detailedComparison.est2.total || 0);
+        const diff = total2 - total1;
+        const diffPct = total1 === 0 ? (total2 === 0 ? 0 : 100) : Math.round((diff / total1) * 100);
+
+        const categoryDrivers = sourceCategories
+            .filter(c => c.diff !== 0)
+            .slice()
+            .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+        const totalAbsCategoryDiff = categoryDrivers.reduce((s, c) => s + Math.abs(c.diff), 0) || 1;
+
+        const topCategoryDrivers = categoryDrivers.slice(0, 6).map(c => ({
+            ...c,
+            share: Math.round((Math.abs(c.diff) / totalAbsCategoryDiff) * 100),
+        }));
+
+        const waterfallDrivers = categoryDrivers.slice(0, 5);
+        const restDiff = categoryDrivers.slice(5).reduce((s, c) => s + c.diff, 0);
+        const waterfallSteps = restDiff === 0 ? waterfallDrivers : [...waterfallDrivers, {
+            category: 'Прочее',
+            v1: 0,
+            v2: 0,
+            diff: restDiff,
+            diffPct: 0,
+        }];
+
+        let running = total1;
+        const waterfallData: Array<{ name: string; base: number; value: number; signed: number; kind: 'total' | 'up' | 'down' }> = [
+            { name: 'Смета 1', base: 0, value: Math.max(0, total1), signed: total1, kind: 'total' },
+        ];
+        waterfallSteps.forEach(step => {
+            const signed = step.diff || 0;
+            if (signed >= 0) {
+                waterfallData.push({ name: step.category, base: Math.max(0, running), value: signed, signed, kind: 'up' });
+                running += signed;
+            } else {
+                running += signed;
+                waterfallData.push({ name: step.category, base: Math.max(0, running), value: Math.abs(signed), signed, kind: 'down' });
+            }
+        });
+        waterfallData.push({ name: 'Смета 2', base: 0, value: Math.max(0, total2), signed: total2, kind: 'total' });
+
+        const itemRows = detailedComparison.itemsComparison.filter(it => !selectedCategory || (it.category || 'ОБЩАЯ') === selectedCategory);
+        const itemStats = itemRows.reduce(
+            (acc, it) => {
+                const has1 = (it.total1 || 0) > 0;
+                const has2 = (it.total2 || 0) > 0;
+                if (!has1 && has2) acc.added += 1;
+                if (has1 && !has2) acc.removed += 1;
+                if ((it.diff || 0) !== 0) acc.changed += 1;
+                else acc.same += 1;
+                if (typeof it.price1 === 'number' && typeof it.price2 === 'number' && it.price1 !== it.price2) acc.priceChanged += 1;
+                if (typeof it.qty1 === 'number' && typeof it.qty2 === 'number' && it.qty1 !== it.qty2) acc.qtyChanged += 1;
+                return acc;
+            },
+            { added: 0, removed: 0, changed: 0, same: 0, priceChanged: 0, qtyChanged: 0 }
+        );
+
+        const topItemDrivers = itemRows
+            .filter(it => (it.diff || 0) !== 0)
+            .slice()
+            .sort((a, b) => Math.abs(b.diff || 0) - Math.abs(a.diff || 0))
+            .slice(0, 8);
+
+        const divergingData = categoryDrivers.slice(0, 8).map(c => ({
+            category: c.category,
+            diff: c.diff,
+            diffPct: c.diffPct,
+        }));
+
+        return {
+            total1,
+            total2,
+            diff,
+            diffPct,
+            topCategoryDrivers,
+            topItemDrivers,
+            itemStats,
+            waterfallData,
+            divergingData,
+            categoryScheme: sourceCategories.slice().sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff)),
+        };
+    }, [detailedComparison, selectedCategory]);
+
+    const detailFilterButtons: Array<{ key: DetailFilterPreset; label: string }> = [
+        { key: 'all', label: 'Все' },
+        { key: 'growth', label: 'Рост' },
+        { key: 'decrease', label: 'Снижение' },
+        { key: 'added', label: 'Новые' },
+        { key: 'removed', label: 'Удалённые' },
+        { key: 'price', label: 'Цена' },
+        { key: 'quantity', label: 'Объём' },
+        { key: 'significant', label: 'Значимые' },
+        { key: 'same', label: 'Без изменений' },
+    ];
+
+    const matchesDetailPreset = useCallback((it: any, preset: DetailFilterPreset) => {
+        const total1 = it.total1 || 0;
+        const total2 = it.total2 || 0;
+        const diff = it.diff || 0;
+        if (preset === 'all') return true;
+        if (preset === 'growth') return diff > 0;
+        if (preset === 'decrease') return diff < 0;
+        if (preset === 'added') return total1 === 0 && total2 > 0;
+        if (preset === 'removed') return total1 > 0 && total2 === 0;
+        if (preset === 'price') return typeof it.price1 === 'number' && typeof it.price2 === 'number' && it.price1 !== it.price2;
+        if (preset === 'quantity') return typeof it.qty1 === 'number' && typeof it.qty2 === 'number' && it.qty1 !== it.qty2;
+        if (preset === 'significant') return Math.abs(it.diffPct || 0) >= significantThreshold;
+        if (preset === 'same') return diff === 0 && total1 > 0 && total2 > 0;
+        return true;
+    }, [significantThreshold]);
+
+    const detailSummary = useMemo(() => {
+        if (!detailedComparison?.est1 || !detailedComparison?.est2) return null;
+        const baseRows = detailedComparison.itemsComparison.filter(it => !selectedCategory || (it.category || 'ОБЩАЯ') === selectedCategory);
+        const q = itemQuery.trim().toLowerCase();
+        const visibleRows = baseRows.filter(it => {
+            if (!matchesDetailPreset(it, detailPreset)) return false;
+            if (q && !`${it.name} ${it.unit || ''} ${it.category || ''}`.toLowerCase().includes(q)) return false;
+            return true;
+        });
+        const sum1 = visibleRows.reduce((s, it) => s + (it.total1 || 0), 0);
+        const sum2 = visibleRows.reduce((s, it) => s + (it.total2 || 0), 0);
+        const diff = sum2 - sum1;
+        const totalAbsDiff = visibleRows.reduce((s, it) => s + Math.abs(it.diff || 0), 0);
+        const added = visibleRows.filter(it => (it.total1 || 0) === 0 && (it.total2 || 0) > 0).length;
+        const removed = visibleRows.filter(it => (it.total1 || 0) > 0 && (it.total2 || 0) === 0).length;
+        const priceChanged = visibleRows.filter(it => typeof it.price1 === 'number' && typeof it.price2 === 'number' && it.price1 !== it.price2).length;
+        const qtyChanged = visibleRows.filter(it => typeof it.qty1 === 'number' && typeof it.qty2 === 'number' && it.qty1 !== it.qty2).length;
+        return {
+            total: baseRows.length,
+            visible: visibleRows.length,
+            diff,
+            totalAbsDiff,
+            added,
+            removed,
+            priceChanged,
+            qtyChanged,
+        };
+    }, [detailPreset, detailedComparison, itemQuery, matchesDetailPreset, selectedCategory]);
+
     const allCategoryKeys = useMemo(() => {
         if (!detailedComparison) return [] as string[];
         return detailedComparison.categoriesComparison.map(c => c.category);
@@ -773,6 +938,12 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         { key: 'all', label: 'Всё' },
     ];
 
+    const modeButtons: Array<{ key: AnalyticsMode; label: string; description: string }> = [
+        { key: 'overview', label: 'Обзор', description: 'KPI и тренды' },
+        { key: 'compare', label: 'Сравнение', description: 'две сметы' },
+        { key: 'details', label: 'Детализация', description: 'таблицы и экспорт' },
+    ];
+
     const itemsRowSort = (rows: any[]) => {
         const dir = itemSort.dir === 'asc' ? 1 : -1;
         const key = itemSort.key;
@@ -814,6 +985,26 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                 </div>
             </div>
 
+            <div className="bg-surface border border-border rounded-xl p-2 shadow">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {modeButtons.map(mode => (
+                        <button
+                            key={mode.key}
+                            type="button"
+                            onClick={() => setActiveMode(mode.key)}
+                            className={`rounded-lg px-4 py-3 text-left transition border ${
+                                activeMode === mode.key
+                                    ? 'bg-background border-primary shadow-inner'
+                                    : 'border-transparent hover:bg-background/60'
+                            }`}
+                        >
+                            <div className="text-sm font-semibold text-text-primary">{mode.label}</div>
+                            <div className="text-xs text-text-secondary mt-0.5">{mode.description}</div>
+                        </button>
+                    ))}
+                </div>
+            </div>
+
             {/* Панель фильтров */}
             <div className="bg-surface border border-border rounded-xl p-4 shadow">
                 <div className="flex flex-col lg:flex-row lg:items-end gap-4 lg:gap-6 flex-wrap">
@@ -834,7 +1025,6 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                             <button
                                 onClick={() => {
                                     setSelectedCategory('');
-                                    setActivePieIndex(null);
                                 }}
                                 className="ml-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-border bg-background hover:bg-background/70 transition text-sm"
                                 title="Сбросить фильтр категории"
@@ -858,11 +1048,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                             setSelectedEstimate1('');
                             setSelectedEstimate2('');
                             setSelectedCategory('');
-                            setActivePieIndex(null);
+                            setActiveMode('compare');
                             setPeriodPreset('quarter');
-                            setShowOnlyDifferent(false);
-                            setShowOnlySignificant(false);
-                            setShowOnlySame(false);
+                            setDetailPreset('all');
                             setSignificantThreshold(10);
                             setCategoryTableQuery('');
                             setItemQuery('');
@@ -876,12 +1064,13 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
             </div>
 
             {/* KPI карточки */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+            {activeMode === 'overview' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                 <KpiCard
-                    title="Общее количество смет"
+                    title="Смет за период"
                     value={String(totalEstimates)}
                     subtitle={kpiSubtitlePeriod}
-                    accentClassName="bg-gradient-to-br from-indigo-600/25 to-purple-600/10"
+                    accentClassName="bg-gradient-to-br from-slate-400/10 to-transparent"
                     icon={
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
                             <path d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.5" />
@@ -889,10 +1078,11 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     }
                 />
                 <KpiCard
-                    title="Средняя стоимость сметы"
-                    value={formatRub(averageEstimate)}
+                    title="Оборот по сметам"
+                    value={formatRub(totalEstimateValue)}
                     subtitle={kpiSubtitlePeriod}
-                    accentClassName="bg-gradient-to-br from-cyan-600/25 to-blue-600/10"
+                    badge={{ label: dynamicsLabel, tone: trendTone }}
+                    accentClassName="bg-gradient-to-br from-cyan-500/15 to-transparent"
                     icon={
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
                             <path d="M12 2v20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -901,10 +1091,23 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     }
                 />
                 <KpiCard
+                    title="Средняя смета"
+                    value={formatRub(averageEstimate)}
+                    subtitle={totalEstimates ? `${totalEstimates} расчётов в выборке` : 'нет данных'}
+                    accentClassName="bg-gradient-to-br from-indigo-500/12 to-transparent"
+                    icon={
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
+                            <path d="M5 19V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                            <path d="M5 19h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                            <path d="M8 16l3-4 3 2 4-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                    }
+                />
+                <KpiCard
                     title="Средняя стоимость за м²"
                     value={costPerSqmData.length ? formatRub(averageCostPerSqm) : '—'}
                     subtitle={costPerSqmData.length ? `${costPerSqmData.length} смет с площадью` : 'нет данных'}
-                    accentClassName="bg-gradient-to-br from-rose-600/25 to-pink-600/10"
+                    accentClassName="bg-gradient-to-br from-red-500/12 to-transparent"
                     icon={
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
                             <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" />
@@ -917,92 +1120,306 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     value={marginData.length ? `${averageMargin}%` : '—'}
                     subtitle={marginData.length ? `работы / (работы + материалы)` : 'нет данных'}
                     badge={marginData.length ? { label: marginTone === 'up' ? 'Хорошо' : marginTone === 'flat' ? 'Норма' : 'Низкая', tone: marginTone } : undefined}
-                    accentClassName="bg-gradient-to-br from-amber-600/25 to-orange-600/10"
+                    accentClassName="bg-gradient-to-br from-emerald-500/12 to-transparent"
                     icon={
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
                             <path d="M12 3l3 6 6 .5-4.5 4 1.5 6-6-3.5-6 3.5 1.5-6L3 9.5 9 9l3-6Z" stroke="currentColor" strokeWidth="1.5" />
-                        </svg>
-                    }
-                />
-                <KpiCard
-                    title="Самая дорогая категория"
-                    value={mostExpensiveCategory}
-                    subtitle={kpiSubtitlePeriod}
-                    accentClassName="bg-gradient-to-br from-amber-600/25 to-orange-600/10"
-                    icon={
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
-                            <path d="M12 3l3 6 6 .5-4.5 4 1.5 6-6-3.5-6 3.5 1.5-6L3 9.5 9 9l3-6Z" stroke="currentColor" strokeWidth="1.5" />
-                        </svg>
-                    }
-                />
-                <KpiCard
-                    title="Динамика"
-                    value={selectedCategory ? 'Категория' : 'Итого'}
-                    subtitle={periodDynamics.label}
-                    badge={{ label: dynamicsLabel, tone: trendTone }}
-                    accentClassName="bg-gradient-to-br from-emerald-600/25 to-teal-600/10"
-                    icon={
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
-                            <path d="M4 16l6-6 4 4 6-8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                            <path d="M20 8v6h-6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                         </svg>
                     }
                 />
             </div>
+            )}
+
+            {activeMode === 'compare' && (
+                <div className="space-y-6">
+                    {comparisonAnalytics && detailedComparison?.est1 && detailedComparison?.est2 ? (
+                        <>
+                            <div className="bg-surface border border-border rounded-xl p-5 shadow">
+                                <div className="grid grid-cols-1 xl:grid-cols-[1fr_auto_1fr] gap-4 xl:items-stretch">
+                                    <div className="rounded-lg border border-border bg-background/40 p-4">
+                                        <div className="text-xs uppercase tracking-wide text-text-secondary">База сравнения</div>
+                                        <div className="mt-2 text-lg font-semibold text-text-primary truncate">{detailedComparison.est1.estimateNumber}</div>
+                                        <div className="mt-1 text-sm text-text-secondary truncate">{detailedComparison.est1.client}</div>
+                                        <div className="mt-4 text-2xl font-bold tabular-nums text-text-primary">{formatRub(comparisonAnalytics.total1)}</div>
+                                        <div className="mt-1 text-xs text-text-secondary">{new Date(detailedComparison.est1.date).toLocaleDateString('ru-RU')}</div>
+                                    </div>
+
+                                    <div className="rounded-lg border border-border bg-background/60 p-5 flex flex-col justify-center text-center min-w-[240px]">
+                                        <div className="text-xs uppercase tracking-wide text-text-secondary">Итоговое отклонение</div>
+                                        <div className={`mt-3 text-3xl sm:text-4xl font-bold tabular-nums ${
+                                            comparisonAnalytics.diff > 0
+                                                ? 'text-red-200'
+                                                : comparisonAnalytics.diff < 0
+                                                    ? 'text-emerald-200'
+                                                    : 'text-text-primary'
+                                        }`}>
+                                            {formatSignedRub(comparisonAnalytics.diff)}
+                                        </div>
+                                        <div className="mt-2 text-sm text-text-secondary">
+                                            {formatSignedPercent(comparisonAnalytics.diffPct)} к первой смете
+                                        </div>
+                                        <div className="mt-4 flex justify-center gap-2 flex-wrap">
+                                            <span className="rounded-lg border border-red-500/20 bg-red-500/10 px-2.5 py-1 text-xs text-red-100">новых: {comparisonAnalytics.itemStats.added}</span>
+                                            <span className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs text-emerald-100">удалённых: {comparisonAnalytics.itemStats.removed}</span>
+                                            <span className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1 text-xs text-amber-100">цены: {comparisonAnalytics.itemStats.priceChanged}</span>
+                                            <span className="rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-2.5 py-1 text-xs text-cyan-100">объёмы: {comparisonAnalytics.itemStats.qtyChanged}</span>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-lg border border-border bg-background/40 p-4">
+                                        <div className="text-xs uppercase tracking-wide text-text-secondary">Сравниваемая смета</div>
+                                        <div className="mt-2 text-lg font-semibold text-text-primary truncate">{detailedComparison.est2.estimateNumber}</div>
+                                        <div className="mt-1 text-sm text-text-secondary truncate">{detailedComparison.est2.client}</div>
+                                        <div className="mt-4 text-2xl font-bold tabular-nums text-text-primary">{formatRub(comparisonAnalytics.total2)}</div>
+                                        <div className="mt-1 text-xs text-text-secondary">{new Date(detailedComparison.est2.date).toLocaleDateString('ru-RU')}</div>
+                                    </div>
+                                </div>
+
+                                <div className="mt-5 grid grid-cols-1 lg:grid-cols-3 gap-3">
+                                    {comparisonAnalytics.topCategoryDrivers.slice(0, 3).map(driver => (
+                                        <button
+                                            key={driver.category}
+                                            type="button"
+                                            onClick={() => setSelectedCategory(prev => (prev === driver.category ? '' : driver.category))}
+                                            className="rounded-lg border border-border bg-background/30 p-3 text-left hover:border-primary transition"
+                                        >
+                                            <div className="flex items-center justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-semibold text-text-primary truncate">{driver.category}</div>
+                                                    <div className="text-xs text-text-secondary mt-1">доля отклонений: {driver.share}%</div>
+                                                </div>
+                                                <div className={`text-sm font-semibold tabular-nums ${driver.diff > 0 ? 'text-red-200' : 'text-emerald-200'}`}>
+                                                    {formatSignedRub(driver.diff)}
+                                                </div>
+                                            </div>
+                                        </button>
+                                    ))}
+                                    {comparisonAnalytics.topCategoryDrivers.length === 0 && (
+                                        <div className="lg:col-span-3 rounded-lg border border-border bg-background/30 p-4 text-sm text-text-secondary">
+                                            Существенных отличий по категориям не найдено.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                                <div className="bg-surface border border-border rounded-xl p-5 shadow">
+                                    <div className="flex items-start justify-between gap-3 mb-4">
+                                        <div>
+                                            <h2 className="text-lg font-semibold text-text-primary">Из чего сложилась разница</h2>
+                                            <div className="text-xs text-text-secondary mt-1">Waterfall: первая смета, ключевые категории, итог второй сметы.</div>
+                                        </div>
+                                    </div>
+                                    <ResponsiveContainer width="100%" height={320}>
+                                        <BarChart data={comparisonAnalytics.waterfallData} margin={{ top: 8, right: 12, left: 0, bottom: 30 }}>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
+                                            <XAxis dataKey="name" angle={-18} textAnchor="end" interval={0} height={64} tick={{ fontSize: 11 }} />
+                                            <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                                            <Tooltip
+                                                content={({ active, payload, label }) => {
+                                                    if (!active || !payload?.length) return null;
+                                                    const row = payload[0]?.payload as any;
+                                                    return (
+                                                        <div className="rounded-lg border border-border bg-background px-3 py-2 shadow-xl">
+                                                            <div className="text-sm font-semibold text-text-primary">{label}</div>
+                                                            <div className={`text-sm tabular-nums ${row.kind === 'down' ? 'text-emerald-200' : row.kind === 'up' ? 'text-red-200' : 'text-text-primary'}`}>
+                                                                {row.kind === 'total' ? formatRub(row.signed) : formatSignedRub(row.signed)}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }}
+                                            />
+                                            <Bar dataKey="base" stackId="waterfall" fill="transparent" isAnimationActive={false} />
+                                            <Bar dataKey="value" stackId="waterfall" radius={[8, 8, 0, 0]} isAnimationActive animationDuration={700}>
+                                                {comparisonAnalytics.waterfallData.map((entry, index) => (
+                                                    <Cell
+                                                        key={`waterfall-${index}`}
+                                                        fill={entry.kind === 'total' ? '#64748B' : entry.kind === 'up' ? '#EF4444' : '#10B981'}
+                                                    />
+                                                ))}
+                                            </Bar>
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+
+                                <div className="bg-surface border border-border rounded-xl p-5 shadow">
+                                    <div className="flex items-start justify-between gap-3 mb-4">
+                                        <div>
+                                            <h2 className="text-lg font-semibold text-text-primary">Категории роста и снижения</h2>
+                                            <div className="text-xs text-text-secondary mt-1">Расхождение вправо — рост стоимости, влево — снижение.</div>
+                                        </div>
+                                    </div>
+                                    {comparisonAnalytics.divergingData.length > 0 ? (
+                                        <ResponsiveContainer width="100%" height={320}>
+                                            <BarChart data={comparisonAnalytics.divergingData} layout="vertical" margin={{ top: 8, right: 24, left: 18, bottom: 8 }}>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
+                                                <XAxis type="number" tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                                                <YAxis type="category" dataKey="category" width={130} tick={{ fontSize: 11 }} />
+                                                <Tooltip formatter={(value: any) => [formatSignedRub(Number(value || 0)), 'Разница']} />
+                                                <Bar dataKey="diff" radius={[0, 8, 8, 0]} isAnimationActive animationDuration={700}>
+                                                    {comparisonAnalytics.divergingData.map((entry, index) => (
+                                                        <Cell key={`diverging-${index}`} fill={entry.diff >= 0 ? '#EF4444' : '#10B981'} />
+                                                    ))}
+                                                </Bar>
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <div className="h-[320px] flex items-center justify-center rounded-lg border border-border bg-background/30 text-sm text-text-secondary">
+                                            Категории совпадают по стоимости.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="bg-surface border border-border rounded-xl p-5 shadow">
+                                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+                                    <div>
+                                        <h2 className="text-lg font-semibold text-text-primary">Инженерная схема сметы</h2>
+                                        <div className="text-xs text-text-secondary mt-1">Клик по блоку фильтрует сравнение по выбранной категории.</div>
+                                    </div>
+                                    {selectedCategory && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSelectedCategory('')}
+                                            className="px-3 py-2 rounded-lg border border-border bg-background hover:bg-background/70 transition text-sm"
+                                        >
+                                            Сбросить категорию
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+                                    {comparisonAnalytics.categoryScheme.map(category => {
+                                        const isSelected = selectedCategory === category.category;
+                                        return (
+                                            <button
+                                                key={category.category}
+                                                type="button"
+                                                onClick={() => setSelectedCategory(prev => (prev === category.category ? '' : category.category))}
+                                                className={`relative overflow-hidden rounded-lg border p-4 text-left bg-background/35 hover:border-primary transition ${
+                                                    isSelected ? 'border-primary shadow-inner' : 'border-border'
+                                                }`}
+                                            >
+                                                <div className="absolute inset-x-0 top-0 h-1" style={{ background: getCategoryColor(category.category) }} />
+                                                <div className="text-sm font-semibold text-text-primary truncate">{category.category}</div>
+                                                <div className="mt-3 flex items-end justify-between gap-3">
+                                                    <div>
+                                                        <div className="text-xs text-text-secondary">Смета 2</div>
+                                                        <div className="text-lg font-bold tabular-nums text-text-primary">{formatRub(category.v2)}</div>
+                                                    </div>
+                                                    <div className={`text-sm font-semibold tabular-nums ${category.diff > 0 ? 'text-red-200' : category.diff < 0 ? 'text-emerald-200' : 'text-text-secondary'}`}>
+                                                        {formatSignedRub(category.diff)}
+                                                    </div>
+                                                </div>
+                                                <div className="mt-3 h-1.5 rounded-full bg-background border border-border overflow-hidden">
+                                                    <div
+                                                        className={category.diff >= 0 ? 'h-full bg-red-500' : 'h-full bg-emerald-500'}
+                                                        style={{ width: `${clamp(Math.abs(category.diffPct), 4, 100)}%` }}
+                                                    />
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <div className="bg-surface border border-border rounded-xl p-5 shadow">
+                                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
+                                    <div>
+                                        <h2 className="text-lg font-semibold text-text-primary">Позиции, которые двигают итог</h2>
+                                        <div className="text-xs text-text-secondary mt-1">Топ изменений по абсолютному влиянию на сумму.</div>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveMode('details')}
+                                        className="px-4 py-2 rounded-lg border border-border bg-background hover:bg-background/70 transition text-sm"
+                                    >
+                                        Открыть детализацию
+                                    </button>
+                                </div>
+                                {comparisonAnalytics.topItemDrivers.length > 0 ? (
+                                    <div className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                                        {comparisonAnalytics.topItemDrivers.map((item, index) => (
+                                            <div key={`${item.name}-${item.unit}-${index}`} className="grid grid-cols-1 lg:grid-cols-[1fr_130px_130px_130px] gap-2 px-4 py-3 bg-background/25">
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-medium text-text-primary truncate">{item.name}</div>
+                                                    <div className="text-xs text-text-secondary truncate">{item.category || 'ОБЩАЯ'}{item.unit ? ` • ${item.unit}` : ''}</div>
+                                                </div>
+                                                <div className="text-sm text-text-secondary lg:text-right tabular-nums">{formatRub(item.total1 || 0)}</div>
+                                                <div className="text-sm text-text-secondary lg:text-right tabular-nums">{formatRub(item.total2 || 0)}</div>
+                                                <div className={`text-sm font-semibold lg:text-right tabular-nums ${(item.diff || 0) > 0 ? 'text-red-200' : 'text-emerald-200'}`}>
+                                                    {formatSignedRub(item.diff || 0)}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="rounded-lg border border-border bg-background/30 p-4 text-sm text-text-secondary">
+                                        По позициям нет отличий.
+                                    </div>
+                                )}
+                            </div>
+                        </>
+                    ) : (
+                        <EmptyState
+                            title="Выберите две сметы для сравнения"
+                            description="После выбора появятся итоговая разница, ключевые причины отклонений, графики и инженерная схема категорий."
+                        />
+                    )}
+                </div>
+            )}
 
             {/* Графики — grid */}
+            {activeMode !== 'compare' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {activeMode === 'overview' && (
+                <>
                 <div className="bg-surface border border-border rounded-xl p-6 shadow transition hover:shadow-xl">
                     <div className="flex items-center justify-between gap-3 mb-4">
                         <div>
-                            <h2 className="text-xl font-semibold text-text-primary">Распределение по категориям</h2>
-                            <div className="text-xs text-text-secondary mt-1">{kpiSubtitlePeriod}</div>
+                            <h2 className="text-xl font-semibold text-text-primary">Куда уходят деньги</h2>
+                            <div className="text-xs text-text-secondary mt-1">Топ категорий за {kpiSubtitlePeriod}</div>
                         </div>
-                        <div className="text-xs text-text-secondary">Нажмите на сегмент для фильтра</div>
+                        <div className="text-xs text-text-secondary truncate">Лидер: {mostExpensiveCategory}</div>
                     </div>
-                    <ResponsiveContainer width="100%" height={320}>
-                        <PieChart>
-                            <Pie
-                                data={categoryPieData}
-                                cx="50%"
-                                cy="50%"
-                                outerRadius={110}
-                                innerRadius={62}
-                                dataKey="value"
-                                isAnimationActive
-                                animationDuration={650}
-                                activeIndex={activePieIndex ?? undefined}
-                                onMouseEnter={(_, index) => setActivePieIndex(index)}
-                                onMouseLeave={() => setActivePieIndex(null)}
-                                onClick={(data, index) => {
-                                    const name = (data as any)?.name as string | undefined;
-                                    if (!name) return;
-                                    setActivePieIndex(index);
-                                    setSelectedCategory(prev => (prev === name ? '' : name));
-                                }}
-                                labelLine={false}
-                                label={({ name, percent }) => {
-                                    if ((percent ?? 0) < 0.06) return '';
-                                    return `${name} ${(Number(percent) * 100).toFixed(0)}%`;
-                                }}
+                    <div className="space-y-3">
+                        {overviewCategoryBars.map(category => (
+                            <button
+                                key={category.name}
+                                type="button"
+                                onClick={() => setSelectedCategory(prev => (prev === category.name ? '' : category.name))}
+                                className={`w-full rounded-lg border p-3 text-left transition ${
+                                    selectedCategory === category.name
+                                        ? 'border-primary bg-background/70'
+                                        : 'border-border bg-background/30 hover:border-primary'
+                                }`}
                             >
-                                {categoryPieData.map((entry, index) => (
-                                    <Cell
-                                        key={`cell-${index}`}
-                                        fill={getCategoryColor(entry.name)}
-                                        opacity={!selectedCategory || selectedCategory === entry.name ? 1 : 0.25}
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="text-sm font-semibold text-text-primary truncate">{category.name}</div>
+                                        <div className="text-xs text-text-secondary mt-0.5">{category.share}% от выбранного периода</div>
+                                    </div>
+                                    <div className="text-sm font-semibold tabular-nums text-text-primary">{formatRub(category.value)}</div>
+                                </div>
+                                <div className="mt-3 h-2 rounded-full bg-background border border-border overflow-hidden">
+                                    <div
+                                        className="h-full rounded-full"
+                                        style={{ width: `${clamp(category.share, 3, 100)}%`, background: getCategoryColor(category.name) }}
                                     />
-                                ))}
-                            </Pie>
-                            <Tooltip formatter={(value: any) => [formatRub(Number(value || 0)), 'Стоимость']} />
-                        </PieChart>
-                    </ResponsiveContainer>
+                                </div>
+                            </button>
+                        ))}
+                        {!overviewCategoryBars.length && (
+                            <div className="rounded-lg border border-border bg-background/30 p-6 text-sm text-text-secondary">
+                                За выбранный период нет категорий для анализа.
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div className="bg-surface border border-border rounded-xl p-6 shadow transition hover:shadow-xl">
                     <div className="flex items-center justify-between gap-3 mb-4">
                         <div>
-                            <h2 className="text-xl font-semibold text-text-primary">Тренды расходов</h2>
+                            <h2 className="text-xl font-semibold text-text-primary">Финансовый тренд</h2>
                             <div className="text-xs text-text-secondary mt-1">
                                 {selectedCategory ? `Категория: ${selectedCategory}` : 'Все категории'} • {kpiSubtitlePeriod}
                             </div>
@@ -1016,18 +1433,17 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                     <stop offset="100%" stopColor="#7C3AED" />
                                 </linearGradient>
                             </defs>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                            <XAxis dataKey="day" tickFormatter={(v) => formatDateRu(String(v))} />
-                            <YAxis />
+                            <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
+                            <XAxis dataKey="day" tickFormatter={(v) => formatDateRu(String(v))} tick={{ fontSize: 11 }} />
+                            <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={{ fontSize: 11 }} />
                             <Tooltip labelFormatter={(v) => formatDateRu(String(v))} formatter={(value: any) => [formatRub(Number(value || 0)), 'Расходы']} />
-                            <Legend />
                             <Line
                                 type="monotone"
                                 dataKey="total"
                                 name="Сумма"
                                 stroke="url(#trendStroke)"
                                 strokeWidth={3}
-                                dot={false}
+                                dot={{ r: 3 }}
                                 isAnimationActive
                                 animationDuration={650}
                             />
@@ -1035,79 +1451,56 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     </ResponsiveContainer>
                 </div>
 
-                {/* Маржинальность по времени */}
                 {marginData.length > 1 && (
                     <div className="bg-surface border border-border rounded-xl p-6 shadow transition hover:shadow-xl">
                         <div className="flex items-center justify-between gap-3 mb-4">
                             <div>
-                                <h2 className="text-xl font-semibold text-text-primary">Маржинальность по времени</h2>
-                                <div className="text-xs text-text-secondary mt-1">работы / (работы + материалы) × 100%</div>
+                                <h2 className="text-xl font-semibold text-text-primary">Эффективность работ</h2>
+                                <div className="text-xs text-text-secondary mt-1">Маржа по сметам в выбранном периоде</div>
                             </div>
                         </div>
                         <ResponsiveContainer width="100%" height={320}>
                             <LineChart data={marginData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} />
-                                <YAxis domain={[0, 100]} unit="%" />
+                                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
+                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} tick={{ fontSize: 11 }} />
+                                <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
                                 <Tooltip
                                     labelFormatter={(v) => formatDateRu(String(v))}
                                     formatter={(value: any) => [`${value}%`, 'Маржа']}
                                 />
-                                <Line type="monotone" dataKey="margin" name="Маржа %" stroke="#F59E0B" strokeWidth={3} dot={{ r: 4 }} isAnimationActive animationDuration={650} />
+                                <Line type="monotone" dataKey="margin" name="Маржа %" stroke="#F59E0B" strokeWidth={3} dot={{ r: 3 }} isAnimationActive animationDuration={650} />
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
                 )}
 
-                {/* Стоимость за м² по времени */}
                 {costPerSqmData.length > 1 && (
                     <div className="bg-surface border border-border rounded-xl p-6 shadow transition hover:shadow-xl">
                         <div className="flex items-center justify-between gap-3 mb-4">
                             <div>
-                                <h2 className="text-xl font-semibold text-text-primary">Стоимость за м² по времени</h2>
-                                <div className="text-xs text-text-secondary mt-1">средняя: {formatRub(averageCostPerSqm)}/м²</div>
+                                <h2 className="text-xl font-semibold text-text-primary">Стоимость квадратного метра</h2>
+                                <div className="text-xs text-text-secondary mt-1">Средняя: {formatRub(averageCostPerSqm)}/м²</div>
                             </div>
                         </div>
                         <ResponsiveContainer width="100%" height={320}>
                             <LineChart data={costPerSqmData}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} />
-                                <YAxis />
+                                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
+                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} tick={{ fontSize: 11 }} />
+                                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={{ fontSize: 11 }} />
                                 <Tooltip
                                     labelFormatter={(v) => formatDateRu(String(v))}
                                     formatter={(value: any) => [formatRub(Number(value || 0)), 'За м²']}
                                 />
-                                <Line type="monotone" dataKey="costPerSqm" name="₽/м²" stroke="#EF4444" strokeWidth={3} dot={{ r: 4 }} isAnimationActive animationDuration={650} />
+                                <Line type="monotone" dataKey="costPerSqm" name="₽/м²" stroke="#EF4444" strokeWidth={3} dot={{ r: 3 }} isAnimationActive animationDuration={650} />
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
                 )}
 
-                {/* Стоимость за м² по типам строений */}
-                {costByBuildingType.length > 0 && (
-                    <div className="bg-surface border border-border rounded-xl p-6 shadow lg:col-span-2 transition hover:shadow-xl">
-                        <div className="flex items-center justify-between gap-3 mb-4">
-                            <div>
-                                <h2 className="text-xl font-semibold text-text-primary">Стоимость за м² по типам</h2>
-                                <div className="text-xs text-text-secondary mt-1">средняя стоимость квадратного метра</div>
-                            </div>
-                        </div>
-                        <ResponsiveContainer width="100%" height={280}>
-                            <BarChart data={costByBuildingType}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                                <XAxis dataKey="type" />
-                                <YAxis />
-                                <Tooltip formatter={(value: any) => [formatRub(Number(value || 0)), 'За м²']} />
-                                <Bar dataKey="avg" name="₽/м²" radius={[10, 10, 0, 0]} isAnimationActive animationDuration={650}>
-                                    {costByBuildingType.map((_, index) => (
-                                        <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                                    ))}
-                                </Bar>
-                            </BarChart>
-                        </ResponsiveContainer>
-                    </div>
+                </>
                 )}
 
+                {activeMode === 'details' && (
                 <div className="bg-surface border border-border rounded-xl p-6 shadow lg:col-span-2 transition hover:shadow-xl">
                     <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
                         <div>
@@ -1271,32 +1664,13 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                 </table>
                             </div>
 
-                            {/* Контролы детального просмотра */}
-                            <div className="bg-background/30 border border-border rounded-xl p-4">
-                                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-                                    <div className="flex flex-wrap items-center gap-4">
-                                        <label className="flex items-center gap-2 text-text-primary text-sm">
-                                            <input type="checkbox" checked={showOnlyDifferent} onChange={(e) => setShowOnlyDifferent(e.target.checked)} />
-                                            Только отличия
-                                        </label>
-                                        <label className="flex items-center gap-2 text-text-primary text-sm">
-                                            <input type="checkbox" checked={showOnlySignificant} onChange={(e) => setShowOnlySignificant(e.target.checked)} />
-                                            Только значимые
-                                        </label>
-                                        <label className="flex items-center gap-2 text-text-primary text-sm">
-                                            <input type="checkbox" checked={showOnlySame} onChange={(e) => setShowOnlySame(e.target.checked)} />
-                                            Только похожие
-                                        </label>
-                                        <label className="flex items-center gap-2 text-text-primary text-sm">
-                                            <span className="text-text-secondary">Порог</span>
-                                            <input
-                                                type="number"
-                                                value={significantThreshold}
-                                                onChange={(e) => setSignificantThreshold(clamp(Number(e.target.value || 0), 0, 999))}
-                                                className="w-20 p-2 rounded-lg bg-background text-text-primary border border-border"
-                                            />
-                                            %
-                                        </label>
+                            <div className="bg-background/30 border border-border rounded-xl p-4 space-y-4">
+                                <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
+                                    <div className="min-w-0">
+                                        <div className="text-sm font-semibold text-text-primary">Фокус детализации</div>
+                                        <div className="text-xs text-text-secondary mt-1">
+                                            Выберите один аналитический срез: рост, снижение, новые позиции, изменения цены или объёма.
+                                        </div>
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2">
                                         <input
@@ -1309,6 +1683,58 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         <button onClick={collapseAll} className="px-3 py-2 rounded-lg border border-border bg-background hover:bg-background/70 transition text-sm">Свернуть все</button>
                                     </div>
                                 </div>
+
+                                <div className="flex flex-wrap gap-2">
+                                    {detailFilterButtons.map(filter => (
+                                        <button
+                                            key={filter.key}
+                                            type="button"
+                                            onClick={() => setDetailPreset(filter.key)}
+                                            className={`px-3 py-2 rounded-lg border text-sm transition ${
+                                                detailPreset === filter.key
+                                                    ? 'bg-primary text-white border-primary'
+                                                    : 'bg-background border-border text-text-primary hover:border-primary'
+                                            }`}
+                                        >
+                                            {filter.label}
+                                        </button>
+                                    ))}
+                                    <label className="flex items-center gap-2 text-text-primary text-sm ml-0 lg:ml-2">
+                                        <span className="text-text-secondary">Порог</span>
+                                        <input
+                                            type="number"
+                                            value={significantThreshold}
+                                            onChange={(e) => setSignificantThreshold(clamp(Number(e.target.value || 0), 0, 999))}
+                                            className="w-20 p-2 rounded-lg bg-background text-text-primary border border-border"
+                                        />
+                                        %
+                                    </label>
+                                </div>
+
+                                {detailSummary && (
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                        <div className="rounded-lg border border-border bg-background/40 p-3">
+                                            <div className="text-xs text-text-secondary">Показано позиций</div>
+                                            <div className="mt-1 text-lg font-bold text-text-primary tabular-nums">{detailSummary.visible} / {detailSummary.total}</div>
+                                        </div>
+                                        <div className="rounded-lg border border-border bg-background/40 p-3">
+                                            <div className="text-xs text-text-secondary">Итог среза</div>
+                                            <div className={`mt-1 text-lg font-bold tabular-nums ${detailSummary.diff > 0 ? 'text-red-200' : detailSummary.diff < 0 ? 'text-emerald-200' : 'text-text-primary'}`}>
+                                                {formatSignedRub(detailSummary.diff)}
+                                            </div>
+                                        </div>
+                                        <div className="rounded-lg border border-border bg-background/40 p-3">
+                                            <div className="text-xs text-text-secondary">Абсолютное влияние</div>
+                                            <div className="mt-1 text-lg font-bold text-text-primary tabular-nums">{formatRub(detailSummary.totalAbsDiff)}</div>
+                                        </div>
+                                        <div className="rounded-lg border border-border bg-background/40 p-3">
+                                            <div className="text-xs text-text-secondary">Типы изменений</div>
+                                            <div className="mt-1 text-xs text-text-secondary">
+                                                +{detailSummary.added} новых · -{detailSummary.removed} удалённых · {detailSummary.priceChanged} цен · {detailSummary.qtyChanged} объёмов
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Аккордеоны категорий */}
@@ -1321,10 +1747,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         const allItems = detailedComparison.itemsComparison.filter(it => (it.category || 'ОБЩАЯ') === category);
                                         const q = itemQuery.trim().toLowerCase();
                                         let filteredItems = allItems.filter(it => {
-                                            if (showOnlySame && !(typeof it.total1 === 'number' && typeof it.total2 === 'number')) return false;
-                                            if (showOnlyDifferent && (it.diff === 0)) return false;
-                                            if (showOnlySignificant && (Math.abs(it.diffPct || 0) < significantThreshold)) return false;
-                                            if (q && !`${it.name} ${it.unit || ''}`.toLowerCase().includes(q)) return false;
+                                            if (!matchesDetailPreset(it, detailPreset)) return false;
+                                            if (q && !`${it.name} ${it.unit || ''} ${it.category || ''}`.toLowerCase().includes(q)) return false;
                                             return true;
                                         });
                                         filteredItems = itemsRowSort(filteredItems);
@@ -1474,7 +1898,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                         </div>
                     )}
                 </div>
+                )}
             </div>
+            )}
         </div>
     );
 };
