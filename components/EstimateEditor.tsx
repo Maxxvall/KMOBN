@@ -18,6 +18,13 @@ import { generateEstimateNumber } from '../services/estimateNumber';
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import { useOptionalSubscriptionContext } from '../contexts/SubscriptionContext';
+import {
+    ActualFilter,
+    calculateActualSummary,
+    calculateActualItemTotal,
+    copyPlanToActual,
+    shouldShowActualRow,
+} from '../services/estimateActuals';
 
 interface EstimateEditorProps {
     initialEstimate?: Estimate | null;
@@ -87,6 +94,11 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
         hash = hashNumber(hash, item.total || 0);
         hash = hashText(hash, item.category);
         hash = hashText(hash, item.subgroup || EstimateSubgroup.WORKS);
+        hash = hashBoolean(hash, Boolean(item.isActualOnly));
+        hash = hashText(hash, item.actual?.unit || '');
+        hash = hashNumber(hash, item.actual?.quantity ?? 0);
+        hash = hashNumber(hash, item.actual?.price ?? 0);
+        hash = hashText(hash, item.actual?.note || '');
     }
 
     return hash;
@@ -218,6 +230,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [pasteModalOpen, setPasteModalOpen] = useState(false);
     const [pasteTargetCategory, setPasteTargetCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
+    const [showActuals, setShowActuals] = useState(false);
+    const [actualFilter, setActualFilter] = useState<ActualFilter>('all');
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
     const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>(() => {
         if (typeof window !== 'undefined' && window.innerWidth < 640) {
@@ -487,6 +501,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         return { works, materials, delivery };
     }, [estimate.items]);
 
+    const actualSummary = useMemo(() => calculateActualSummary(estimate), [estimate]);
+
     // Update a single field on an item (safe: uses prev state)
     const updateItem = (itemId: string, field: keyof EstimateItem, value: string | number) => {
         setEstimate(prev => {
@@ -523,6 +539,40 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         });
     };
 
+    const updateActualItem = (itemId: string, field: 'unit' | 'quantity' | 'price' | 'note', value: string | number) => {
+        setEstimate(prev => {
+            const newItems = prev.items.map(item => {
+                if (item.id !== itemId) return item;
+                const actual = { ...item.actual };
+                if (field === 'quantity' || field === 'price') {
+                    actual[field] = value === '' ? null : Number(value) || 0;
+                } else {
+                    actual[field] = String(value);
+                }
+                const nextItem: EstimateItem = {
+                    ...item,
+                    actual: {
+                        ...actual,
+                        updatedAt: new Date().toISOString(),
+                    },
+                };
+                const actualTotal = calculateActualItemTotal(nextItem);
+                if (actualTotal !== null) {
+                    nextItem.actual = { ...nextItem.actual, total: actualTotal };
+                }
+                return nextItem;
+            });
+            return { ...prev, items: newItems };
+        });
+    };
+
+    const copyAllPlanToActual = () => {
+        setEstimate(prev => ({
+            ...prev,
+            items: prev.items.map(item => item.isActualOnly ? item : copyPlanToActual(item)),
+        }));
+    };
+
     const addItem = (category: EstimateCategory, subgroup: EstimateSubgroup = EstimateSubgroup.WORKS) => {
         const newItem: EstimateItem = {
             id: `item-new-${Date.now()}`,
@@ -535,6 +585,30 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             subgroup: subgroup,
         };
         setEstimate(prev => ({ ...prev, items: [...prev.items, newItem] }));
+    };
+
+    const addActualOnlyItem = (category: EstimateCategory, subgroup: EstimateSubgroup = EstimateSubgroup.MATERIALS) => {
+        const newItem: EstimateItem = {
+            id: `item-actual-${Date.now()}`,
+            name: '',
+            unit: 'шт',
+            quantity: 0,
+            price: 0,
+            total: 0,
+            category,
+            subgroup,
+            isActualOnly: true,
+            actual: {
+                unit: 'шт',
+                quantity: 1,
+                price: 0,
+                total: 0,
+                updatedAt: new Date().toISOString(),
+            },
+        };
+        setEstimate(prev => ({ ...prev, items: [...prev.items, newItem] }));
+        setShowActuals(true);
+        setActualFilter('all');
     };
 
     const handleMaterialSelect = async (itemId: string, materialName: string) => {
@@ -1285,6 +1359,54 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                 </div>
 
+                <div className="mt-3 flex flex-col gap-3 rounded-lg border border-border bg-background/40 p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                        <button
+                            type="button"
+                            onClick={() => setShowActuals(prev => !prev)}
+                            className={`min-h-[40px] rounded-md border px-3 py-2 text-sm font-semibold transition ${showActuals ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-primary hover:border-primary'}`}
+                            title="Показать фактические количество, цену и отклонения"
+                        >
+                            Факт
+                        </button>
+                        {showActuals && (
+                            <>
+                                <span className="text-text-secondary whitespace-nowrap">План: <span className="font-semibold text-text-primary">{actualSummary.planTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                                <span className="text-text-secondary whitespace-nowrap">Факт: <span className="font-semibold text-text-primary">{actualSummary.actualFilledTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                                <span className="text-text-secondary whitespace-nowrap">Прогноз: <span className="font-semibold text-text-primary">{actualSummary.forecastTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                                <span className={`font-semibold whitespace-nowrap ${actualSummary.diff > 0 ? 'text-red-300' : actualSummary.diff < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>Δ {actualSummary.diff > 0 ? '+' : ''}{actualSummary.diff.toLocaleString('ru-RU')}&nbsp;₽</span>
+                                <span className="text-text-secondary whitespace-nowrap">Заполнено: <span className="font-semibold text-text-primary">{actualSummary.filledItems}/{actualSummary.totalItems}</span></span>
+                            </>
+                        )}
+                    </div>
+                    {showActuals && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            {([
+                                ['all', 'Все'],
+                                ['different', 'Отличия'],
+                                ['missing', 'Без факта'],
+                                ['actualOnly', 'Новые'],
+                            ] as Array<[ActualFilter, string]>).map(([key, label]) => (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setActualFilter(key)}
+                                    className={`min-h-[36px] rounded-md border px-3 text-xs font-semibold transition ${actualFilter === key ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-secondary hover:text-text-primary'}`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                            <button
+                                type="button"
+                                onClick={copyAllPlanToActual}
+                                className="min-h-[36px] rounded-md border border-border bg-background px-3 text-xs font-semibold text-text-primary transition hover:border-primary"
+                            >
+                                Заполнить факт планом
+                            </button>
+                        </div>
+                    )}
+                </div>
+
                 {(quickBundleWork || quickBundleNotice) && (
                     <div className="mt-4 rounded-lg border border-primary/40 bg-primary/10 p-3">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -1362,9 +1484,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                         return (category === EstimateCategory.LOGISTICS) ? [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY] : [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS];
                                     })(category).map((subgroup) => {
                                         const subItems = items.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
+                                        const visibleSubItems = showActuals ? subItems.filter(item => shouldShowActualRow(item, actualFilter)) : subItems;
                                         const subgroupKey = `${category}:${subgroup}`;
                                         const isSubgroupExpanded = Boolean(expandedSubgroups[subgroupKey]);
-                                        const renderedSubItems = isSubgroupExpanded ? subItems : subItems.slice(0, MAX_RENDERED_SUBITEMS);
+                                        const renderedSubItems = isSubgroupExpanded ? visibleSubItems : visibleSubItems.slice(0, MAX_RENDERED_SUBITEMS);
                                         const subTotal = subItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
                                         return (
                                                 <div key={subgroup} className="border border-border rounded-md bg-background/20">
@@ -1382,14 +1505,22 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 <th className="p-2 text-left font-semibold text-sm text-text-secondary">Ед. изм.</th>
                                                                 <th className="p-2 text-right font-semibold text-sm text-text-secondary">Кол-во</th>
                                                                 <th className="p-2 text-right font-semibold text-sm text-text-secondary">Цена</th>
+                                                                {showActuals && (
+                                                                    <>
+                                                                        <th className="p-2 text-left font-semibold text-sm text-text-secondary">Факт ед.</th>
+                                                                        <th className="p-2 text-right font-semibold text-sm text-text-secondary">Факт кол-во</th>
+                                                                        <th className="p-2 text-right font-semibold text-sm text-text-secondary">Факт цена</th>
+                                                                        <th className="p-2 text-right font-semibold text-sm text-text-secondary">Δ</th>
+                                                                    </>
+                                                                )}
                                                                 <th className="p-2 text-right font-semibold text-sm text-text-secondary">Сумма</th>
                                                                 <th className="p-2 w-12"></th>
                                                             </tr>
                                                         </thead>
                                                         <tbody>
-                                                            {subItems.length === 0 && (
+                                                            {visibleSubItems.length === 0 && (
                                                                 <tr>
-                                                                    <td className="p-2 text-sm text-text-secondary" colSpan={8}>Нет позиций</td>
+                                                                    <td className="p-2 text-sm text-text-secondary" colSpan={showActuals ? 12 : 8}>Нет позиций</td>
                                                                 </tr>
                                                             )}
                                                             {renderedSubItems.map((item) => {
@@ -1541,6 +1672,24 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                     </td>
                                                                     <td className="p-1 w-32"><input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', inputStyles + " text-right text-sm")} /></td>
                                                                     <td className="p-1 w-32"><input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', inputStyles + " text-right text-sm")} /></td>
+                                                                    {showActuals && (
+                                                                        <>
+                                                                            <td className="p-1 w-24">
+                                                                                <select value={item.actual?.unit || item.unit} onChange={e => updateActualItem(item.id, 'unit', e.target.value)} className={inputStyles + " text-sm"}>
+                                                                                    <option value="м2">м2</option>
+                                                                                    <option value="м/п">м/п</option>
+                                                                                    <option value="шт">шт</option>
+                                                                                    <option value="уп">уп</option>
+                                                                                    <option value="м3">м3</option>
+                                                                                </select>
+                                                                            </td>
+                                                                            <td className="p-1 w-32"><input type="number" value={item.actual?.quantity ?? ''} onChange={e => updateActualItem(item.id, 'quantity', e.target.value)} className={inputStyles + " text-right text-sm"} /></td>
+                                                                            <td className="p-1 w-32"><input type="number" value={item.actual?.price ?? ''} onChange={e => updateActualItem(item.id, 'price', e.target.value)} className={inputStyles + " text-right text-sm"} /></td>
+                                                                            <td className={`p-1 w-28 text-right font-semibold ${((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? 'text-red-300' : ((calculateActualItemTotal(item) ?? item.total) - item.total) < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>
+                                                                                {(((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? '+' : '')}{((calculateActualItemTotal(item) ?? item.total) - item.total).toLocaleString('ru-RU')} ₽
+                                                                            </td>
+                                                                        </>
+                                                                    )}
                                                                     <td className="p-1 w-32 text-right font-medium text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</td>
                                                                     <td className="p-1 text-center"><button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-400 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center">✖</button></td>
                                                                 </tr>
@@ -1564,7 +1713,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                 </div>
                                                 {/* Mobile card list */}
                                                 <div className="md:hidden space-y-2 p-1.5 sm:p-2">
-                                                    {subItems.length === 0 && (
+                                                    {visibleSubItems.length === 0 && (
                                                         <div className="text-sm text-text-secondary py-2">Нет позиций</div>
                                                     )}
                                                     {renderedSubItems.map((item) => {
@@ -1692,6 +1841,36 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         </select>
                                                                     </div>
                                                                 </div>
+                                                                {showActuals && (
+                                                                    <div className="rounded-md border border-border bg-background/50 p-2">
+                                                                        <div className="mb-2 flex items-center justify-between text-xs">
+                                                                            <span className="font-semibold text-text-secondary">Факт</span>
+                                                                            <span className={`font-semibold ${((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? 'text-red-300' : ((calculateActualItemTotal(item) ?? item.total) - item.total) < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>
+                                                                                Δ {(((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? '+' : '')}{((calculateActualItemTotal(item) ?? item.total) - item.total).toLocaleString('ru-RU')} ₽
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="grid grid-cols-3 gap-2">
+                                                                            <div>
+                                                                                <label className="text-xs text-text-secondary block mb-1">Кол-во</label>
+                                                                                <input type="number" value={item.actual?.quantity ?? ''} onChange={e => updateActualItem(item.id, 'quantity', e.target.value)} className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right" />
+                                                                            </div>
+                                                                            <div>
+                                                                                <label className="text-xs text-text-secondary block mb-1">Цена</label>
+                                                                                <input type="number" value={item.actual?.price ?? ''} onChange={e => updateActualItem(item.id, 'price', e.target.value)} className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right" />
+                                                                            </div>
+                                                                            <div>
+                                                                                <label className="text-xs text-text-secondary block mb-1">Ед.</label>
+                                                                                <select value={item.actual?.unit || item.unit} onChange={e => updateActualItem(item.id, 'unit', e.target.value)} className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm">
+                                                                                    <option value="м2">м2</option>
+                                                                                    <option value="м/п">м/п</option>
+                                                                                    <option value="шт">шт</option>
+                                                                                    <option value="уп">уп</option>
+                                                                                    <option value="м3">м3</option>
+                                                                                </select>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                )}
                                                                 <div className="flex items-center justify-between pt-1">
                                                                     <strong className="text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</strong>
                                                                     <div className="flex items-center gap-2">
@@ -1709,27 +1888,32 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         );
                                                     })}
                                                 </div>
-                                                {subItems.length > MAX_RENDERED_SUBITEMS && (
+                                                {visibleSubItems.length > MAX_RENDERED_SUBITEMS && (
                                                     <div className="px-2 pt-2 text-sm text-text-secondary flex items-center justify-between gap-3">
                                                         <span>
                                                             {isSubgroupExpanded
-                                                                ? `Показаны все ${subItems.length} позиций.`
-                                                                : `Показано ${renderedSubItems.length} из ${subItems.length} позиций.`}
+                                                                ? `Показаны все ${visibleSubItems.length} позиций.`
+                                                                : `Показано ${renderedSubItems.length} из ${visibleSubItems.length} позиций.`}
                                                         </span>
                                                         <button
                                                             type="button"
                                                             onClick={() => toggleSubgroupExpansion(subgroupKey)}
                                                             className="font-semibold text-primary hover:text-primary-hover transition-colors"
                                                         >
-                                                            {isSubgroupExpanded ? 'Свернуть список' : `Показать все ${subItems.length}`}
+                                                            {isSubgroupExpanded ? 'Свернуть список' : `Показать все ${visibleSubItems.length}`}
                                                         </button>
                                                     </div>
                                                 )}
-                                                <div className="p-2 bg-gray-900/30 border-t border-border rounded-b-md flex justify-end">
+                                                <div className="p-2 bg-gray-900/30 border-t border-border rounded-b-md flex flex-wrap justify-end gap-2">
                                                     <button onClick={() => addItem(category, subgroup)} className="min-h-[44px] text-xs sm:text-sm bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-text-primary font-bold py-1 px-3 rounded transition-colors">
                                                         <span className="sm:hidden">+ Добавить</span>
                                                         <span className="hidden sm:inline">+ Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : subgroup === EstimateSubgroup.DELIVERY ? 'позицию (Доставка)' : 'позицию (Материалы)'}</span>
                                                     </button>
+                                                    {showActuals && (
+                                                        <button onClick={() => addActualOnlyItem(category, subgroup)} className="min-h-[44px] text-xs sm:text-sm border border-primary/50 bg-primary/10 hover:bg-primary/20 text-primary font-bold py-1 px-3 rounded transition-colors">
+                                                            + Новая по факту
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         );

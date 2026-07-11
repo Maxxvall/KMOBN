@@ -21,6 +21,17 @@ export interface EstimateItem {
     // Подгруппа внутри раздела: работы или материалы
     subgroup?: EstimateSubgroup;
     note?: string;
+    actual?: EstimateItemActual;
+    isActualOnly?: boolean;
+}
+
+export interface EstimateItemActual {
+    unit?: string;
+    quantity?: number | null;
+    price?: number | null;
+    total?: number;
+    note?: string;
+    updatedAt?: string;
 }
 
 export interface Estimate {

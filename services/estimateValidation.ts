@@ -1,6 +1,7 @@
 import type { Estimate, EstimateItem } from '../types';
+import { isActualComplete } from './estimateActuals';
 
-export type EstimateValidationIssueCode = 'EMPTY_NAME' | 'ZERO_OR_NEGATIVE_QTY' | 'NEGATIVE_PRICE';
+export type EstimateValidationIssueCode = 'EMPTY_NAME' | 'ZERO_OR_NEGATIVE_QTY' | 'NEGATIVE_PRICE' | 'INCOMPLETE_ACTUAL';
 
 export interface EstimateValidationIssue {
     code: EstimateValidationIssueCode;
@@ -36,6 +37,18 @@ export function validateEstimate(estimate: Estimate): EstimateValidationResult {
                 itemId: item.id,
                 message: 'Пустое наименование позиции',
             });
+        }
+
+        if (item.isActualOnly) {
+            if (!isActualComplete(item)) {
+                mark(item.id, 'quantity', {
+                    code: 'INCOMPLETE_ACTUAL',
+                    field: 'quantity',
+                    itemId: item.id,
+                    message: 'Фактическая позиция должна иметь количество и цену',
+                });
+            }
+            continue;
         }
 
         const quantity = Number(item.quantity ?? 0);

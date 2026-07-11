@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Estimate } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
+import { buildActualComparisons, calculateActualSummary } from '../services/estimateActuals';
 
 import {
     Bar,
@@ -24,7 +25,7 @@ interface AnalyticsProps {
 }
 
 type PeriodPreset = 'month' | 'quarter' | 'year' | 'all';
-type AnalyticsMode = 'overview' | 'compare' | 'details';
+type AnalyticsMode = 'overview' | 'compare' | 'details' | 'actual';
 type DetailFilterPreset = 'all' | 'growth' | 'decrease' | 'added' | 'removed' | 'price' | 'quantity' | 'significant' | 'same';
 
 const STORAGE_KEY = 'kmobn:analytics:filters:v1';
@@ -305,7 +306,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
             if (typeof saved.selectedEstimate1 === 'string') setSelectedEstimate1(saved.selectedEstimate1);
             if (typeof saved.selectedEstimate2 === 'string') setSelectedEstimate2(saved.selectedEstimate2);
             if (typeof saved.selectedCategory === 'string') setSelectedCategory(saved.selectedCategory);
-            if (saved.activeMode === 'overview' || saved.activeMode === 'compare' || saved.activeMode === 'details') setActiveMode(saved.activeMode);
+            if (saved.activeMode === 'overview' || saved.activeMode === 'compare' || saved.activeMode === 'details' || saved.activeMode === 'actual') setActiveMode(saved.activeMode);
             if (saved.periodPreset === 'month' || saved.periodPreset === 'quarter' || saved.periodPreset === 'year' || saved.periodPreset === 'all') setPeriodPreset(saved.periodPreset);
             if (
                 saved.detailPreset === 'all' ||
@@ -578,6 +579,44 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
 
         return { est1, est2, categoriesComparison, itemsComparison };
     }, [activeEstimates, selectedEstimate1, selectedEstimate2]);
+
+    const actualComparison = useMemo(() => {
+        const estimate = activeEstimates.find(e => e.id === selectedEstimate1) || null;
+        if (!estimate) return null;
+
+        const rows = buildActualComparisons(estimate)
+            .filter(row => !selectedCategory || row.category === selectedCategory)
+            .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+        const summary = calculateActualSummary({
+            ...estimate,
+            items: selectedCategory ? estimate.items.filter(item => item.category === selectedCategory) : estimate.items,
+        });
+        const categoryMap = new Map<string, { category: string; plan: number; forecast: number; diff: number }>();
+        rows.forEach(row => {
+            const current = categoryMap.get(row.category) ?? { category: row.category, plan: 0, forecast: 0, diff: 0 };
+            current.plan += row.planTotal;
+            current.forecast += row.forecastTotal;
+            current.diff += row.diff;
+            categoryMap.set(row.category, current);
+        });
+        const categories = Array.from(categoryMap.values())
+            .map(row => ({
+                ...row,
+                plan: Math.round(row.plan),
+                forecast: Math.round(row.forecast),
+                diff: Math.round(row.diff),
+                diffPct: row.plan === 0 ? (row.forecast === 0 ? 0 : 100) : Math.round((row.diff / row.plan) * 100),
+            }))
+            .sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+
+        return {
+            estimate,
+            summary,
+            rows,
+            categories,
+            topRows: rows.filter(row => row.isActualOnly || Math.abs(row.diff) > 0.009).slice(0, 20),
+        };
+    }, [activeEstimates, selectedCategory, selectedEstimate1]);
 
     // Тренды расходов по времени (по дате создания) — в выбранном периоде
     const expenseTrends = useMemo(() => {
@@ -944,6 +983,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         { key: 'details', label: 'Детализация', description: 'таблицы и экспорт' },
     ];
 
+    modeButtons.splice(2, 0, { key: 'actual', label: 'План-факт', description: 'одна смета' });
+
     const itemsRowSort = (rows: any[]) => {
         const dir = itemSort.dir === 'asc' ? 1 : -1;
         const key = itemSort.key;
@@ -986,7 +1027,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
             </div>
 
             <div className="bg-surface border border-border rounded-xl p-2 shadow">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                     {modeButtons.map(mode => (
                         <button
                             key={mode.key}
@@ -1128,6 +1169,121 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     }
                 />
             </div>
+            )}
+
+            {activeMode === 'actual' && (
+                <div className="space-y-6">
+                    {actualComparison ? (
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                                <KpiCard title="План" value={formatRub(actualComparison.summary.planTotal)} subtitle={actualComparison.estimate.estimateNumber} accentClassName="bg-gradient-to-br from-slate-400/10 to-transparent" icon={<span className="text-sm font-bold">П</span>} />
+                                <KpiCard title="Факт заполнен" value={formatRub(actualComparison.summary.actualFilledTotal)} subtitle={`${actualComparison.summary.filledItems}/${actualComparison.summary.totalItems} позиций`} accentClassName="bg-gradient-to-br from-cyan-500/15 to-transparent" icon={<span className="text-sm font-bold">Ф</span>} />
+                                <KpiCard title="Прогноз" value={formatRub(actualComparison.summary.forecastTotal)} subtitle="факт + план без факта" accentClassName="bg-gradient-to-br from-indigo-500/12 to-transparent" icon={<span className="text-sm font-bold">Σ</span>} />
+                                <KpiCard
+                                    title="Отклонение"
+                                    value={formatSignedRub(actualComparison.summary.diff)}
+                                    subtitle={`${actualComparison.summary.diffPct > 0 ? '+' : ''}${actualComparison.summary.diffPct}% к плану`}
+                                    badge={{ label: actualComparison.summary.diff > 0 ? 'перерасход' : actualComparison.summary.diff < 0 ? 'экономия' : 'ровно', tone: actualComparison.summary.diff > 0 ? 'up' : actualComparison.summary.diff < 0 ? 'down' : 'flat' }}
+                                    accentClassName="bg-gradient-to-br from-amber-500/12 to-transparent"
+                                    icon={<span className="text-sm font-bold">Δ</span>}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-4">
+                                <div className="bg-surface border border-border rounded-xl p-4 shadow">
+                                    <div className="text-sm font-semibold text-text-primary mb-3">Категории</div>
+                                    <div className="space-y-2">
+                                        {actualComparison.categories.map(category => (
+                                            <button
+                                                key={category.category}
+                                                type="button"
+                                                onClick={() => setSelectedCategory(selectedCategory === category.category ? '' : category.category)}
+                                                className={`w-full rounded-lg border px-3 py-2 text-left transition ${selectedCategory === category.category ? 'border-primary bg-primary/10' : 'border-border bg-background/40 hover:border-primary/50'}`}
+                                            >
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span className="truncate text-sm font-semibold text-text-primary">{category.category}</span>
+                                                    <span className={`text-sm font-semibold ${category.diff > 0 ? 'text-red-300' : category.diff < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>{formatSignedRub(category.diff)}</span>
+                                                </div>
+                                                <div className="mt-1 text-xs text-text-secondary">План {formatRub(category.plan)} · Прогноз {formatRub(category.forecast)} · {category.diffPct > 0 ? '+' : ''}{category.diffPct}%</div>
+                                            </button>
+                                        ))}
+                                        {actualComparison.categories.length === 0 && (
+                                            <div className="text-sm text-text-secondary">Нет данных план-факт.</div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="bg-surface border border-border rounded-xl p-4 shadow">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div>
+                                            <div className="text-sm font-semibold text-text-primary">Позиции с отклонениями</div>
+                                            <div className="text-xs text-text-secondary">{actualComparison.estimate.client} · {actualComparison.estimate.estimateNumber}</div>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const rows = actualComparison.rows.map(row => ({
+                                                        Позиция: row.name,
+                                                        Категория: row.category,
+                                                        'План кол-во': row.planQuantity,
+                                                        'План цена': row.planPrice,
+                                                        'План сумма': row.planTotal,
+                                                        'Факт кол-во': row.actualQuantity ?? '',
+                                                        'Факт цена': row.actualPrice ?? '',
+                                                        'Факт сумма': row.actualTotal ?? '',
+                                                        Прогноз: row.forecastTotal,
+                                                        Отклонение: row.diff,
+                                                        '%': row.diffPct,
+                                                        Новая: row.isActualOnly ? 'да' : '',
+                                                    }));
+                                                    exportToXlsx(rows, 'PlanFact', `plan-fact-${actualComparison.estimate.estimateNumber}-${dateKey(new Date())}.xlsx`);
+                                                }}
+                                                className="rounded-lg border border-border bg-background px-3 py-2 text-sm transition hover:bg-background/70"
+                                            >
+                                                Excel
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-4 overflow-x-auto rounded-xl border border-border">
+                                        <div className="min-w-[960px]">
+                                            <div className="grid grid-cols-[minmax(220px,1fr)_90px_100px_110px_90px_100px_110px_110px_80px] gap-2 bg-background/40 px-3 py-2 text-xs uppercase text-text-secondary">
+                                                <div>Позиция</div>
+                                                <div className="text-right">План кол.</div>
+                                                <div className="text-right">План цена</div>
+                                                <div className="text-right">План</div>
+                                                <div className="text-right">Факт кол.</div>
+                                                <div className="text-right">Факт цена</div>
+                                                <div className="text-right">Факт/прогноз</div>
+                                                <div className="text-right">Δ</div>
+                                                <div className="text-right">%Δ</div>
+                                            </div>
+                                            {(actualComparison.topRows.length ? actualComparison.topRows : actualComparison.rows.slice(0, 20)).map((row, index) => (
+                                                <div key={row.id} className={`grid grid-cols-[minmax(220px,1fr)_90px_100px_110px_90px_100px_110px_110px_80px] gap-2 border-t border-border px-3 py-2 text-sm ${index % 2 === 0 ? 'bg-background/20' : ''}`}>
+                                                    <div className="min-w-0">
+                                                        <div className="truncate text-text-primary" title={row.name}>{row.name}</div>
+                                                        <div className="text-xs text-text-secondary">{row.category}{row.isActualOnly ? ' · новая по факту' : ''}</div>
+                                                    </div>
+                                                    <div className="text-right tabular-nums text-text-primary">{row.planQuantity}</div>
+                                                    <div className="text-right tabular-nums text-text-primary">{row.planPrice}</div>
+                                                    <div className="text-right tabular-nums text-text-primary">{formatRub(row.planTotal)}</div>
+                                                    <div className="text-right tabular-nums text-text-primary">{row.actualQuantity ?? '—'}</div>
+                                                    <div className="text-right tabular-nums text-text-primary">{row.actualPrice ?? '—'}</div>
+                                                    <div className="text-right tabular-nums text-text-primary">{formatRub(row.forecastTotal)}</div>
+                                                    <div className={`text-right tabular-nums font-semibold ${row.diff > 0 ? 'text-red-300' : row.diff < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>{formatSignedRub(row.diff)}</div>
+                                                    <div className="text-right tabular-nums text-text-primary">{row.diffPct > 0 ? '+' : ''}{row.diffPct}%</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <EmptyState title="Выберите смету для план-факт аналитики" description="Используйте поле «Смета 1» выше. После заполнения факта в редакторе здесь появятся отклонения по позициям и категориям." />
+                    )}
+                </div>
             )}
 
             {activeMode === 'compare' && (
@@ -1369,7 +1525,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
             )}
 
             {/* Графики — grid */}
-            {activeMode !== 'compare' && (
+            {(activeMode === 'overview' || activeMode === 'details') && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 {activeMode === 'overview' && (
                 <>
