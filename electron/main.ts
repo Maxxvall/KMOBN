@@ -50,36 +50,45 @@ async function initAutoUpdater() {
     const { autoUpdater: updater } = await import('electron-updater');
     autoUpdater = updater;
     autoUpdater.logger = console;
+    autoUpdater.autoDownload = false;
 
     autoUpdater.on('error', (error) => {
       log('Auto-update error:', error.message || String(error));
+      if (mainWindow) {
+        mainWindow.webContents.send('update-error', error.message || String(error));
+      }
     });
 
     autoUpdater.on('update-available', (info) => {
       log('Update available:', info.version);
       if (mainWindow) {
-        mainWindow.webContents.send('update-available', info);
+        mainWindow.webContents.send('update-available', { version: info.version });
+      }
+    });
+
+    autoUpdater.on('update-not-available', () => {
+      log('Update not available. Current version is latest.');
+      if (mainWindow) {
+        mainWindow.webContents.send('update-not-available');
+      }
+    });
+
+    autoUpdater.on('download-progress', (progress) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('update-download-progress', {
+          percent: progress.percent,
+          bytesPerSecond: progress.bytesPerSecond,
+          transferred: progress.transferred,
+          total: progress.total,
+        });
       }
     });
 
     autoUpdater.on('update-downloaded', (info) => {
       log('Update downloaded:', info.version);
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Обновление доступно',
-        message: 'Новая версия приложения загружена и готова к установке.',
-        buttons: ['Установить сейчас', 'Позже'],
-        defaultId: 0,
-        cancelId: 1,
-      }).then(({ response }) => {
-        if (response === 0) {
-          autoUpdater.quitAndInstall();
-        }
-      });
-    });
-
-    autoUpdater.on('update-not-available', () => {
-      log('Update not available. Current version is latest.');
+      if (mainWindow) {
+        mainWindow.webContents.send('update-downloaded', { version: info.version });
+      }
     });
   } catch (e) {
     log('Auto-updater init error:', e.message);
@@ -142,7 +151,7 @@ function createWindow() {
 
     if (autoUpdater) {
       setTimeout(() => {
-        autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+        autoUpdater.checkForUpdates().catch((e) => {
           log('Check for updates failed:', e.message);
         });
       }, 5000);
@@ -242,10 +251,32 @@ ipcMain.handle('close-window', () => {
 
 ipcMain.handle('check-for-updates', () => {
   if (autoUpdater) {
-    autoUpdater.checkForUpdatesAndNotify().catch((e) => {
+    autoUpdater.checkForUpdates().catch((e) => {
       log('Manual update check failed:', e.message);
     });
   }
+});
+
+ipcMain.handle('download-update', () => {
+  if (autoUpdater) {
+    autoUpdater.downloadUpdate().catch((e) => {
+      log('Download update failed:', e.message);
+    });
+  }
+});
+
+ipcMain.handle('install-update', () => {
+  if (autoUpdater) {
+    autoUpdater.quitAndInstall();
+  }
+});
+
+ipcMain.handle('cancel-update', () => {
+  log('Update cancelled by user');
+});
+
+ipcMain.handle('get-app-version', () => {
+  return app.getVersion();
 });
 
 ipcMain.handle('open-external', (_, url) => {

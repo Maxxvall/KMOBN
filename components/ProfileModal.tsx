@@ -9,6 +9,9 @@ interface ProfileModalProps {
   materials: unknown[];
   works: unknown[];
   bundles: unknown[];
+  updateAvailableVersion: string | null;
+  updateDownloadedVersion: string | null;
+  updateProgress: { percent: number; bytesPerSecond: number; transferred: number; total: number } | null;
 }
 
 interface UserProfile {
@@ -43,6 +46,12 @@ const getTimeSpent = (): number => {
   return total;
 };
 
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} Б`;
+  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} КБ`;
+  return `${(bytes / 1048576).toFixed(1)} МБ`;
+};
+
 const ProfileModal: React.FC<ProfileModalProps> = ({
   isOpen,
   onClose,
@@ -51,6 +60,9 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   materials,
   works,
   bundles,
+  updateAvailableVersion,
+  updateDownloadedVersion,
+  updateProgress,
 }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'stats' | 'settings'>('profile');
   const [profile, setProfile] = useState<UserProfile>({
@@ -72,9 +84,14 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   });
   const [updateStatus, setUpdateStatus] = useState<string>('');
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [appVersion, setAppVersion] = useState<string>('');
 
   useEffect(() => {
     if (!isOpen) return;
+
+    window.electronAPI?.getAppVersion?.().then(v => {
+      if (v) setAppVersion(v);
+    });
 
     const totalEstimates = Array.isArray(estimates) ? estimates.length : 0;
     const lastActivity = new Date().toISOString();
@@ -107,7 +124,6 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
 
   const handleSaveSettings = () => {
     localStorage.setItem('profileSettings', JSON.stringify(settings));
-    // Apply theme
     document.documentElement.classList.toggle('dark', settings.theme === 'dark');
     document.documentElement.classList.toggle('light', settings.theme === 'light');
   };
@@ -333,33 +349,96 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               {window.electronAPI?.isElectron && (
                 <div className="bg-gray-800 rounded-lg p-4 text-center">
                   <p className="text-sm text-text-secondary">Текущая версия</p>
-                  <p className="text-lg font-bold text-text-primary">v1.7.0</p>
+                  <p className="text-lg font-bold text-text-primary">
+                    {appVersion ? `v${appVersion}` : 'Загрузка...'}
+                  </p>
                 </div>
               )}
 
-              {/* Check for Updates */}
+              {/* Update Section */}
               {window.electronAPI?.isElectron && (
-                <div>
-                  <button
-                    onClick={async () => {
-                      setIsCheckingUpdate(true);
-                      setUpdateStatus('');
-                      try {
-                        await window.electronAPI?.checkForUpdates?.();
-                        setUpdateStatus('Проверка завершена. Если обновление доступно, оно будет скачано автоматически.');
-                      } catch {
-                        setUpdateStatus('Ошибка проверки');
-                      }
-                      setIsCheckingUpdate(false);
-                      setTimeout(() => setUpdateStatus(''), 5000);
-                    }}
-                    disabled={isCheckingUpdate}
-                    className="w-full min-h-[44px] px-4 py-2.5 bg-gray-800 border border-border rounded-lg text-text-primary hover:bg-gray-700 transition-colors disabled:opacity-60 active:scale-95"
-                  >
-                    {isCheckingUpdate ? 'Проверяю...' : 'Проверить обновления'}
-                  </button>
-                  {updateStatus && (
-                    <p className="mt-2 text-center text-sm text-emerald-400">{updateStatus}</p>
+                <div className="bg-gray-800 rounded-lg p-4 space-y-3">
+                  {/* Download progress */}
+                  {updateProgress && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-text-secondary">Скачивание обновления...</span>
+                        <span className="text-text-primary font-medium">{Math.round(updateProgress.percent)}%</span>
+                      </div>
+                      <div className="w-full bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                        <div
+                          className="bg-primary h-full rounded-full transition-all duration-300"
+                          style={{ width: `${updateProgress.percent}%` }}
+                        />
+                      </div>
+                      <div className="flex items-center justify-between text-xs text-text-secondary">
+                        <span>{formatBytes(updateProgress.transferred)} / {formatBytes(updateProgress.total)}</span>
+                        <span>{formatBytes(updateProgress.bytesPerSecond)}/с</span>
+                      </div>
+                      <button
+                        onClick={() => window.electronAPI?.cancelUpdate?.()}
+                        className="w-full min-h-[36px] px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-text-secondary hover:bg-gray-600 transition-colors text-sm"
+                      >
+                        Отмена
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Downloaded - ready to install */}
+                  {!updateProgress && updateDownloadedVersion && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-emerald-400 text-center">
+                        Обновление v{updateDownloadedVersion} готово к установке
+                      </p>
+                      <button
+                        onClick={() => window.electronAPI?.installUpdate?.()}
+                        className="w-full min-h-[44px] px-4 py-2.5 bg-emerald-600 text-white rounded-lg font-semibold hover:bg-emerald-700 transition-colors active:scale-95"
+                      >
+                        Перезапустить и установить
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Update available - offer to download */}
+                  {!updateProgress && !updateDownloadedVersion && updateAvailableVersion && (
+                    <div className="space-y-2">
+                      <p className="text-sm text-blue-400 text-center">
+                        Доступна версия v{updateAvailableVersion}
+                      </p>
+                      <button
+                        onClick={() => window.electronAPI?.downloadUpdate?.()}
+                        className="w-full min-h-[44px] px-4 py-2.5 bg-primary text-white rounded-lg font-semibold hover:bg-primary/80 transition-colors active:scale-95"
+                      >
+                        Скачать обновление
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Check button - only when no update activity */}
+                  {!updateProgress && !updateDownloadedVersion && !updateAvailableVersion && (
+                    <div>
+                      <button
+                        onClick={async () => {
+                          setIsCheckingUpdate(true);
+                          setUpdateStatus('');
+                          try {
+                            await window.electronAPI?.checkForUpdates?.();
+                            setUpdateStatus('Проверка завершена');
+                          } catch {
+                            setUpdateStatus('Ошибка проверки');
+                          }
+                          setIsCheckingUpdate(false);
+                          setTimeout(() => setUpdateStatus(''), 5000);
+                        }}
+                        disabled={isCheckingUpdate}
+                        className="w-full min-h-[44px] px-4 py-2.5 bg-gray-700 border border-gray-600 rounded-lg text-text-primary hover:bg-gray-600 transition-colors disabled:opacity-60 active:scale-95"
+                      >
+                        {isCheckingUpdate ? 'Проверяю...' : 'Проверить обновления'}
+                      </button>
+                      {updateStatus && (
+                        <p className="mt-2 text-center text-sm text-emerald-400">{updateStatus}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

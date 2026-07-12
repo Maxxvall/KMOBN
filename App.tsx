@@ -12,6 +12,7 @@ import Login from './components/Login';
 import ProfileModal from './components/ProfileModal';
 import ErrorBoundary from './components/ErrorBoundary';
 import LandingPage from './components/LandingPage.tsx';
+import UpdateBanner from './components/UpdateBanner';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
 import { useOfflineSync } from './hooks/useOfflineSync';
@@ -372,6 +373,9 @@ const App: React.FC = () => {
     const [wikiLoaded, setWikiLoaded] = useState(false);
     const [dataHashes, setDataHashes] = useState<Record<string, string>>({});
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+    const [appUpdateInfo, setAppUpdateInfo] = useState<{ version: string } | null>(null);
+    const [appUpdateDownloaded, setAppUpdateDownloaded] = useState(false);
+    const [appUpdateProgress, setAppUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; transferred: number; total: number } | null>(null);
     const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const autosaveSuppressedRef = useRef(false);
     const didHydrateRef = useRef(false);
@@ -769,6 +773,37 @@ const App: React.FC = () => {
             setShowPasswordRecoveryModal(true);
         }
     }, [recoveryIntent, setShowPasswordRecoveryModal]);
+
+    useEffect(() => {
+        if (!window.electronAPI?.isElectron) return;
+
+        const handleUpdateAvailable = (info: { version: string }) => {
+            setAppUpdateInfo(info);
+            setAppUpdateDownloaded(false);
+        };
+        const handleDownloadProgress = (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
+            setAppUpdateProgress(progress);
+        };
+        const handleUpdateDownloaded = (info: { version: string }) => {
+            setAppUpdateInfo(info);
+            setAppUpdateDownloaded(true);
+            setAppUpdateProgress(null);
+        };
+        const handleUpdateNotAvailable = () => {
+            setAppUpdateInfo(null);
+            setAppUpdateDownloaded(false);
+            setAppUpdateProgress(null);
+        };
+        const handleError = () => {
+            setAppUpdateProgress(null);
+        };
+
+        window.electronAPI.onUpdateAvailable?.(handleUpdateAvailable);
+        window.electronAPI.onUpdateDownloadProgress?.(handleDownloadProgress);
+        window.electronAPI.onUpdateDownloaded?.(handleUpdateDownloaded);
+        window.electronAPI.onUpdateNotAvailable?.(handleUpdateNotAvailable);
+        window.electronAPI.onUpdateError?.(handleError);
+    }, []);
 
     // Track app usage time
     useEffect(() => {
@@ -1960,6 +1995,15 @@ const App: React.FC = () => {
                     Оффлайн-режим — данные сохраняются локально. Синхронизация будет выполнена при восстановлении связи.
                 </div>
             )}
+            {appUpdateInfo && (
+                <UpdateBanner
+                    version={appUpdateInfo.version}
+                    downloaded={appUpdateDownloaded}
+                    onDownload={() => window.electronAPI?.downloadUpdate?.()}
+                    onInstall={() => window.electronAPI?.installUpdate?.()}
+                    onDismiss={() => setAppUpdateInfo(null)}
+                />
+            )}
             <div className="fixed bottom-4 left-4 z-50">
                 <StatusIndicators
                     isOnline={offlineSync.isOnline}
@@ -2120,6 +2164,9 @@ const App: React.FC = () => {
                 materials={materials}
                 works={works}
                 bundles={bundles}
+                updateAvailableVersion={appUpdateInfo?.version ?? null}
+                updateDownloadedVersion={appUpdateDownloaded ? appUpdateInfo?.version ?? null : null}
+                updateProgress={appUpdateProgress}
             />
             {passwordRecoveryModal}
             <SyncToast
