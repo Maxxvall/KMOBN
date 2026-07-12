@@ -16,7 +16,7 @@ export type HousePackage =
 export type RoofShape = 'single-slope' | 'gable' | 'hip' | 'flat' | 'mansard';
 
 export interface HouseAddition {
-    type: 'terrace' | 'veranda' | 'porch' | 'gazebo' | 'balcony' | 'carport' | 'garage';
+    type: 'terrace' | 'veranda' | 'porch' | 'balcony' | 'carport' | 'garage';
     area: number;
 }
 
@@ -103,10 +103,17 @@ const dateOf = (estimate: Estimate): number => {
 };
 
 const isFrameHouse = (estimate: Estimate): boolean => {
-    const text = normalize(`${estimate.buildingType} ${estimate.client}`);
-    if (text.includes('наталья дубровка') && text.includes('дачный дом')) return true;
-    if (['кирпич', 'газобет', 'пеноблок', 'бетонный дом', 'брус', 'бревн'].some(word => text.includes(word))) return false;
-    return text.includes('каркас');
+    const buildingType = normalize(estimate.buildingType);
+    const excluded = ['баня', 'террас', 'пристрой', 'пост охраны', 'крыша', 'изолятор', 'обшив'];
+    if (excluded.some(word => buildingType.includes(word))) return false;
+    if (!buildingType.includes('дом') && !buildingType.includes('коттедж')) return false;
+
+    const sourceText = normalize(`${estimate.buildingType} ${(estimate.items || []).map(item => item.name).join(' ')}`);
+    if (['кирпич', 'газобет', 'пеноблок', 'бетонный дом', 'брус', 'бревн'].some(word => sourceText.includes(word))) return false;
+    if (sourceText.includes('каркас')) return true;
+
+    const frameSignals = ['сва', 'ростверк', 'лаг пола', 'обвязк', 'стропил'];
+    return frameSignals.filter(signal => sourceText.includes(signal)).length >= 2;
 };
 
 export function selectLatestVersions(estimates: Estimate[]): Estimate[] {
@@ -194,7 +201,6 @@ const additionTypesIn = (item: EstimateItem): HouseAddition['type'][] => {
     if (text.includes('террас')) types.push('terrace');
     if (text.includes('веранд')) types.push('veranda');
     if (text.includes('крыльц') || text.includes('входн') && text.includes('групп')) types.push('porch');
-    if (text.includes('бесед')) types.push('gazebo');
     if (text.includes('балкон')) types.push('balcony');
     if (text.includes('навес')) types.push('carport');
     if (text.includes('гараж')) types.push('garage');

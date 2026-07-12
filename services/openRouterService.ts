@@ -829,6 +829,30 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
   throw new Error(`OpenRouter failed after ${maxRetries} retries: ${String(lastError)}`);
 }
 
+export async function explainHouseCalculation(params: {
+  deterministicSummary: string;
+  clientDescription?: string;
+  signal?: AbortSignal;
+}): Promise<string> {
+  const cacheKey = aiCache.generateKey('house-calculation-explanation', params.deterministicSummary, params.clientDescription || '');
+  const data = await callOpenRouterWithRetry(
+    [
+      {
+        role: 'system',
+        content: 'Ты помощник по каркасному домостроению. Отвечай по-русски, кратко и практично. Нельзя менять, пересчитывать или придумывать цены и позиции: денежный расчёт уже выполнен детерминированно по сметам пользователя.',
+      },
+      {
+        role: 'user',
+        content: `Данные детерминированного расчёта:\n${params.deterministicSummary}\n\nПожелания клиента:\n${params.clientDescription || 'не указаны'}\n\nСформируй: 1) краткое объяснение результата, 2) до трёх факторов, которые сильнее всего влияют на цену, 3) до трёх уточняющих вопросов. Не называй новую цену и не добавляй новые работы или материалы.`,
+      },
+    ],
+    { cacheKey, ttlMs: 15 * 60 * 1000, maxTokens: 650, temperature: 0.2, signal: params.signal },
+  );
+  const content = String(data?.choices?.[0]?.message?.content || '').trim();
+  if (!content) throw new Error('Free AI вернул пустое пояснение');
+  return content;
+}
+
 const parseEstimateResponse = (rawText: string, fallbackCategory?: EstimateCategory): { items: any[]; suggestions: string[]; warnings: string[] } => {
   const normalized = normalizeJsonFromLLM(rawText);
   if (!normalized) {

@@ -91,6 +91,27 @@ describe('houseCalculator history selection', () => {
 
         expect(selectEligibleHouseHistory([byFlag, byStatus], NOW)).toEqual([]);
     });
+
+    it('counts generic frame house estimates and fresh frame drafts separately', () => {
+        const approvedGeneric = estimate({
+            id: 'approved-generic',
+            estimateNumber: 'KM-generic',
+            buildingType: 'Дом',
+            items: [item({ name: 'Монтаж силового каркаса стен' })],
+        });
+        const approvedReference = estimate({ id: 'approved-reference', estimateNumber: 'KM-reference' });
+        const freshDraft = estimate({
+            id: 'fresh-draft',
+            estimateNumber: 'KM-draft',
+            status: EstimateStatus.DRAFT,
+            items: [item({ name: 'Монтаж ростверка из пакета досок' }), item({ name: 'Монтаж лаг пола' })],
+        });
+
+        const selected = selectEligibleHouseHistory([approvedGeneric, approvedReference, freshDraft], NOW);
+
+        expect(selected.filter(value => value.status === EstimateStatus.APPROVED)).toHaveLength(2);
+        expect(selected.filter(value => value.status === EstimateStatus.DRAFT)).toHaveLength(1);
+    });
 });
 
 describe('houseCalculator reference and packages', () => {
@@ -199,17 +220,15 @@ describe('houseCalculator financials and failures', () => {
         expect(result.items[0].price).toBe(125);
     });
 
-    it('does not price a gazebo from terrace-only source rows', () => {
-        const source = estimate({
-            items: [item({ name: 'Монтаж террасной доски', unit: 'м2', quantity: 19, price: 900, total: 17100 })],
+    it('accepts a generic house when the estimate itself confirms a frame construction', () => {
+        const genericHouse = estimate({
+            buildingType: 'Дом',
+            items: [
+                item({ name: 'Монтаж ростверка из пакета досок' }),
+                item({ name: 'Монтаж силового каркаса стен' }),
+            ],
         });
 
-        const result = calculateHouseEstimate(input({
-            estimates: [source],
-            additions: [{ type: 'gazebo', area: 10 }],
-        }));
-
-        expect(result.items).toEqual([]);
-        expect(result.warnings.some(value => value.includes('gazebo'))).toBe(true);
+        expect(selectEligibleHouseHistory([genericHouse], NOW)).toHaveLength(1);
     });
 });

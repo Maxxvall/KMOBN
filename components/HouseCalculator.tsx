@@ -7,6 +7,7 @@ import {
     HousePackage,
     RoofShape,
 } from '../services/houseCalculator';
+import { explainHouseCalculation } from '../services/openRouterService';
 
 interface HouseCalculatorProps {
     estimates: Estimate[];
@@ -35,7 +36,6 @@ const packageOptions: { value: HousePackage; label: string; description: string 
 
 const additions: { type: AdditionType; label: string }[] = [
     { type: 'terrace', label: 'Терраса' },
-    { type: 'gazebo', label: 'Беседка' },
     { type: 'porch', label: 'Входная группа' },
 ];
 
@@ -74,11 +74,15 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const [interiorDoors, setInteriorDoors] = useState(3);
     const [roofShape, setRoofShape] = useState<RoofShape>('gable');
     const [selectedPackage, setSelectedPackage] = useState<HousePackage>('warm-shell');
-    const [additionAreas, setAdditionAreas] = useState<Record<AdditionType, number>>({ terrace: 19, veranda: 0, porch: 0, gazebo: 0, balcony: 0, carport: 0, garage: 0 });
+    const [additionAreas, setAdditionAreas] = useState<Record<AdditionType, number>>({ terrace: 19, veranda: 0, porch: 0, balcony: 0, carport: 0, garage: 0 });
     const [rates, setRates] = useState({ overheadPercent: 0, marginPercent: 0, reservePercent: 0, taxPercent: 0, discountPercent: 0 });
     const [result, setResult] = useState<HouseCalculatorResult | null>(null);
     const [error, setError] = useState('');
     const [isCalculating, setIsCalculating] = useState(true);
+    const [clientDescription, setClientDescription] = useState('');
+    const [aiExplanation, setAiExplanation] = useState('');
+    const [aiError, setAiError] = useState('');
+    const [isAiLoading, setIsAiLoading] = useState(false);
 
     const calculationInput = useMemo<HouseCalculatorInput>(() => ({
         estimates,
@@ -99,6 +103,8 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const runCalculation = useCallback(() => {
         setIsCalculating(true);
         setError('');
+        setAiExplanation('');
+        setAiError('');
         try {
             setResult(calculateHouseEstimate(calculationInput));
         } catch (reason) {
@@ -113,6 +119,29 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
 
     const setRate = (key: keyof typeof rates, value: number) => {
         setRates(current => ({ ...current, [key]: Math.min(100, Math.max(0, Number.isFinite(value) ? value : 0)) }));
+    };
+
+    const explainWithAi = async () => {
+        if (!result) return;
+        setIsAiLoading(true);
+        setAiError('');
+        try {
+            const summary = [
+                `Дом: каркасный, ${area} м², ${floors} эт.`,
+                `Окна: ${windows}; входные двери: ${externalDoors}; межкомнатные двери: ${interiorDoors}.`,
+                `Крыша: ${roofOptions.find(option => option.value === roofShape)?.label || roofShape}.`,
+                `Комплектация: ${packageOptions.find(option => option.value === selectedPackage)?.label || selectedPackage}.`,
+                `Итог расчёта: ${money(result.base)}; диапазон: ${money(result.low)}—${money(result.high)}.`,
+                `Источник: ${result.evidence.approvedCount} согласованных, ${result.evidence.draftCount} черновиков; ${result.evidence.sourceReason}`,
+                `Предупреждения: ${result.warnings.join('; ') || 'нет'}.`,
+            ].join('\n');
+            setAiExplanation(await explainHouseCalculation({ deterministicSummary: summary, clientDescription }));
+        } catch (reason) {
+            setAiExplanation('');
+            setAiError(reason instanceof Error ? reason.message : 'Не удалось получить пояснение от Free AI.');
+        } finally {
+            setIsAiLoading(false);
+        }
     };
 
     const createDraft = () => {
@@ -183,7 +212,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             <header className="mb-6 border-b border-border pb-5">
                 <p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-primary">Каркасное домостроение</p>
                 <h1 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">Калькулятор стоимости дома</h1>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-text-secondary">Предварительная оценка по актуальным сметам общей базы: подтверждённые за текущий год и свежие черновики за 90 дней.</p>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-text-secondary">Предварительная оценка только по вашим актуальным сметам: подтверждённые за текущий год и свежие черновики за 90 дней.</p>
             </header>
 
             <div className="grid items-start gap-7 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">
@@ -230,6 +259,12 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                         ))}</div>
                     </fieldset>
 
+                    <fieldset>
+                        <legend className="mb-2 text-lg font-bold">4. Пожелания клиента</legend>
+                        <label className="block text-sm text-text-secondary" htmlFor="house-client-description">Free AI учтёт этот текст только в пояснении и вопросах. Сумму и позиции сметы он не меняет.</label>
+                        <textarea id="house-client-description" value={clientDescription} onChange={event => setClientDescription(event.target.value)} maxLength={1200} rows={4} placeholder="Например: нужен тёплый дом для круглогодичного проживания, важны большие окна и терраса." className={`${inputClass} mt-2 resize-y py-3`} />
+                    </fieldset>
+
                     <details className="border-y border-border py-1">
                         <summary className={`flex min-h-[52px] cursor-pointer items-center font-semibold text-text-primary ${buttonFocus}`}>Финансовые настройки</summary>
                         <div className="grid gap-4 pb-5 pt-2 sm:grid-cols-2 lg:grid-cols-5">
@@ -252,7 +287,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                             {isCalculating ? <div aria-label="Расчёт выполняется" className="mt-4 space-y-3 animate-pulse"><div className="h-9 w-3/4 rounded bg-border" /><div className="h-5 w-full rounded bg-border/70" /></div> : error ? <div role="alert" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-4 text-sm leading-6 text-red-200"><strong className="block text-red-100">Расчёт пока недоступен</strong>{error}</div> : result ? <>
                                 <p className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">{money(result.base)}</p>
                                 <p className="mt-2 text-sm text-text-secondary">Диапазон: <span className="font-semibold text-text-primary">{money(result.low)} — {money(result.high)}</span></p>
-                                <div className="mt-4 flex flex-wrap gap-2 text-xs"><span className={`rounded-full px-2.5 py-1 font-semibold ${result.confidence === 'high' ? 'bg-emerald-500/15 text-emerald-300' : result.confidence === 'medium' ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}`}>Уверенность: {confidence}</span><span className="rounded-full bg-background px-2.5 py-1 text-text-secondary">1 эталон · {result.evidence.eligibleEstimateCount} доступно</span></div>
+                                <div className="mt-4 flex flex-wrap gap-2 text-xs"><span className={`rounded-full px-2.5 py-1 font-semibold ${result.confidence === 'high' ? 'bg-emerald-500/15 text-emerald-300' : result.confidence === 'medium' ? 'bg-amber-500/15 text-amber-300' : 'bg-red-500/15 text-red-300'}`}>Уверенность: {confidence}</span><span className="rounded-full bg-background px-2.5 py-1 text-text-secondary">Согласовано: {result.evidence.approvedCount} · Черновики: {result.evidence.draftCount}</span></div>
                             </> : <p className="mt-4 text-sm leading-6 text-text-secondary">Заполните параметры и нажмите «Рассчитать стоимость».</p>}
                         </div>
 
@@ -272,6 +307,13 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                                 <p className="mt-2 text-sm leading-6 text-text-secondary">{result.evidence.sourceReason}</p>
                                 <p className="mt-2 text-xs text-text-secondary">Согласованных: {result.evidence.approvedCount} · Отправленных: {result.evidence.sentCount} · Черновиков: {result.evidence.draftCount}</p>
                                 {result.warnings.length > 0 && <div className="mt-4 space-y-2">{result.warnings.map((warning, index) => <p key={`${warning}-${index}`} role="status" className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">{warning}</p>)}</div>}
+                            </div>
+                            <div className="p-5 sm:p-6">
+                                <h2 className="font-bold">Пояснение Free AI</h2>
+                                <p className="mt-2 text-sm leading-6 text-text-secondary">ИИ объясняет расчёт и задаёт вопросы, но не меняет итоговую сумму.</p>
+                                <button type="button" onClick={() => void explainWithAi()} disabled={isAiLoading} className={`mt-4 min-h-[44px] w-full rounded-lg border border-primary px-4 font-bold text-primary transition hover:bg-primary hover:text-white disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>{isAiLoading ? 'AI анализирует…' : 'Получить пояснение AI'}</button>
+                                {aiError && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">{aiError}</p>}
+                                {aiExplanation && <p className="mt-3 whitespace-pre-line rounded-lg border border-border bg-background p-3 text-sm leading-6 text-text-primary">{aiExplanation}</p>}
                             </div>
                             <div className="p-5 sm:p-6"><button type="button" onClick={createDraft} disabled={!result.items.length} className={`min-h-[48px] w-full rounded-lg bg-primary px-4 font-bold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40 ${buttonFocus}`}>Создать черновик сметы</button><p className="mt-2 text-center text-xs text-text-secondary">Все позиции откроются для проверки и редактирования.</p></div>
                         </div>}
