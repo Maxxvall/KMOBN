@@ -1,0 +1,215 @@
+import { describe, expect, it } from 'vitest';
+import {
+    calculateHouseEstimate,
+    chooseHouseReference,
+    HouseCalculatorInput,
+    selectEligibleHouseHistory,
+    selectLatestVersions,
+} from './houseCalculator';
+import {
+    Estimate,
+    EstimateCategory,
+    EstimateItem,
+    EstimateStatus,
+    EstimateSubgroup,
+} from '../types';
+
+const NOW = new Date('2026-07-12T12:00:00.000Z');
+
+const item = (overrides: Partial<EstimateItem> = {}): EstimateItem => ({
+    id: 'item-1',
+    name: 'Пиломатериал каркаса',
+    unit: 'шт',
+    quantity: 1,
+    price: 100,
+    total: 100,
+    category: EstimateCategory.WALLS,
+    subgroup: EstimateSubgroup.MATERIALS,
+    ...overrides,
+});
+
+const estimate = (overrides: Partial<Estimate> = {}): Estimate => ({
+    id: 'estimate-1',
+    estimateNumber: 'КМ-1',
+    client: 'Иванов',
+    date: '2026-06-01',
+    updated_at: '2026-06-01T12:00:00.000Z',
+    status: EstimateStatus.APPROVED,
+    version: 1,
+    items: [item()],
+    total: 100,
+    buildingType: 'Каркасный жилой дом',
+    area: 79,
+    ...overrides,
+});
+
+const input = (overrides: Partial<HouseCalculatorInput> = {}): HouseCalculatorInput => ({
+    estimates: [estimate()],
+    area: 79,
+    floors: 1,
+    windows: 8,
+    doors: 4,
+    roofShape: 'gable',
+    additions: [],
+    package: 'warm-shell',
+    rates: {
+        overheadPercent: 0,
+        marginPercent: 0,
+        reservePercent: 0,
+        taxPercent: 0,
+        discountPercent: 0,
+    },
+    now: NOW,
+    ...overrides,
+});
+
+describe('houseCalculator history selection', () => {
+    it('keeps only the latest estimate version', () => {
+        const v1 = estimate({ id: 'v1', version: 1, updated_at: '2026-05-01T00:00:00Z' });
+        const v2 = estimate({ id: 'v2', version: 2, updated_at: '2026-06-01T00:00:00Z' });
+
+        expect(selectLatestVersions([v2, v1])).toEqual([v2]);
+    });
+
+    it('includes approved estimates only from the current year', () => {
+        const current = estimate({ id: 'current', estimateNumber: 'КМ-2026', date: '2026-01-01', updated_at: null });
+        const previous = estimate({ id: 'previous', estimateNumber: 'КМ-2025', date: '2025-12-31', updated_at: null });
+
+        expect(selectEligibleHouseHistory([previous, current], NOW).map(value => value.id)).toEqual(['current']);
+    });
+
+    it('includes drafts from the last 90 days and excludes older drafts', () => {
+        const recent = estimate({ id: 'recent', estimateNumber: 'Ч-1', status: EstimateStatus.DRAFT, date: '2026-04-14', updated_at: null });
+        const old = estimate({ id: 'old', estimateNumber: 'Ч-2', status: EstimateStatus.DRAFT, date: '2026-04-13', updated_at: null });
+
+        expect(selectEligibleHouseHistory([old, recent], NOW).map(value => value.id)).toEqual(['recent']);
+    });
+
+    it('excludes archived estimates', () => {
+        const byFlag = estimate({ id: 'flag', estimateNumber: 'А-1', isArchived: true });
+        const byStatus = estimate({ id: 'status', estimateNumber: 'А-2', status: EstimateStatus.ARCHIVED });
+
+        expect(selectEligibleHouseHistory([byFlag, byStatus], NOW)).toEqual([]);
+    });
+});
+
+describe('houseCalculator reference and packages', () => {
+    it('prefers the explicit approved Наталья_Дубровка 79 м² reference', () => {
+        const closer = estimate({ id: 'closer', estimateNumber: 'КМ-2', area: 80 });
+        const natalia = estimate({
+            id: 'natalia',
+            estimateNumber: 'КМ-3',
+            client: 'Наталья_Дубровка',
+            buildingType: 'Одноэтажный дачный дом',
+            area: 79,
+        });
+
+        expect(chooseHouseReference([closer, natalia], 80)?.id).toBe('natalia');
+        expect(calculateHouseEstimate(input({ estimates: [closer, natalia] })).evidence.referenceMatched).toBe(true);
+    });
+
+    it('preserves source totals when target and source areas are equal', () => {
+        const source = estimate({
+            items: [item({ id: 'a', total: 100 }), item({ id: 'b', quantity: 2, price: 75, total: 150 })],
+            total: 250,
+        });
+
+        const result = calculateHouseEstimate(input({ estimates: [source], area: 79 }));
+
+        expect(result.items.reduce((total, value) => total + value.total, 0)).toBe(250);
+    });
+
+    it('excludes windows and doors from box, but includes them in warm shell', () => {
+        const source = estimate({
+            items: [
+                item({ id: 'wall' }),
+                item({ id: 'window', name: 'Окна ПВХ', category: EstimateCategory.WINDOWS }),
+                item({ id: 'door', name: 'Входная дверь', category: EstimateCategory.WINDOWS }),
+            ],
+        });
+
+        const box = calculateHouseEstimate(input({ estimates: [source], package: 'box' }));
+        const warm = calculateHouseEstimate(input({ estimates: [source], package: 'warm-shell' }));
+
+        expect(box.items.map(value => value.name)).toEqual(['Пиломатериал каркаса']);
+        expect(warm.items.map(value => value.name)).toEqual(['Пиломатериал каркаса', 'Окна ПВХ', 'Входная дверь']);
+    });
+});
+
+describe('houseCalculator financials and failures', () => {
+    it('separates direct costs and applies overhead, margin, reserve, discount, and tax', () => {
+        const source = estimate({
+            items: [
+                item({ id: 'material', total: 100 }),
+                item({ id: 'work', name: 'Монтаж каркаса', quantity: 1, price: 50, total: 50, subgroup: EstimateSubgroup.WORKS }),
+                item({ id: 'delivery', name: 'Доставка', quantity: 1, price: 20, total: 20, category: EstimateCategory.LOGISTICS, subgroup: EstimateSubgroup.DELIVERY }),
+                item({ id: 'equipment', name: 'Аренда крана', quantity: 1, price: 30, total: 30 }),
+            ],
+        });
+
+        const result = calculateHouseEstimate(input({
+            estimates: [source],
+            rates: { overheadPercent: 10, marginPercent: 10, reservePercent: 5, discountPercent: 10, taxPercent: 20 },
+        }));
+
+        expect(result.financials).toEqual({
+            materials: 100,
+            works: 50,
+            logistics: 20,
+            equipment: 30,
+            overhead: 20,
+            margin: 22,
+            reserve: 11,
+            discount: 25.3,
+            tax: 45.54,
+            final: 273.24,
+        });
+        expect(result.base).toBe(273.24);
+    });
+
+    it.each([
+        { area: 0 },
+        { floors: 0 },
+        { windows: -1 },
+        { doors: -1 },
+    ])('rejects invalid dimensions: %o', invalid => {
+        expect(() => calculateHouseEstimate(input(invalid))).toThrow();
+    });
+
+    it('throws when no eligible source estimate exists', () => {
+        expect(() => calculateHouseEstimate(input({ estimates: [] }))).toThrow(/Нет подходящих исторических смет/);
+    });
+
+    it('warns when requested finish and engineering are absent from the source', () => {
+        const result = calculateHouseEstimate(input({ package: 'turnkey-engineering' }));
+
+        expect(result.warnings.some(value => value.includes('черновой отделки'))).toBe(true);
+        expect(result.warnings.some(value => value.includes('инженерных систем'))).toBe(true);
+    });
+
+    it('preserves a manually adjusted approved line total at the reference dimensions', () => {
+        const source = estimate({
+            total: 250,
+            items: [item({ quantity: 2, price: 100, total: 250 })],
+        });
+
+        const result = calculateHouseEstimate(input({ estimates: [source], area: 79 }));
+
+        expect(result.items[0].total).toBe(250);
+        expect(result.items[0].price).toBe(125);
+    });
+
+    it('does not price a gazebo from terrace-only source rows', () => {
+        const source = estimate({
+            items: [item({ name: 'Монтаж террасной доски', unit: 'м2', quantity: 19, price: 900, total: 17100 })],
+        });
+
+        const result = calculateHouseEstimate(input({
+            estimates: [source],
+            additions: [{ type: 'gazebo', area: 10 }],
+        }));
+
+        expect(result.items).toEqual([]);
+        expect(result.warnings.some(value => value.includes('gazebo'))).toBe(true);
+    });
+});

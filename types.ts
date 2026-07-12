@@ -68,6 +68,7 @@ export enum View {
     WORKS,
     BUNDLES,
     SALARY_CALCULATOR,
+    HOUSE_CALCULATOR,
     ANALYTICS,
     SUBSCRIPTIONS,
     WIKI,

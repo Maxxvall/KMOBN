@@ -15,7 +15,7 @@ interface HeaderProps {
 
 const MOBILE_TABS = [
     { view: View.HISTORY, label: 'Сметы', icon: '📋' },
-    { view: View.SALARY_CALCULATOR, label: 'Кальк.', icon: '🧮' },
+    { view: View.HOUSE_CALCULATOR, label: 'Дом', icon: '⌂' },
     { view: View.PRICES, label: 'Цены', icon: '💰' },
     { view: View.WORKS, label: 'Работы', icon: '🔨' },
     { view: 'MORE' as View, label: 'Ещё', icon: '⋯' },
@@ -23,7 +23,8 @@ const MOBILE_TABS = [
 
 const DESKTOP_NAV_ITEMS = [
     { view: View.HISTORY, label: 'Сметы' },
-    { view: View.SALARY_CALCULATOR, label: 'Калькулятор' },
+    { view: View.HOUSE_CALCULATOR, label: 'Расчёт дома' },
+    { view: View.SALARY_CALCULATOR, label: 'Зарплата' },
     { view: View.PRICES, label: 'Цены' },
     { view: View.WORKS, label: 'Работы' },
     { view: View.BUNDLES, label: 'Комплекты' },
@@ -33,6 +34,7 @@ const DESKTOP_NAV_ITEMS = [
 
 const DESKTOP_NAV_ITEMS_ELECTRON = [
     { view: View.HISTORY, label: 'Сметы' },
+    { view: View.HOUSE_CALCULATOR, label: 'Расчёт дома' },
     { view: View.PRICES, label: 'Цены' },
     { view: View.WORKS, label: 'Работы' },
     { view: View.BUNDLES, label: 'Комплекты' },
@@ -40,6 +42,7 @@ const DESKTOP_NAV_ITEMS_ELECTRON = [
 ] as const;
 
 const MORE_TABS = [
+    { view: View.SALARY_CALCULATOR, label: 'Расчёт зарплаты' },
     { view: View.BUNDLES, label: 'Комплекты' },
     { view: View.ANALYTICS, label: 'Аналитика' },
     { view: View.WIKI, label: 'Wiki' },

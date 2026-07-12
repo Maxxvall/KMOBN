@@ -51,6 +51,7 @@ const Prices = lazy(() => import('./components/Prices'));
 const Works = lazy(() => import('./components/Works'));
 const Bundles = lazy(() => import('./components/Bundles'));
 const SalaryCalculator = lazy(() => import('./components/SalaryCalculator'));
+const HouseCalculator = lazy(() => import('./components/HouseCalculator'));
 const Analytics = lazy(() => import('./components/Analytics'));
 const Subscriptions = lazy(() => import('./components/Subscriptions'));
 const Wiki = lazy(() => import('./components/Wiki'));
@@ -960,6 +961,18 @@ const App: React.FC = () => {
                 void loadHistoryData(false);
             }
         }
+        if (view === View.HOUSE_CALCULATOR) {
+            if (
+                !loadedFlags.estimates ||
+                !loadedFlags.materials ||
+                !loadedFlags.works ||
+                historyChanged ||
+                materialsChanged ||
+                worksChanged
+            ) {
+                void Promise.all([loadHistoryData(false), loadMaterialsData(), loadWorksData()]);
+            }
+        }
         if (view === View.PRICES) {
             if (!loadedFlags.materials || materialsChanged) {
                 void loadMaterialsData();
@@ -1141,6 +1154,17 @@ const App: React.FC = () => {
     const handleBackToHistory = useCallback(() => {
         handleNavigationAttempt(View.HISTORY);
     }, [handleNavigationAttempt]);
+
+    const handleCreateHouseEstimate = useCallback((estimate: Estimate) => {
+        setCurrentEstimate(estimate);
+        setEditorValidationResult(null);
+        setEditorDirty(false);
+        setEditorDraft(null);
+        setPendingView(null);
+        setShowSaveOptions(false);
+        setShowUnsavedModal(false);
+        goToView(View.EDITOR);
+    }, [goToView, setCurrentEstimate, setEditorDraft, setEditorDirty, setEditorValidationResult, setPendingView, setShowSaveOptions, setShowUnsavedModal]);
 
     const recalculateEstimatePrices = useCallback((estimate: Estimate): Estimate => {
         const materialsMap = new Map(materials.map(material => [material.name, material.price]));
@@ -1964,6 +1988,14 @@ const App: React.FC = () => {
                         {view === View.SALARY_CALCULATOR && (
                             <SalaryCalculator
                                 estimates={visibleSubscriptionData.estimates}
+                            />
+                        )}
+                        {view === View.HOUSE_CALCULATOR && (
+                            <HouseCalculator
+                                estimates={estimates}
+                                materials={materials}
+                                works={works}
+                                onCreateEstimate={handleCreateHouseEstimate}
                             />
                         )}
                         {view === View.ANALYTICS && (
