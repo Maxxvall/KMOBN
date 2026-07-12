@@ -24,7 +24,7 @@ import { EstimateProvider } from './contexts/EstimateContext';
 import { CatalogProvider } from './contexts/CatalogContext';
 import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import { SyncProvider } from './contexts/SyncContext';
-import { loadEstimates, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, deleteMaterials, loadWorks, saveWorks, addWork, updateWork, deleteWork, deleteWorks, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { loadEstimates, refreshEstimatesFromRemote, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, deleteMaterials, loadWorks, saveWorks, addWork, updateWork, deleteWork, deleteWorks, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
 import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
@@ -896,6 +896,15 @@ const App: React.FC = () => {
             setIsLoading(false);
         }
     }, [estimates, loadedFlags.estimates, loadedFlags.templates, setSync, templates]);
+
+    const refreshHouseEstimates = useCallback(async (): Promise<Estimate[]> => {
+        const loadedEstimates = await refreshEstimatesFromRemote();
+        const { normalized } = normalizeEstimateChains(loadedEstimates);
+        setEstimates(normalized);
+        setLoadedFlags(previous => ({ ...previous, estimates: true }));
+        setDataHashes(previous => ({ ...previous, estimates: hashData(loadedEstimates) }));
+        return normalized;
+    }, []);
 
     const loadMaterialsData = useCallback(async () => {
         if (loadedFlags.materials) return;
@@ -1995,6 +2004,7 @@ const App: React.FC = () => {
                                 estimates={estimates}
                                 materials={materials}
                                 works={works}
+                                onRefreshEstimates={refreshHouseEstimates}
                                 onCreateEstimate={handleCreateHouseEstimate}
                             />
                         )}

@@ -6,6 +6,7 @@ import {
     HouseCalculatorResult,
     HousePackage,
     RoofShape,
+    selectEligibleHouseHistory,
 } from '../services/houseCalculator';
 import { explainHouseCalculation } from '../services/openRouterService';
 
@@ -13,6 +14,7 @@ interface HouseCalculatorProps {
     estimates: Estimate[];
     materials: Material[];
     works: Work[];
+    onRefreshEstimates: () => Promise<Estimate[]>;
     onCreateEstimate: (estimate: Estimate) => void;
 }
 
@@ -62,7 +64,7 @@ const Choice: React.FC<{ active: boolean; label: string; onClick: () => void }> 
     </button>
 );
 
-const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials, works, onCreateEstimate }) => {
+const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials, works, onRefreshEstimates, onCreateEstimate }) => {
     // Catalogs are part of the shared screen contract; prices in this MVP come only from historical estimates.
     void materials;
     void works;
@@ -126,6 +128,15 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         setIsAiLoading(true);
         setAiError('');
         try {
+            const refreshedEstimates = await onRefreshEstimates();
+            const reviewedResult = calculateHouseEstimate({ ...calculationInput, estimates: refreshedEstimates });
+            setResult(reviewedResult);
+            const historicalSummary = selectEligibleHouseHistory(refreshedEstimates)
+                .map(estimate => {
+                    const categories = [...new Set(estimate.items.map(item => item.category))].join(', ');
+                    return `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}; разделы: ${categories || 'не указаны'}.`;
+                })
+                .join('\n') || 'Подходящих смет не найдено.';
             const summary = [
                 `Дом: каркасный, ${area} м², ${floors} эт.`,
                 `Окна: ${windows}; входные двери: ${externalDoors}; межкомнатные двери: ${interiorDoors}.`,
@@ -135,7 +146,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                 `Источник: ${result.evidence.approvedCount} согласованных, ${result.evidence.draftCount} черновиков; ${result.evidence.sourceReason}`,
                 `Предупреждения: ${result.warnings.join('; ') || 'нет'}.`,
             ].join('\n');
-            setAiExplanation(await explainHouseCalculation({ deterministicSummary: summary, clientDescription }));
+            setAiExplanation(await explainHouseCalculation({ deterministicSummary: summary, historicalSummary, clientDescription }));
         } catch (reason) {
             setAiExplanation('');
             setAiError(reason instanceof Error ? reason.message : 'Не удалось получить пояснение от Free AI.');
@@ -261,7 +272,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
 
                     <fieldset>
                         <legend className="mb-2 text-lg font-bold">4. Пожелания клиента</legend>
-                        <label className="block text-sm text-text-secondary" htmlFor="house-client-description">Free AI учтёт этот текст только в пояснении и вопросах. Сумму и позиции сметы он не меняет.</label>
+                        <label className="block text-sm text-text-secondary" htmlFor="house-client-description">Опишите дом и пожелания — AI сверит их с вашими сметами и подготовит итоговый вывод.</label>
                         <textarea id="house-client-description" value={clientDescription} onChange={event => setClientDescription(event.target.value)} maxLength={1200} rows={4} placeholder="Например: нужен тёплый дом для круглогодичного проживания, важны большие окна и терраса." className={`${inputClass} mt-2 resize-y py-3`} />
                     </fieldset>
 
@@ -309,9 +320,9 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                                 {result.warnings.length > 0 && <div className="mt-4 space-y-2">{result.warnings.map((warning, index) => <p key={`${warning}-${index}`} role="status" className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">{warning}</p>)}</div>}
                             </div>
                             <div className="p-5 sm:p-6">
-                                <h2 className="font-bold">Пояснение Free AI</h2>
-                                <p className="mt-2 text-sm leading-6 text-text-secondary">ИИ объясняет расчёт и задаёт вопросы, но не меняет итоговую сумму.</p>
-                                <button type="button" onClick={() => void explainWithAi()} disabled={isAiLoading} className={`mt-4 min-h-[44px] w-full rounded-lg border border-primary px-4 font-bold text-primary transition hover:bg-primary hover:text-white disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>{isAiLoading ? 'AI анализирует…' : 'Получить пояснение AI'}</button>
+                                <h2 className="font-bold">AI-перепроверка</h2>
+                                <p className="mt-2 text-sm leading-6 text-text-secondary">AI повторно сопоставляет параметры и пожелания с вашими актуальными сметами и формирует финальный вывод.</p>
+                                <button type="button" onClick={() => void explainWithAi()} disabled={isAiLoading} className={`mt-4 min-h-[44px] w-full rounded-lg border border-primary px-4 font-bold text-primary transition hover:bg-primary hover:text-white disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>{isAiLoading ? 'AI перепроверяет…' : 'Перепроверить расчёт с AI'}</button>
                                 {aiError && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">{aiError}</p>}
                                 {aiExplanation && <p className="mt-3 whitespace-pre-line rounded-lg border border-border bg-background p-3 text-sm leading-6 text-text-primary">{aiExplanation}</p>}
                             </div>

@@ -831,10 +831,11 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
 
 export async function explainHouseCalculation(params: {
   deterministicSummary: string;
+  historicalSummary: string;
   clientDescription?: string;
   signal?: AbortSignal;
 }): Promise<string> {
-  const cacheKey = aiCache.generateKey('house-calculation-explanation', params.deterministicSummary, params.clientDescription || '');
+  const cacheKey = aiCache.generateKey('house-calculation-review', params.deterministicSummary, params.historicalSummary, params.clientDescription || '');
   const data = await callOpenRouterWithRetry(
     [
       {
@@ -844,6 +845,10 @@ export async function explainHouseCalculation(params: {
       {
         role: 'user',
         content: `Данные детерминированного расчёта:\n${params.deterministicSummary}\n\nПожелания клиента:\n${params.clientDescription || 'не указаны'}\n\nСформируй: 1) краткое объяснение результата, 2) до трёх факторов, которые сильнее всего влияют на цену, 3) до трёх уточняющих вопросов. Не называй новую цену и не добавляй новые работы или материалы.`,
+      },
+      {
+        role: 'user',
+        content: `Выполни финальную перепроверку по истории смет текущего пользователя (без персональных данных):\n${params.historicalSummary}\n\nВерни ровно четыре коротких раздела Markdown:\n1. «Итоговый вывод» — насколько пожелания соответствуют расчёту.\n2. «Предварительный расчёт» — повтори только сумму и диапазон из данных детерминированного расчёта выше.\n3. «Что перепроверено» — какие параметры и исторические сметы были сопоставлены.\n4. «Что уточнить» — до трёх вопросов или рисков.\nНельзя менять, пересчитывать или придумывать цены, диапазоны, позиции, работы или материалы.`,
       },
     ],
     { cacheKey, ttlMs: 15 * 60 * 1000, maxTokens: 650, temperature: 0.2, signal: params.signal },

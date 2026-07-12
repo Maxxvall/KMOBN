@@ -294,6 +294,23 @@ export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
 
 export const loadEstimates = async (options?: LoadTableOptions): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates, options);
 
+/** Fetches the signed-in user's estimates directly from Supabase for an explicit re-check. */
+export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
+  const userId = await getAuthenticatedUserId();
+  if (!isSupabaseConfigured() || !userId) {
+    throw new Error('Нет подключения к базе данных пользователя.');
+  }
+
+  const { data, error } = await fetchEstimates(userId);
+  if (error) {
+    throw new Error(`Не удалось обновить сметы из базы: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  const records = normalizeStableOrder((data ?? []) as Estimate[]);
+  await syncCachedRecords('estimates', getCacheUserId(userId), records);
+  return records;
+};
+
 export const deleteEstimatesByNumber = async (estimateNumber: string | number): Promise<void> => {
   if (!isSupabaseConfigured()) return;
   const client = ensureSupabase();
