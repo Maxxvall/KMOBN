@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     calculateHouseEstimate,
     chooseHouseReference,
+    createAiHouseEstimateResult,
     HouseCalculatorInput,
     selectEligibleHouseHistory,
     selectLatestVersions,
@@ -112,6 +113,17 @@ describe('houseCalculator history selection', () => {
         expect(selected.filter(value => value.status === EstimateStatus.APPROVED)).toHaveLength(2);
         expect(selected.filter(value => value.status === EstimateStatus.DRAFT)).toHaveLength(1);
     });
+
+    it('accepts a generic house without frame keywords because the company builds only frame houses', () => {
+        const genericHouse = estimate({
+            id: 'generic-house',
+            estimateNumber: 'KM-house',
+            buildingType: 'Дом',
+            items: [item({ name: 'Комплект материалов стен' })],
+        });
+
+        expect(selectEligibleHouseHistory([genericHouse], NOW)).toHaveLength(1);
+    });
 });
 
 describe('houseCalculator reference and packages', () => {
@@ -158,6 +170,19 @@ describe('houseCalculator reference and packages', () => {
 });
 
 describe('houseCalculator financials and failures', () => {
+    it('builds an AI fallback result only from priced catalog items and approved sources', () => {
+        const source = estimate({ id: 'approved-source', estimateNumber: 'AI-source' });
+        const result = createAiHouseEstimateResult(
+            input({ estimates: [source] }),
+            [item({ total: 250, price: 250 })],
+            [source],
+        );
+
+        expect(result.base).toBe(250);
+        expect(result.evidence.approvedCount).toBe(1);
+        expect(result.evidence.sourceReason).toContain('AI');
+    });
+
     it('separates direct costs and applies overhead, margin, reserve, discount, and tax', () => {
         const source = estimate({
             items: [

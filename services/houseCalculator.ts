@@ -110,10 +110,9 @@ const isFrameHouse = (estimate: Estimate): boolean => {
 
     const sourceText = normalize(`${estimate.buildingType} ${(estimate.items || []).map(item => item.name).join(' ')}`);
     if (['кирпич', 'газобет', 'пеноблок', 'бетонный дом', 'брус', 'бревн'].some(word => sourceText.includes(word))) return false;
-    if (sourceText.includes('каркас')) return true;
-
-    const frameSignals = ['сва', 'ростверк', 'лаг пола', 'обвязк', 'стропил'];
-    return frameSignals.filter(signal => sourceText.includes(signal)).length >= 2;
+    // Компания работает только с каркасными домами. Поэтому любой объект типа
+    // «дом/коттедж» допустим, пока в самой смете явно не указана другая технология.
+    return true;
 };
 
 export function selectLatestVersions(estimates: Estimate[]): Estimate[] {
@@ -139,6 +138,20 @@ export function selectEligibleHouseHistory(estimates: Estimate[], now = new Date
         if (estimate.status === EstimateStatus.DRAFT) return timestamp >= draftStart && timestamp <= now.getTime();
         return (estimate.status === EstimateStatus.APPROVED || estimate.status === EstimateStatus.SENT)
             && timestamp >= yearStart && timestamp <= now.getTime();
+    });
+}
+
+/** Broader source pool for AI when structured house recognition cannot choose a reference. */
+export function selectHouseHistoryForAi(estimates: Estimate[], now = new Date()): Estimate[] {
+    const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
+    const excluded = ['баня', 'террас', 'пристрой', 'пост охраны', 'крыша', 'изолятор', 'обшив'];
+    return selectLatestVersions(estimates).filter(estimate => {
+        if (estimate.isArchived || estimate.status === EstimateStatus.ARCHIVED || !estimate.items?.length) return false;
+        if (estimate.status !== EstimateStatus.APPROVED && estimate.status !== EstimateStatus.SENT) return false;
+        const timestamp = dateOf(estimate);
+        if (timestamp < yearStart || timestamp > now.getTime()) return false;
+        const buildingType = normalize(estimate.buildingType || '');
+        return !excluded.some(word => buildingType.includes(word));
     });
 }
 
@@ -296,6 +309,50 @@ const financialBreakdown = (items: EstimateItem[], rates: HouseFinancialRates): 
         discount: money(discount), final: money(beforeDiscount - discount + tax),
     };
 };
+
+export function createAiHouseEstimateResult(
+    input: HouseCalculatorInput,
+    items: EstimateItem[],
+    sources: Estimate[],
+    aiWarnings: string[] = [],
+): HouseCalculatorResult {
+    validateRates(input.rates);
+    const source = chooseHouseReference(sources, input.area) || sources[0];
+    if (!source) throw new Error('AI не нашёл согласованных смет текущего года для проверки цен.');
+    const pricedItems = items.filter(item => Number.isFinite(item.total) && item.total > 0);
+    if (!pricedItems.length) throw new Error('AI не смог подобрать позиции с подтверждёнными ценами из базы.');
+
+    const financials = financialBreakdown(pricedItems, input.rates);
+    const sections = [...new Set(pricedItems.map(item => item.category))].map(category => {
+        const sectionItems = pricedItems.filter(item => item.category === category);
+        return { category, total: money(sum(sectionItems)), items: sectionItems };
+    });
+    const approvedCount = sources.filter(item => item.status === EstimateStatus.APPROVED).length;
+    const sentCount = sources.filter(item => item.status === EstimateStatus.SENT).length;
+    const confidence: HouseCalculatorResult['confidence'] = approvedCount >= 2 ? 'medium' : 'low';
+    const spread = confidence === 'medium' ? 0.15 : 0.25;
+
+    return {
+        low: money(financials.final * (1 - spread)),
+        base: financials.final,
+        high: money(financials.final * (1 + spread)),
+        confidence,
+        evidence: {
+            eligibleEstimateCount: sources.length,
+            approvedCount,
+            sentCount,
+            draftCount: 0,
+            referenceMatched: isReference(source),
+            sourceReason: 'AI разобрал пожелания и собрал предварительный расчёт по согласованным сметам и справочникам текущего пользователя.',
+        },
+        sections,
+        items: pricedItems,
+        warnings: ['Расчёт подготовлен AI и требует проверки перед отправкой клиенту.', ...aiWarnings],
+        sourceEstimate: source,
+        rates: { ...input.rates },
+        financials,
+    };
+}
 
 export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalculatorResult {
     if (!(input.area > 0) || !(input.floors >= 1) || input.windows < 0 || input.doors < 0) {

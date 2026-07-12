@@ -2,13 +2,15 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Estimate, EstimateCategory, EstimateItem, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
 import {
     calculateHouseEstimate,
+    createAiHouseEstimateResult,
     HouseCalculatorInput,
     HouseCalculatorResult,
     HousePackage,
     RoofShape,
     selectEligibleHouseHistory,
+    selectHouseHistoryForAi,
 } from '../services/houseCalculator';
-import { explainHouseCalculation } from '../services/openRouterService';
+import { explainHouseCalculation, generateEstimateWithAI } from '../services/openRouterService';
 
 interface HouseCalculatorProps {
     estimates: Estimate[];
@@ -85,6 +87,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const [aiExplanation, setAiExplanation] = useState('');
     const [aiError, setAiError] = useState('');
     const [isAiLoading, setIsAiLoading] = useState(false);
+    const [historyInitialized, setHistoryInitialized] = useState(false);
 
     const calculationInput = useMemo<HouseCalculatorInput>(() => ({
         estimates,
@@ -117,7 +120,75 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         }
     }, [calculationInput]);
 
-    useEffect(() => { runCalculation(); }, [runCalculation]);
+    useEffect(() => {
+        let active = true;
+        const initializeHistory = async () => {
+            setIsCalculating(true);
+            setError('');
+            try {
+                await onRefreshEstimates();
+                if (!active) return;
+                setHistoryInitialized(true);
+            } catch (reason) {
+                if (!active) return;
+                setResult(null);
+                setError(reason instanceof Error ? reason.message : 'Не удалось загрузить сметы пользователя.');
+            } finally {
+                if (active) {
+                    setIsCalculating(false);
+                }
+            }
+        };
+        void initializeHistory();
+        return () => { active = false; };
+    }, [onRefreshEstimates]);
+
+    useEffect(() => {
+        if (historyInitialized) runCalculation();
+    }, [historyInitialized, runCalculation]);
+
+    const runRequestedCalculation = async () => {
+        setIsCalculating(true);
+        setError('');
+        setAiError('');
+        setAiExplanation('');
+        try {
+            const refreshedEstimates = await onRefreshEstimates();
+            const refreshedInput = { ...calculationInput, estimates: refreshedEstimates };
+            try {
+                setResult(calculateHouseEstimate(refreshedInput));
+                return;
+            } catch (deterministicError) {
+                if (!clientDescription.trim()) throw deterministicError;
+            }
+
+            setIsAiLoading(true);
+            const sources = selectHouseHistoryForAi(refreshedEstimates);
+            if (!sources.length) throw new Error('AI не нашёл согласованных смет текущего года для проверки цен.');
+            const packageLabel = packageOptions.find(option => option.value === selectedPackage)?.label || selectedPackage;
+            const aiResult = await generateEstimateWithAI({
+                area,
+                buildingType: 'Каркасный дом',
+                region: 'Москва и Московская область',
+                historicalEstimates: sources,
+                materials,
+                works,
+                scopeDescription: `${clientDescription.trim()}\nКомплектация: ${packageLabel}. Этажей: ${floors}. Крыша: ${roofOptions.find(option => option.value === roofShape)?.label || roofShape}.`,
+                windowCount: windows,
+                doorCount: externalDoors + interiorDoors,
+                enableAiPriceSearch: false,
+            });
+            setResult(createAiHouseEstimateResult(refreshedInput, aiResult.items, sources, aiResult.warnings));
+            setAiExplanation('AI разобрал пожелания и подготовил предварительный расчёт по вашим согласованным сметам и справочникам.');
+        } catch (reason) {
+            setResult(null);
+            const message = reason instanceof Error ? reason.message : 'Не удалось выполнить расчёт.';
+            setError(clientDescription.trim() ? message : `${message} Опишите пожелания, и AI попробует собрать расчёт по вашим согласованным сметам.`);
+        } finally {
+            setIsAiLoading(false);
+            setIsCalculating(false);
+        }
+    };
 
     const setRate = (key: keyof typeof rates, value: number) => {
         setRates(current => ({ ...current, [key]: Math.min(100, Math.max(0, Number.isFinite(value) ? value : 0)) }));
@@ -286,7 +357,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                         <p className="pb-4 text-xs leading-5 text-text-secondary">По умолчанию дополнительные ставки равны нулю: эталонная смета уже содержит клиентские цены. Заполняйте их только когда требуется начислить расходы поверх исторической стоимости.</p>
                     </details>
 
-                    <button type="button" onClick={runCalculation} disabled={isCalculating} className={`min-h-[52px] w-full rounded-lg bg-primary px-5 font-bold text-white shadow-lg shadow-red-950/20 transition hover:bg-primary-hover disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>
+                    <button type="button" onClick={() => void runRequestedCalculation()} disabled={isCalculating} className={`min-h-[52px] w-full rounded-lg bg-primary px-5 font-bold text-white shadow-lg shadow-red-950/20 transition hover:bg-primary-hover disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>
                         {isCalculating ? 'Рассчитываем…' : 'Рассчитать стоимость'}
                     </button>
                 </div>
