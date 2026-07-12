@@ -241,7 +241,7 @@ export function scaleReferenceItems(source: Estimate, input: HouseCalculatorInpu
             const text = normalize(item.name);
             if (text.includes('окн')) factor = input.windows / sourceWindows;
             else if (text.includes('межкомнатн')) factor = targetInteriorDoors / sourceDoors;
-            else if (text.includes('входн') || text.includes('террасн')) factor = targetExteriorDoors;
+            else if (text.includes('входн') || text.includes('террасн')) factor = targetExteriorDoors / sourceDoors;
             else if (text.includes('двер')) factor = input.doors / sourceDoors;
         }
         if (kind === 'addition') {
