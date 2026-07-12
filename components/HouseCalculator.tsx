@@ -2,20 +2,24 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Estimate, EstimateCategory, EstimateItem, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
 import {
     calculateHouseEstimate,
-    createAiHouseEstimateResult,
+    calculateHouseVariants,
     HouseCalculatorInput,
     HouseCalculatorResult,
+    HOUSE_TIER_CONFIG,
+    HouseTier,
+    HouseVariantResult,
     HousePackage,
     RoofShape,
+    parseHouseDescription,
     selectEligibleHouseHistory,
-    selectHouseHistoryForAi,
 } from '../services/houseCalculator';
-import { explainHouseCalculation, generateEstimateWithAI } from '../services/openRouterService';
+import { explainHouseCalculation } from '../services/openRouterService';
 
 interface HouseCalculatorProps {
     estimates: Estimate[];
     materials: Material[];
     works: Work[];
+    historyLoaded: boolean;
     onRefreshEstimates: () => Promise<Estimate[]>;
     onCreateEstimate: (estimate: Estimate) => void;
 }
@@ -66,7 +70,7 @@ const Choice: React.FC<{ active: boolean; label: string; onClick: () => void }> 
     </button>
 );
 
-const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials, works, onRefreshEstimates, onCreateEstimate }) => {
+const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials, works, historyLoaded, onRefreshEstimates, onCreateEstimate }) => {
     // Catalogs are part of the shared screen contract; prices in this MVP come only from historical estimates.
     void materials;
     void works;
@@ -87,7 +91,10 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const [aiExplanation, setAiExplanation] = useState('');
     const [aiError, setAiError] = useState('');
     const [isAiLoading, setIsAiLoading] = useState(false);
-    const [historyInitialized, setHistoryInitialized] = useState(false);
+    const [variants, setVariants] = useState<HouseVariantResult[]>([]);
+    const [selectedTier, setSelectedTier] = useState<HouseTier>('optimal');
+    const [isProposalLoading, setIsProposalLoading] = useState(false);
+    const [proposalError, setProposalError] = useState('');
 
     const calculationInput = useMemo<HouseCalculatorInput>(() => ({
         estimates,
@@ -105,47 +112,37 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         rates,
     }), [estimates, area, floors, windows, externalDoors, interiorDoors, roofShape, selectedPackage, additionAreas, rates]);
 
+    const applyVariants = useCallback((input: HouseCalculatorInput, tier: HouseTier = selectedTier) => {
+        const nextVariants = calculateHouseVariants(input);
+        const selected = nextVariants.find(variant => variant.tier === tier) || nextVariants[1];
+        setVariants(nextVariants);
+        setSelectedTier(selected.tier);
+        setSelectedPackage(selected.package);
+        setResult(selected.result);
+        return { variants: nextVariants, selected };
+    }, [selectedTier]);
+
     const runCalculation = useCallback(() => {
+        if (!historyLoaded) {
+            setIsCalculating(true);
+            return;
+        }
         setIsCalculating(true);
         setError('');
         setAiExplanation('');
         setAiError('');
         try {
-            setResult(calculateHouseEstimate(calculationInput));
+            applyVariants(calculationInput);
         } catch (reason) {
+            setVariants([]);
             setResult(null);
             setError(reason instanceof Error ? reason.message : 'Не удалось выполнить расчёт.');
         } finally {
             setIsCalculating(false);
         }
-    }, [calculationInput]);
+    }, [applyVariants, calculationInput, historyLoaded]);
 
-    useEffect(() => {
-        let active = true;
-        const initializeHistory = async () => {
-            setIsCalculating(true);
-            setError('');
-            try {
-                await onRefreshEstimates();
-                if (!active) return;
-                setHistoryInitialized(true);
-            } catch (reason) {
-                if (!active) return;
-                setResult(null);
-                setError(reason instanceof Error ? reason.message : 'Не удалось загрузить сметы пользователя.');
-            } finally {
-                if (active) {
-                    setIsCalculating(false);
-                }
-            }
-        };
-        void initializeHistory();
-        return () => { active = false; };
-    }, [onRefreshEstimates]);
-
-    useEffect(() => {
-        if (historyInitialized) runCalculation();
-    }, [historyInitialized, runCalculation]);
+    useEffect(() => { runCalculation(); }, [runCalculation]);
 
     const runRequestedCalculation = async () => {
         setIsCalculating(true);
@@ -153,37 +150,38 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         setAiError('');
         setAiExplanation('');
         try {
-            const refreshedEstimates = await onRefreshEstimates();
-            const refreshedInput = { ...calculationInput, estimates: refreshedEstimates };
+            const parsed = parseHouseDescription(clientDescription);
+            const requestedTier: HouseTier = parsed.package === 'turnkey' || parsed.package === 'turnkey-engineering'
+                ? 'premium' : parsed.package === 'box' || parsed.package === 'warm-shell' ? 'economy' : 'optimal';
+            const effectiveArea = parsed.area || area;
+            const effectiveInput = { ...calculationInput, area: effectiveArea };
+            let calculation: ReturnType<typeof applyVariants>;
             try {
-                setResult(calculateHouseEstimate(refreshedInput));
-                return;
-            } catch (deterministicError) {
-                if (!clientDescription.trim()) throw deterministicError;
+                calculation = applyVariants(effectiveInput, requestedTier);
+            } catch {
+                const refreshedEstimates = await onRefreshEstimates();
+                calculation = applyVariants({ ...effectiveInput, estimates: refreshedEstimates }, requestedTier);
             }
+            if (parsed.area) setArea(parsed.area);
 
-            setIsAiLoading(true);
-            const sources = selectHouseHistoryForAi(refreshedEstimates);
-            if (!sources.length) throw new Error('AI не нашёл согласованных смет текущего года для проверки цен.');
-            const packageLabel = packageOptions.find(option => option.value === selectedPackage)?.label || selectedPackage;
-            const aiResult = await generateEstimateWithAI({
-                area,
-                buildingType: 'Каркасный дом',
-                region: 'Москва и Московская область',
-                historicalEstimates: sources,
-                materials,
-                works,
-                scopeDescription: `${clientDescription.trim()}\nКомплектация: ${packageLabel}. Этажей: ${floors}. Крыша: ${roofOptions.find(option => option.value === roofShape)?.label || roofShape}.`,
-                windowCount: windows,
-                doorCount: externalDoors + interiorDoors,
-                enableAiPriceSearch: false,
-            });
-            setResult(createAiHouseEstimateResult(refreshedInput, aiResult.items, sources, aiResult.warnings));
-            setAiExplanation('AI разобрал пожелания и подготовил предварительный расчёт по вашим согласованным сметам и справочникам.');
+            if (clientDescription.trim()) {
+                setIsAiLoading(true);
+                const reviewed = calculation.selected.result;
+                const historicalSummary = selectEligibleHouseHistory(effectiveInput.estimates)
+                    .map(estimate => `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}.`)
+                    .join('\n') || 'Подходящие сметы выбраны резервным алгоритмом.';
+                const deterministicSummary = [
+                    `Каркасный дом: ${effectiveArea} м², ${floors} эт.`,
+                    `Выбранный вариант: ${calculation.selected.label}.`,
+                    `Предварительная стоимость: ${money(reviewed.base)}; диапазон: ${money(reviewed.low)}—${money(reviewed.high)}.`,
+                    `Основание: ${reviewed.evidence.approvedCount} согласованных смет; ${reviewed.evidence.sourceReason}`,
+                ].join('\n');
+                setAiExplanation(await explainHouseCalculation({ deterministicSummary, historicalSummary, clientDescription }));
+            }
         } catch (reason) {
+            setVariants([]);
             setResult(null);
-            const message = reason instanceof Error ? reason.message : 'Не удалось выполнить расчёт.';
-            setError(clientDescription.trim() ? message : `${message} Опишите пожелания, и AI попробует собрать расчёт по вашим согласованным сметам.`);
+            setError(reason instanceof Error ? reason.message : 'Не удалось выполнить расчёт.');
         } finally {
             setIsAiLoading(false);
             setIsCalculating(false);
@@ -223,6 +221,37 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             setAiError(reason instanceof Error ? reason.message : 'Не удалось получить пояснение от Free AI.');
         } finally {
             setIsAiLoading(false);
+        }
+    };
+
+    const selectVariant = (variant: HouseVariantResult) => {
+        setSelectedTier(variant.tier);
+        setSelectedPackage(variant.package);
+        setResult(variant.result);
+        setAiExplanation('');
+        setProposalError('');
+    };
+
+    const exportProposal = async () => {
+        if (!variants.length) return;
+        setIsProposalLoading(true);
+        setProposalError('');
+        try {
+            const { downloadHouseProposalDocx } = await import('../services/houseProposalDocx');
+            await downloadHouseProposalDocx({
+                area,
+                floors,
+                windows,
+                doors: externalDoors + interiorDoors,
+                roof: roofOptions.find(option => option.value === roofShape)?.label || roofShape,
+                clientDescription: clientDescription.trim(),
+                selectedTier,
+                variants,
+            });
+        } catch (reason) {
+            setProposalError(reason instanceof Error ? reason.message : 'Не удалось сформировать Word-документ.');
+        } finally {
+            setIsProposalLoading(false);
         }
     };
 
@@ -325,9 +354,17 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                     </fieldset>
 
                     <fieldset>
-                        <legend className="mb-4 text-lg font-bold">2. Комплектация</legend>
-                        <div className="grid gap-2 sm:grid-cols-2">{packageOptions.map(option => (
-                            <button key={option.value} type="button" onClick={() => setSelectedPackage(option.value)} className={`min-h-[64px] rounded-lg border p-3 text-left transition ${buttonFocus} ${selectedPackage === option.value ? 'border-primary bg-primary/10' : 'border-border bg-background hover:border-gray-500'}`}>
+                        <legend className="mb-1 text-lg font-bold">2. Варианты комплектации</legend>
+                        <p className="mb-4 text-sm text-text-secondary">Один расчёт сразу подготовит три уровня готовности.</p>
+                        <div className="grid gap-2 sm:grid-cols-3">{HOUSE_TIER_CONFIG.map(option => (
+                            <button key={option.tier} type="button" onClick={() => {
+                                const calculated = variants.find(variant => variant.tier === option.tier);
+                                if (calculated) selectVariant(calculated);
+                                else {
+                                    setSelectedTier(option.tier);
+                                    setSelectedPackage(option.package);
+                                }
+                            }} className={`min-h-[76px] rounded-lg border p-3 text-left transition ${buttonFocus} ${selectedTier === option.tier ? 'border-primary bg-primary/10' : 'border-border bg-background hover:border-gray-500'}`}>
                                 <span className="block font-semibold text-text-primary">{option.label}</span><span className="mt-0.5 block text-xs leading-5 text-text-secondary">{option.description}</span>
                             </button>
                         ))}</div>
@@ -374,6 +411,26 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                         </div>
 
                         {result && !isCalculating && !error && <div className="divide-y divide-border">
+                            {variants.length > 0 && <div className="p-5 sm:p-6">
+                                <div className="mb-4">
+                                    <h2 className="font-bold">Три варианта дома</h2>
+                                    <p className="mt-1 text-sm leading-6 text-text-secondary">Выберите вариант для сметы и коммерческого предложения.</p>
+                                </div>
+                                <div className="grid gap-3">
+                                    {variants.map(variant => {
+                                        const active = variant.tier === selectedTier;
+                                        return <button key={variant.tier} type="button" onClick={() => selectVariant(variant)} aria-pressed={active} className={`min-h-[92px] rounded-lg border p-4 text-left transition ${buttonFocus} ${active ? 'border-primary bg-primary/10' : 'border-border bg-background hover:border-gray-500'}`}>
+                                            <span className="flex items-start justify-between gap-3">
+                                                <span><span className="block font-bold text-text-primary">{variant.label}</span><span className="mt-1 block text-xs leading-5 text-text-secondary">{variant.description}</span></span>
+                                                <span className="whitespace-nowrap text-base font-bold text-text-primary">{money(variant.result.base)}</span>
+                                            </span>
+                                            <span className="mt-2 block text-xs text-text-secondary">{money(variant.result.low)} — {money(variant.result.high)}</span>
+                                        </button>;
+                                    })}
+                                </div>
+                                <button type="button" onClick={() => void exportProposal()} disabled={isProposalLoading} className={`mt-4 min-h-[46px] w-full rounded-lg bg-white px-4 font-bold text-gray-950 transition hover:bg-gray-200 disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>{isProposalLoading ? 'Формируем Word…' : 'Скачать коммерческое предложение Word'}</button>
+                                {proposalError && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">{proposalError}</p>}
+                            </div>}
                             <div className="p-5 sm:p-6">
                                 <h2 className="mb-3 font-bold">За что идёт оплата</h2>
                                 <dl className="space-y-2 text-sm">{([

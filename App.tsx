@@ -2004,6 +2004,7 @@ const App: React.FC = () => {
                                 estimates={estimates}
                                 materials={materials}
                                 works={works}
+                                historyLoaded={loadedFlags.estimates}
                                 onRefreshEstimates={refreshHouseEstimates}
                                 onCreateEstimate={handleCreateHouseEstimate}
                             />

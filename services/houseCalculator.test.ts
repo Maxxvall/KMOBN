@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
     calculateHouseEstimate,
+    calculateHouseVariants,
     chooseHouseReference,
     createAiHouseEstimateResult,
     HouseCalculatorInput,
+    parseHouseDescription,
     selectEligibleHouseHistory,
     selectLatestVersions,
 } from './houseCalculator';
@@ -72,11 +74,18 @@ describe('houseCalculator history selection', () => {
         expect(selectLatestVersions([v2, v1])).toEqual([v2]);
     });
 
-    it('includes approved estimates only from the current year', () => {
+    it('includes all approved estimates regardless of year', () => {
         const current = estimate({ id: 'current', estimateNumber: 'КМ-2026', date: '2026-01-01', updated_at: null });
         const previous = estimate({ id: 'previous', estimateNumber: 'КМ-2025', date: '2025-12-31', updated_at: null });
 
-        expect(selectEligibleHouseHistory([previous, current], NOW).map(value => value.id)).toEqual(['current']);
+        expect(selectEligibleHouseHistory([previous, current], NOW).map(value => value.id)).toEqual(['previous', 'current']);
+    });
+
+    it('keeps every approved estimate even when they share one estimate number', () => {
+        const approvedV1 = estimate({ id: 'approved-v1', estimateNumber: 'KM-shared', version: 1 });
+        const approvedV2 = estimate({ id: 'approved-v2', estimateNumber: 'KM-shared', version: 2 });
+
+        expect(selectEligibleHouseHistory([approvedV1, approvedV2], NOW)).toHaveLength(2);
     });
 
     it('includes drafts from the last 90 days and excludes older drafts', () => {
@@ -123,6 +132,18 @@ describe('houseCalculator history selection', () => {
         });
 
         expect(selectEligibleHouseHistory([genericHouse], NOW)).toHaveLength(1);
+    });
+
+    it('extracts area and turnkey package from client wishes', () => {
+        expect(parseHouseDescription('Нужен дом под ключ 100 кв.м')).toEqual({ area: 100, package: 'turnkey' });
+        expect(parseHouseDescription('Дом 120 м² под ключ со всей инженерией')).toEqual({ area: 120, package: 'turnkey-engineering' });
+    });
+
+    it('calculates economy, optimal, and premium variants in one pass', () => {
+        const variants = calculateHouseVariants(input());
+
+        expect(variants.map(variant => variant.tier)).toEqual(['economy', 'optimal', 'premium']);
+        expect(variants.map(variant => variant.result.base).every(value => value > 0)).toBe(true);
     });
 });
 
@@ -223,7 +244,7 @@ describe('houseCalculator financials and failures', () => {
     });
 
     it('throws when no eligible source estimate exists', () => {
-        expect(() => calculateHouseEstimate(input({ estimates: [] }))).toThrow(/Нет подходящих исторических смет/);
+        expect(() => calculateHouseEstimate(input({ estimates: [] }))).toThrow(/нет согласованных смет с позициями/);
     });
 
     it('warns when requested finish and engineering are absent from the source', () => {

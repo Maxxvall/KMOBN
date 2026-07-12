@@ -85,6 +85,27 @@ export interface HouseCalculatorResult {
     financials: HouseFinancialBreakdown;
 }
 
+export interface ParsedHouseDescription {
+    area?: number;
+    package?: HousePackage;
+}
+
+export type HouseTier = 'economy' | 'optimal' | 'premium';
+
+export interface HouseVariantResult {
+    tier: HouseTier;
+    label: string;
+    description: string;
+    package: HousePackage;
+    result: HouseCalculatorResult;
+}
+
+export const HOUSE_TIER_CONFIG: Array<Omit<HouseVariantResult, 'result'>> = [
+    { tier: 'economy', label: 'Эконом', description: 'Тёплый контур без отделки и инженерии', package: 'warm-shell' },
+    { tier: 'optimal', label: 'Оптимальный', description: 'Дом с подготовкой под чистовую отделку', package: 'rough-finish' },
+    { tier: 'premium', label: 'Премиум', description: 'Под ключ с инженерными системами', package: 'turnkey-engineering' },
+];
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REFERENCE_CLIENT = 'наталья дубровка';
 const REFERENCE_BUILDING = 'одноэтажный дачный дом';
@@ -128,31 +149,41 @@ export function selectLatestVersions(estimates: Estimate[]): Estimate[] {
     return [...latest.values()];
 }
 
-/** Selects current-year approved/sent estimates and drafts no older than 90 days. */
+/** Selects all approved/sent estimates and drafts no older than 90 days. */
 export function selectEligibleHouseHistory(estimates: Estimate[], now = new Date()): Estimate[] {
-    const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
     const draftStart = now.getTime() - 90 * DAY_MS;
-    return selectLatestVersions(estimates).filter(estimate => {
+    const latestDraftIds = new Set(selectLatestVersions(estimates.filter(estimate => estimate.status === EstimateStatus.DRAFT)).map(estimate => estimate.id));
+    return estimates.filter(estimate => {
         if (estimate.isArchived || estimate.status === EstimateStatus.ARCHIVED || !estimate.items?.length || !isFrameHouse(estimate)) return false;
         const timestamp = dateOf(estimate);
-        if (estimate.status === EstimateStatus.DRAFT) return timestamp >= draftStart && timestamp <= now.getTime();
-        return (estimate.status === EstimateStatus.APPROVED || estimate.status === EstimateStatus.SENT)
-            && timestamp >= yearStart && timestamp <= now.getTime();
+        if (estimate.status === EstimateStatus.DRAFT) return latestDraftIds.has(estimate.id) && timestamp >= draftStart && timestamp <= now.getTime();
+        return estimate.status === EstimateStatus.APPROVED || estimate.status === EstimateStatus.SENT;
     });
 }
 
 /** Broader source pool for AI when structured house recognition cannot choose a reference. */
-export function selectHouseHistoryForAi(estimates: Estimate[], now = new Date()): Estimate[] {
-    const yearStart = new Date(now.getFullYear(), 0, 1).getTime();
+export function selectHouseHistoryForAi(estimates: Estimate[]): Estimate[] {
     const excluded = ['баня', 'террас', 'пристрой', 'пост охраны', 'крыша', 'изолятор', 'обшив'];
-    return selectLatestVersions(estimates).filter(estimate => {
+    return estimates.filter(estimate => {
         if (estimate.isArchived || estimate.status === EstimateStatus.ARCHIVED || !estimate.items?.length) return false;
         if (estimate.status !== EstimateStatus.APPROVED && estimate.status !== EstimateStatus.SENT) return false;
-        const timestamp = dateOf(estimate);
-        if (timestamp < yearStart || timestamp > now.getTime()) return false;
         const buildingType = normalize(estimate.buildingType || '');
         return !excluded.some(word => buildingType.includes(word));
     });
+}
+
+export function parseHouseDescription(description: string): ParsedHouseDescription {
+    const text = normalize(description || '');
+    const areaMatch = text.match(/(\d+(?:[.,]\d+)?)\s*(?:м2|м²|кв\.?\s*м)/i);
+    const parsedArea = areaMatch ? Number(areaMatch[1].replace(',', '.')) : undefined;
+    const area = parsedArea && parsedArea >= 20 && parsedArea <= 500 ? parsedArea : undefined;
+    let packageValue: HousePackage | undefined;
+    if (text.includes('под ключ') && (text.includes('инженер') || text.includes('коммуникац'))) packageValue = 'turnkey-engineering';
+    else if (text.includes('под ключ')) packageValue = 'turnkey';
+    else if (text.includes('чернов') || text.includes('предчистов')) packageValue = 'rough-finish';
+    else if (text.includes('тепл') && text.includes('контур')) packageValue = 'warm-shell';
+    else if (text.includes('коробк')) packageValue = 'box';
+    return { area, package: packageValue };
 }
 
 const isReference = (estimate: Estimate): boolean => {
@@ -360,11 +391,16 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     }
     validateRates(input.rates);
     const eligible = selectEligibleHouseHistory(input.estimates, input.now);
-    const source = chooseHouseReference(eligible, input.area);
-    if (!source) throw new Error('Нет подходящих исторических смет для расчёта каркасного дома.');
+    const broaderApproved = eligible.length ? [] : selectHouseHistoryForAi(input.estimates);
+    const history = eligible.length ? eligible : broaderApproved;
+    const source = chooseHouseReference(history, input.area);
+    if (!source) throw new Error(`В личной базе загружено ${input.estimates.length} смет, но нет согласованных смет с позициями для расчёта дома.`);
 
     const items = scaleReferenceItems(source, input);
     const warnings: string[] = [];
+    if (!eligible.length && broaderApproved.length) {
+        warnings.push('Тип объекта не распознан автоматически: использована ближайшая согласованная смета из личной базы.');
+    }
     const sourceKinds = new Set(source.items.map(itemKind));
     if ((input.package === 'rough-finish' || input.package === 'turnkey' || input.package === 'turnkey-engineering') && !sourceKinds.has('rough-finish')) {
         warnings.push('В эталонной смете нет подтверждённых позиций черновой отделки: они не включены в стоимость.');
@@ -388,9 +424,9 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
         const sectionItems = items.filter(item => item.category === category);
         return { category, total: money(sum(sectionItems)), items: sectionItems };
     });
-    const approvedCount = eligible.filter(item => item.status === EstimateStatus.APPROVED).length;
-    const sentCount = eligible.filter(item => item.status === EstimateStatus.SENT).length;
-    const draftCount = eligible.filter(item => item.status === EstimateStatus.DRAFT).length;
+    const approvedCount = history.filter(item => item.status === EstimateStatus.APPROVED).length;
+    const sentCount = history.filter(item => item.status === EstimateStatus.SENT).length;
+    const draftCount = history.filter(item => item.status === EstimateStatus.DRAFT).length;
     const confidence: HouseCalculatorResult['confidence'] = isReference(source) && approvedCount >= 3 && warnings.length === 0
         ? 'high' : isReference(source) && warnings.length === 0 ? 'medium' : approvedCount >= 3 && warnings.length <= 1 ? 'medium' : 'low';
     const spread = confidence === 'high' ? 0.1 : confidence === 'medium' ? 0.15 : 0.25;
@@ -399,10 +435,17 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
         low: money(financials.final * (1 - spread)), base: financials.final, high: money(financials.final * (1 + spread)),
         confidence,
         evidence: {
-            eligibleEstimateCount: eligible.length, approvedCount, sentCount, draftCount,
+            eligibleEstimateCount: history.length, approvedCount, sentCount, draftCount,
             referenceMatched: isReference(source),
             sourceReason: isReference(source) ? 'Явный подтверждённый эталон Наталья_Дубровка, 79 м².' : 'Ближайшая по площади подтверждённая смета.',
         },
         sections, items, warnings, sourceEstimate: source, rates: { ...input.rates }, financials,
     };
+}
+
+export function calculateHouseVariants(input: HouseCalculatorInput): HouseVariantResult[] {
+    return HOUSE_TIER_CONFIG.map(config => ({
+        ...config,
+        result: calculateHouseEstimate({ ...input, package: config.package }),
+    }));
 }
