@@ -144,33 +144,38 @@ const Header: React.FC<HeaderProps> = ({
         <>
             <header className="hidden lg:block bg-surface shadow-lg">
                 <div className="max-w-8xl mx-auto flex items-center justify-between px-6 py-3">
-                    <nav className="flex items-center gap-2" aria-label="Основная навигация">
-                        {PRIMARY_DESKTOP_NAV_ITEMS.map(({ view, label }) => (
-                            <button
-                                key={view}
-                                type="button"
-                                onClick={() => onViewChange(view)}
-                                aria-current={currentView === view ? 'page' : undefined}
-                                className={`rounded-lg px-4 py-2 font-semibold transition duration-200 active:scale-95 ${
-                                    currentView === view
-                                        ? 'bg-primary text-white shadow-md shadow-primary/20'
-                                        : 'text-text-primary hover:bg-white/5'
-                                }`}
-                            >
-                                {label}
-                            </button>
-                        ))}
-                    </nav>
-                    <button
-                        type="button"
-                        onClick={openDrawer}
-                        className="group relative h-12 w-12 overflow-hidden rounded-xl border border-border bg-black shadow-lg transition duration-200 hover:-translate-y-0.5 hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface"
-                        aria-label="Открыть меню"
-                        aria-haspopup="dialog"
-                        aria-expanded={isDrawerOpen}
-                    >
-                        <img src={logoUrl} alt="" className="h-full w-full object-cover transition duration-200 group-hover:scale-110" />
-                    </button>
+                    <div className="min-w-0 text-text-primary">
+                        <p className="truncate text-lg font-bold tracking-tight">KARKAS MASTER <span className="font-normal text-primary">| Генератор смет</span></p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        <nav className="flex items-center gap-1" aria-label="Основная навигация">
+                            {PRIMARY_DESKTOP_NAV_ITEMS.map(({ view, label }) => (
+                                <button
+                                    key={view}
+                                    type="button"
+                                    onClick={() => onViewChange(view)}
+                                    aria-current={currentView === view ? 'page' : undefined}
+                                    className={`rounded-lg px-4 py-2 font-semibold transition duration-200 active:scale-95 ${
+                                        currentView === view
+                                            ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                            : 'text-text-primary hover:bg-white/5'
+                                    }`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </nav>
+                        <button
+                            type="button"
+                            onClick={openDrawer}
+                            className="group relative h-12 w-12 overflow-hidden rounded-xl border border-transparent shadow-lg transition duration-200 hover:-translate-y-0.5 hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface"
+                            aria-label="Открыть меню"
+                            aria-haspopup="dialog"
+                            aria-expanded={isDrawerOpen}
+                        >
+                            <img src={logoUrl} alt="" className="h-full w-full object-contain mix-blend-screen transition duration-200 group-hover:scale-110" />
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -180,12 +185,12 @@ const Header: React.FC<HeaderProps> = ({
                         <button
                             type="button"
                             onClick={openDrawer}
-                            className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-border bg-black focus:outline-none focus:ring-2 focus:ring-primary"
+                            className="h-11 w-11 shrink-0 overflow-hidden rounded-lg border border-transparent focus:outline-none focus:ring-2 focus:ring-primary"
                             aria-label="Открыть меню"
                             aria-haspopup="dialog"
                             aria-expanded={isDrawerOpen}
                         >
-                            <img src={logoUrl} alt="" className="h-full w-full object-cover" />
+                            <img src={logoUrl} alt="" className="h-full w-full object-contain mix-blend-screen" />
                         </button>
                         <div className="min-w-0">
                             <p className="truncate text-sm font-bold text-text-primary">KARKAS MASTER</p>
@@ -263,8 +268,8 @@ const Header: React.FC<HeaderProps> = ({
                 >
                     <div className="flex items-center justify-between border-b border-border px-5 py-4">
                         <div className="flex items-center gap-3">
-                            <div className="h-11 w-11 overflow-hidden rounded-xl border border-border bg-black">
-                                <img src={logoUrl} alt="Логотип Karkas Master" className="h-full w-full object-cover" />
+                            <div className="h-11 w-11 overflow-hidden rounded-xl border border-transparent">
+                                <img src={logoUrl} alt="Логотип Karkas Master" className="h-full w-full object-contain mix-blend-screen" />
                             </div>
                             <div>
                                 <p className="text-sm font-bold tracking-wide text-text-primary">KARKAS MASTER</p>

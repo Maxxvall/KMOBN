@@ -1,14 +1,18 @@
 import { Estimate, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation, normalizeKey } from '../types';
-import { CacheTableKey, getCachedRecords, getCacheUserId, syncCachedRecords } from './indexedDbCache';
+import {
+  CacheTableKey,
+  deleteCachedRecords,
+  getCachedRecords,
+  getCacheUserId,
+  syncCachedRecords,
+  upsertCachedRecords,
+} from './indexedDbCache';
 import { offlineQueue } from './offlineQueue';
+import { hashData } from './hashing';
+import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
+import { withTableMutationLock } from './tableMutationLock';
 import supabase, {
   isSupabaseConfigured,
-  upsertEstimates,
-  upsertTemplates,
-  upsertMaterials,
-  upsertWorks,
-  upsertBundles,
-  upsertSalaryCalculations,
   fetchEstimates,
   fetchTemplates,
   fetchMaterials,
@@ -83,7 +87,7 @@ const findCachedUserId = (): string | null => {
         const raw = localStorage.getItem(key);
         if (raw) {
           const parsed = JSON.parse(raw);
-          const session = parsed?.current_session || parsed?.session;
+          const session = parsed?.current_session || parsed?.session || parsed;
           if (session?.user?.id) return session.user.id;
         }
       }
@@ -94,23 +98,22 @@ const findCachedUserId = (): string | null => {
 
 const getAuthenticatedUserId = async (): Promise<string | null> => {
   if (!isSupabaseConfigured()) {
-    return findCachedUserId();
+    return getOfflineUserId() ?? findCachedUserId();
   }
   const client = ensureSupabase();
   const { data, error } = await client.auth.getSession();
   if (error) {
     console.error('Supabase getSession error:', error);
-    return findCachedUserId();
+    return getOfflineUserId() ?? findCachedUserId();
   }
-  return data.session?.user.id ?? findCachedUserId();
-};
-
-const requireUserId = async (): Promise<string> => {
-  const userId = await getAuthenticatedUserId();
-  if (!userId) {
-    throw new Error('User is not authenticated');
+  if (data.session?.user) {
+    rememberOfflineUser(data.session.user);
+    return data.session.user.id;
   }
-  return userId;
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return getOfflineUserId() ?? findCachedUserId();
+  }
+  return null;
 };
 
 const dispatchCacheUpdate = <T>(key: CacheTableKey, data: T[]): void => {
@@ -125,15 +128,23 @@ const dispatchCacheUpdate = <T>(key: CacheTableKey, data: T[]): void => {
 // Throttle: minimum 60 seconds between background refreshes per table
 const REFRESH_COOLDOWN_MS = 60_000;
 const lastRefreshTimestamps = new Map<string, number>();
+const refreshesInFlight = new Set<string>();
+const localMutationGenerations = new Map<string, number>();
+
+const getRefreshKey = (key: CacheTableKey, userId: string): string => `${key}:${userId}`;
+const getMutationGeneration = (key: string): number => localMutationGenerations.get(key) ?? 0;
+const bumpMutationGeneration = (key: string): void => {
+  localMutationGenerations.set(key, getMutationGeneration(key) + 1);
+};
 
 const isRefreshThrottled = (key: CacheTableKey, userId: string): boolean => {
-  const compositeKey = `${key}:${userId}`;
+  const compositeKey = getRefreshKey(key, userId);
   const lastTs = lastRefreshTimestamps.get(compositeKey) ?? 0;
   return Date.now() - lastTs < REFRESH_COOLDOWN_MS;
 };
 
 const markRefreshed = (key: CacheTableKey, userId: string): void => {
-  const compositeKey = `${key}:${userId}`;
+  const compositeKey = getRefreshKey(key, userId);
   lastRefreshTimestamps.set(compositeKey, Date.now());
 };
 
@@ -143,22 +154,38 @@ const refreshCacheInBackground = async <T extends { id: string }>(
   fetcher: (uid: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
   options?: LoadTableOptions,
 ): Promise<void> => {
+  if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
   if (isRefreshThrottled(key, userId)) return;
-  markRefreshed(key, userId);
+  const refreshKey = getRefreshKey(key, userId);
+  if (refreshesInFlight.has(refreshKey)) return;
+  refreshesInFlight.add(refreshKey);
+  const refreshGeneration = getMutationGeneration(refreshKey);
   try {
-    const { data, error } = await fetcher(userId, options);
+    // Cache a complete server snapshot. Subscription limits are applied only
+    // to the returned UI slice; otherwise remote deletions outside a partial
+    // window can never invalidate stale local rows.
+    const { data, error } = await fetcher(userId);
     if (error) {
       console.error('Supabase fetch error:', error);
       return;
     }
     const records = normalizeStableOrder((data ?? []) as T[]);
     const cacheUserId = getCacheUserId(userId);
-    const result = await syncCachedRecords(key, cacheUserId, records);
-    if (result.changed) {
-      dispatchCacheUpdate(key, records);
-    }
+    await withTableMutationLock(refreshKey, async () => {
+      if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
+      if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
+      const changed = (await syncCachedRecords(key, cacheUserId, records)).changed;
+      if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
+      markRefreshed(key, userId);
+      if (changed) {
+        const visibleRecords = typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
+        dispatchCacheUpdate(key, visibleRecords);
+      }
+    });
   } catch (error) {
     console.error('Cache refresh error:', error);
+  } finally {
+    refreshesInFlight.delete(refreshKey);
   }
 };
 
@@ -169,100 +196,60 @@ const readTableCached = async <T extends { id: string }>(
 ): Promise<T[]> => {
   const userId = await getAuthenticatedUserId();
   const cacheUserId = getCacheUserId(userId);
-  const cached = normalizeStableOrder(await getCachedRecords<T>(key, cacheUserId));
+  const pending = await offlineQueue.getForTable(cacheUserId, key);
+  const cached = normalizeStableOrder(applyPendingChanges(await getCachedRecords<T>(key, cacheUserId), pending));
   const canFetch = isSupabaseConfigured() && !!userId;
   const limitedCached = typeof options?.limit === 'number' ? cached.slice(0, options.limit) : cached;
 
   if (cached.length > 0) {
-    if (canFetch) {
+    if (canFetch && pending.length === 0) {
       void refreshCacheInBackground<T>(key, userId as string, fetcher, options);
     }
     return limitedCached;
   }
 
-  if (!canFetch) {
+  if (!canFetch || pending.length > 0) {
     return limitedCached;
   }
 
-  const { data, error } = await fetcher(userId as string, options);
+  const refreshKey = getRefreshKey(key, cacheUserId);
+  const refreshGeneration = getMutationGeneration(refreshKey);
+  const { data, error } = await fetcher(userId as string);
   if (error) {
     console.error(`[DB:${key}] Supabase fetch error:`, error);
     return limitedCached;
   }
   const records = normalizeStableOrder((data ?? []) as T[]);
-  await syncCachedRecords(key, cacheUserId, records);
-  return typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
-};
-
-const deleteRecord = async (table: string, id: string) => {
-  // Remove from IndexedDB cache
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  const cacheTable = table as CacheTableKey;
-  try {
-    const cached = await getCachedRecords<any>(cacheTable, cacheUserId);
-    const remaining = cached.filter(r => r.id !== id);
-    await syncCachedRecords(cacheTable, cacheUserId, remaining);
-  } catch { /* ignore cache errors */ }
-
-  if (navigator.onLine && isSupabaseConfigured()) {
-    try {
-      const client = ensureSupabase();
-      const uid = await requireUserId();
-      const { error } = await client.from(table).delete().eq('id', id).eq('user_id', uid);
-      if (error) {
-        console.error(`Failed to delete from ${table}:`, error);
-        throw error;
-      }
-    } catch {
-      await offlineQueue.add({ table, operation: 'delete', data: [id] });
+  const remoteResult = await withTableMutationLock(refreshKey, async (): Promise<T[] | null> => {
+    if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
+    const pendingAfterFetch = await offlineQueue.getForTable(cacheUserId, key);
+    if (pendingAfterFetch.length > 0) {
+      const local = normalizeStableOrder(applyPendingChanges(
+        await getCachedRecords<T>(key, cacheUserId),
+        pendingAfterFetch,
+      ));
+      return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
     }
-  } else {
-    await offlineQueue.add({ table, operation: 'delete', data: [id] });
-  }
+    await syncCachedRecords(key, cacheUserId, records);
+    if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
+    return typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
+  });
+  if (remoteResult) return remoteResult;
+  return withTableMutationLock(refreshKey, async () => {
+    const local = normalizeStableOrder(applyPendingChanges(
+      await getCachedRecords<T>(key, cacheUserId),
+      await offlineQueue.getForTable(cacheUserId, key),
+    ));
+    return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
+  });
 };
 
-const deleteRecords = async (table: string, ids: string[]) => {
-  if (!ids.length) return;
-
-  // Always remove from IndexedDB cache
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  const cacheTable = table as CacheTableKey;
-  try {
-    const cached = await getCachedRecords<any>(cacheTable, cacheUserId);
-    const remaining = cached.filter(r => !ids.includes(r.id));
-    await syncCachedRecords(cacheTable, cacheUserId, remaining);
-  } catch { /* ignore cache errors */ }
-
-  if (navigator.onLine && isSupabaseConfigured()) {
-    try {
-      const client = ensureSupabase();
-      const uid = await requireUserId();
-      const { error } = await client.from(table).delete().in('id', ids).eq('user_id', uid);
-      if (error) {
-        console.error(`Failed to batch delete from ${table}:`, error);
-        throw error;
-      }
-    } catch {
-      await offlineQueue.add({ table, operation: 'delete', data: ids });
-    }
-  } else {
-    await offlineQueue.add({ table, operation: 'delete', data: ids });
-  }
+const deleteRecord = async (table: CacheTableKey, id: string): Promise<void> => {
+  await deleteLocalRecords(table, [id]);
 };
 
-const upsertRecords = async (upserter: (records: any[], userId: string) => Promise<{ data?: any; error: any }>, records: any[]) => {
-  if (!records.length || !isSupabaseConfigured()) {
-    return;
-  }
-  const userId = await requireUserId();
-  const { error } = await upserter(records, userId);
-  if (error) {
-    const msg = error?.message || error?.details || error?.hint || JSON.stringify(error);
-    console.error('Supabase upsert error:', msg, error);
-    throw new Error(msg);
-  }
+const deleteRecords = async (table: CacheTableKey, ids: string[]): Promise<void> => {
+  await deleteLocalRecords(table, ids);
 };
 
 export const pickChangedRecordsByIds = <T extends { id: string }>(records: T[], changedIds: string[]): T[] => {
@@ -272,24 +259,7 @@ export const pickChangedRecordsByIds = <T extends { id: string }>(records: T[], 
 };
 
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      const syncResult = await syncCachedRecords('estimates', cacheUserId, estimates);
-      const changedEstimates = syncResult.cacheAvailable
-        ? pickChangedRecordsByIds(estimates, syncResult.changedIds)
-        : estimates;
-      await upsertRecords(upsertEstimates, changedEstimates);
-    } catch {
-      await syncCachedRecords('estimates', cacheUserId, estimates);
-      await offlineQueue.add({ table: 'estimates', operation: 'upsert', data: estimates });
-    }
-  } else {
-    await syncCachedRecords('estimates', cacheUserId, estimates);
-    await offlineQueue.add({ table: 'estimates', operation: 'upsert', data: estimates });
-  }
+  await saveLocalRecords('estimates', estimates);
 };
 
 export const loadEstimates = async (options?: LoadTableOptions): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates, options);
@@ -300,35 +270,98 @@ export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
   if (!isSupabaseConfigured() || !userId) {
     throw new Error('Нет подключения к базе данных пользователя.');
   }
+  if ((await offlineQueue.getForTable(userId, 'estimates')).length > 0) {
+    throw new Error('РЎРЅР°С‡Р°Р»Р° СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓР№С‚Рµ Р»РѕРєР°Р»СЊРЅС‹Рµ РёР·РјРµРЅРµРЅРёСЏ СЃРјРµС‚.');
+  }
 
+  const refreshKey = getRefreshKey('estimates', userId);
+  const refreshGeneration = getMutationGeneration(refreshKey);
   const { data, error } = await fetchEstimates(userId);
   if (error) {
     throw new Error(`Не удалось обновить сметы из базы: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   const records = normalizeStableOrder((data ?? []) as Estimate[]);
-  await syncCachedRecords('estimates', getCacheUserId(userId), records);
-  return records;
+  return withTableMutationLock(refreshKey, async () => {
+    if (getMutationGeneration(refreshKey) !== refreshGeneration) {
+      throw new Error('Во время обновления появились локальные изменения смет. Данные из базы не применены.');
+    }
+    if ((await offlineQueue.getForTable(userId, 'estimates')).length > 0) {
+      throw new Error('Во время обновления появились локальные изменения смет. Данные из базы не применены.');
+    }
+    await syncCachedRecords('estimates', getCacheUserId(userId), records);
+    if (getMutationGeneration(refreshKey) !== refreshGeneration) {
+      throw new Error('Во время обновления появились локальные изменения смет. Данные из базы не применены.');
+    }
+    return records;
+  });
+};
+
+const applyPendingChanges = <T extends { id: string }>(
+  records: T[],
+  changes: Awaited<ReturnType<typeof offlineQueue.getAll>>,
+): T[] => {
+  const merged = new Map(records.map(record => [record.id, record]));
+  changes.forEach(change => {
+    if (change.operation === 'delete') {
+      merged.delete(change.recordId);
+    } else if (change.data && typeof change.data === 'object') {
+      merged.set(change.recordId, change.data as T);
+    }
+  });
+  return [...merged.values()];
+};
+
+const getChangedRecords = <T extends { id: string }>(cached: T[], records: T[]): T[] => {
+  const cachedHashes = new Map(cached.map(record => [record.id, hashData(record)]));
+  return records.filter(record => cachedHashes.get(record.id) !== hashData(record));
+};
+
+const saveLocalRecords = async <T extends { id: string }>(table: CacheTableKey, records: T[]): Promise<void> => {
+  if (!records.length) return;
+  const knownOwnerId = getOfflineUserId();
+  const knownMutationKey = knownOwnerId ? getRefreshKey(table, knownOwnerId) : null;
+  if (knownMutationKey) bumpMutationGeneration(knownMutationKey);
+  const ownerId = getCacheUserId(await getAuthenticatedUserId());
+  const mutationKey = getRefreshKey(table, ownerId);
+  if (mutationKey !== knownMutationKey) bumpMutationGeneration(mutationKey);
+  await withTableMutationLock(mutationKey, async () => {
+    const cached = await getCachedRecords<T>(table, ownerId);
+    const changed = getChangedRecords(cached, records);
+    if (!changed.length) return;
+
+    // Persist the outbox first. Pending payloads can reconstruct a cache write
+    // interrupted by a renderer or process crash.
+    await offlineQueue.enqueueUpserts(ownerId, table, changed);
+    await upsertCachedRecords(table, ownerId, changed);
+  });
+};
+
+const deleteLocalRecords = async (table: CacheTableKey, recordIds: string[]): Promise<void> => {
+  if (!recordIds.length) return;
+  const knownOwnerId = getOfflineUserId();
+  const knownMutationKey = knownOwnerId ? getRefreshKey(table, knownOwnerId) : null;
+  if (knownMutationKey) bumpMutationGeneration(knownMutationKey);
+  const ownerId = getCacheUserId(await getAuthenticatedUserId());
+  const mutationKey = getRefreshKey(table, ownerId);
+  if (mutationKey !== knownMutationKey) bumpMutationGeneration(mutationKey);
+  await withTableMutationLock(mutationKey, async () => {
+    await offlineQueue.enqueueDeletes(ownerId, table, recordIds);
+    await deleteCachedRecords(table, ownerId, recordIds);
+  });
 };
 
 export const deleteEstimatesByNumber = async (estimateNumber: string | number): Promise<void> => {
-  if (!isSupabaseConfigured()) return;
-  const client = ensureSupabase();
-  try {
-    const userId = await requireUserId();
-    const key = String(estimateNumber);
-    const { error: primaryError } = await client.from('estimates').delete().eq('user_id', userId).eq('estimateNumber', key);
-    if (!primaryError) return;
-
-    const { error: legacyError } = await client.from('estimates').delete().eq('user_id', userId).eq("payload->>estimateNumber", key);
-    if (legacyError) {
-      console.error('Failed to delete estimates by estimateNumber:', legacyError);
-      throw legacyError;
-    }
-  } catch (err) {
-    console.error('deleteEstimatesByNumber error:', err);
-    throw err;
-  }
+  const ownerId = getCacheUserId(await getAuthenticatedUserId());
+  const estimates = applyPendingChanges(
+    await getCachedRecords<Estimate>('estimates', ownerId),
+    await offlineQueue.getForTable(ownerId, 'estimates'),
+  );
+  const key = String(estimateNumber);
+  const ids = estimates
+    .filter(estimate => String(estimate.estimateNumber) === key)
+    .map(estimate => estimate.id);
+  await deleteLocalRecords('estimates', ids);
 };
 
 export const deleteEstimateById = async (estimateId: string): Promise<void> => {
@@ -340,17 +373,13 @@ export const deleteEstimates = async (estimateIds: string[]): Promise<void> => {
 };
 
 export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void> => {
-  const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
-  await Promise.all([
-    upsertRecords(upsertTemplates, templates),
-    syncCachedRecords('templates', cacheUserId, templates),
-  ]);
+  await saveLocalRecords('templates', templates);
 };
 
 export const loadTemplates = async (options?: LoadTableOptions): Promise<ProjectTemplate[]> => readTableCached<ProjectTemplate>('templates', fetchTemplates, options);
 
 export const addTemplate = async (template: ProjectTemplate): Promise<void> => {
-  await upsertRecords(upsertTemplates, [template]);
+  await saveLocalRecords('templates', [template]);
 };
 
 export const deleteTemplate = async (templateId: string): Promise<void> => {
@@ -358,50 +387,20 @@ export const deleteTemplate = async (templateId: string): Promise<void> => {
 };
 
 export const saveMaterials = async (materials: Material[]): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  await syncCachedRecords('materials', cacheUserId, materials);
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertMaterials, materials);
-    } catch {
-      await offlineQueue.add({ table: 'materials', operation: 'upsert', data: materials });
-    }
-  } else if (!navigator.onLine) {
-    await offlineQueue.add({ table: 'materials', operation: 'upsert', data: materials });
-  }
+  await saveLocalRecords('materials', materials);
 };
 
 export const loadMaterials = async (options?: LoadTableOptions): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials, options);
 
 async function addOrUpdateRecord<T extends { id: string }>(
   table: CacheTableKey,
-  upserter: (records: any[], userId: string) => Promise<{ data?: any; error: any }>,
   record: T,
-  mode: 'add' | 'update',
 ): Promise<void> {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<T>(table, cacheUserId);
-  const updated = mode === 'add'
-    ? [...cached, record]
-    : cached.map(c => c.id === record.id ? record : c);
-  await syncCachedRecords(table, cacheUserId, updated);
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upserter, [record]);
-    } catch {
-      await offlineQueue.add({ table, operation: 'upsert', data: [record] });
-    }
-  } else {
-    await offlineQueue.add({ table, operation: 'upsert', data: [record] });
-  }
+  await saveLocalRecords(table, [record]);
 }
 
-export const addMaterial = (material: Material) => addOrUpdateRecord('materials', upsertMaterials, material, 'add');
-export const updateMaterial = (material: Material) => addOrUpdateRecord('materials', upsertMaterials, material, 'update');
+export const addMaterial = (material: Material) => addOrUpdateRecord('materials', material);
+export const updateMaterial = (material: Material) => addOrUpdateRecord('materials', material);
 
 export const deleteMaterial = async (materialId: string): Promise<void> => {
   await deleteRecord('materials', materialId);
@@ -412,25 +411,13 @@ export const deleteMaterials = async (materialIds: string[]): Promise<void> => {
 };
 
 export const saveWorks = async (works: Work[]): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  await syncCachedRecords('works', cacheUserId, works);
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertWorks, works);
-    } catch {
-      await offlineQueue.add({ table: 'works', operation: 'upsert', data: works });
-    }
-  } else if (!navigator.onLine) {
-    await offlineQueue.add({ table: 'works', operation: 'upsert', data: works });
-  }
+  await saveLocalRecords('works', works);
 };
 
 export const loadWorks = async (options?: LoadTableOptions): Promise<Work[]> => readTableCached<Work>('works', fetchWorks, options);
 
-export const addWork = (work: Work) => addOrUpdateRecord('works', upsertWorks, work, 'add');
-export const updateWork = (work: Work) => addOrUpdateRecord('works', upsertWorks, work, 'update');
+export const addWork = (work: Work) => addOrUpdateRecord('works', work);
+export const updateWork = (work: Work) => addOrUpdateRecord('works', work);
 
 export const deleteWork = async (workId: string): Promise<void> => {
   await deleteRecord('works', workId);
@@ -441,19 +428,7 @@ export const deleteWorks = async (workIds: string[]): Promise<void> => {
 };
 
 export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  await syncCachedRecords('bundles', cacheUserId, bundles);
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertBundles, bundles);
-    } catch {
-      await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: bundles });
-    }
-  } else if (!navigator.onLine) {
-    await offlineQueue.add({ table: 'bundles', operation: 'upsert', data: bundles });
-  }
+  await saveLocalRecords('bundles', bundles);
 };
 
 export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundle[]> => {
@@ -464,8 +439,8 @@ export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundl
   }));
 };
 
-export const addBundle = (bundle: WorkBundle) => addOrUpdateRecord('bundles', upsertBundles, bundle, 'add');
-export const updateBundle = (bundle: WorkBundle) => addOrUpdateRecord('bundles', upsertBundles, bundle, 'update');
+export const addBundle = (bundle: WorkBundle) => addOrUpdateRecord('bundles', bundle);
+export const updateBundle = (bundle: WorkBundle) => addOrUpdateRecord('bundles', bundle);
 
 export const deleteBundle = async (bundleId: string): Promise<void> => {
   await deleteRecord('bundles', bundleId);
@@ -476,26 +451,17 @@ export const deleteBundles = async (bundleIds: string[]): Promise<void> => {
 };
 
 export const saveSalaryCalculation = async (calculation: SalaryCalculation): Promise<void> => {
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
-  await syncCachedRecords('salary_calculations', cacheUserId, [calculation]);
-
-  if (navigator.onLine && isSupabaseConfigured() && userId) {
-    try {
-      await upsertRecords(upsertSalaryCalculations, [calculation]);
-    } catch {
-      await offlineQueue.add({ table: 'salary_calculations', operation: 'upsert', data: [calculation] });
-    }
-  } else {
-    await offlineQueue.add({ table: 'salary_calculations', operation: 'upsert', data: [calculation] });
-  }
+  await saveLocalRecords('salary_calculations', [calculation]);
 };
 
 export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
   // Try to find in local cache first for fast path
   const userId = await getAuthenticatedUserId();
   const cacheUserId = getCacheUserId(userId);
-  const cached = await getCachedRecords<SalaryCalculation>('salary_calculations', cacheUserId);
+  const cached = applyPendingChanges(
+    await getCachedRecords<SalaryCalculation>('salary_calculations', cacheUserId),
+    await offlineQueue.getForTable(cacheUserId, 'salary_calculations'),
+  );
   const fromCache = cached.find(calc => calc.estimateId === estimateId);
   if (fromCache) return fromCache;
 
@@ -829,33 +795,21 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       };
     });
 
-    const cacheUserId = getCacheUserId(await getAuthenticatedUserId());
-
     const importTable = async <T extends { id: string }>(
       tableName: CacheTableKey,
       records: T[],
-      upserter: (items: T[], uid: string) => Promise<{ data?: any; error: any }>,
     ) => {
       if (!records.length) return;
-      await syncCachedRecords(tableName, cacheUserId, records);
-      if (navigator.onLine && isSupabaseConfigured()) {
-        try {
-          await upsertRecords(upserter, records);
-        } catch {
-          await offlineQueue.add({ table: tableName, operation: 'upsert', data: records });
-        }
-      } else {
-        await offlineQueue.add({ table: tableName, operation: 'upsert', data: records });
-      }
+      await saveLocalRecords(tableName, records);
     };
 
     await Promise.all([
-      importTable('estimates', estimates, upsertEstimates),
-      importTable('templates', templates, upsertTemplates),
-      importTable('materials', dedupMaterials, upsertMaterials),
-      importTable('works', dedupWorks, upsertWorks),
-      importTable('bundles', dedupBundles, upsertBundles),
-      importTable('salary_calculations', salaryCalculations, upsertSalaryCalculations),
+      importTable('estimates', estimates),
+      importTable('templates', templates),
+      importTable('materials', dedupMaterials),
+      importTable('works', dedupWorks),
+      importTable('bundles', dedupBundles),
+      importTable('salary_calculations', salaryCalculations),
     ]);
 
     const importResult: ImportResult = {

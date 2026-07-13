@@ -26,11 +26,11 @@ type FetchTableOptions = {
   limit?: number;
 };
 
-const FETCH_SAFETY_LIMIT = 2000;
+const FETCH_PAGE_SIZE = 1000;
 
-const normalizeLimit = (limit?: number): number => {
-  if (typeof limit !== 'number' || !Number.isFinite(limit)) return FETCH_SAFETY_LIMIT;
-  return Math.max(1, Math.min(FETCH_SAFETY_LIMIT, Math.floor(limit)));
+const normalizeLimit = (limit?: number): number | null => {
+  if (typeof limit !== 'number' || !Number.isFinite(limit)) return null;
+  return Math.max(1, Math.floor(limit));
 };
 
 const parseTimestamp = (value: unknown): number | null => {
@@ -135,20 +135,60 @@ export const upsertTable = async (table: string, records: any[], userId?: string
   return { data: allData, error: null };
 };
 
+export const deleteTableRecords = async (table: string, recordIds: string[], userId?: string) => {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+  if (!userId) return { data: null, error: new Error('User is not authenticated') };
+  if (!recordIds.length) return { data: [], error: null };
+
+  const { data, error } = await supabase
+    .from(table)
+    .delete()
+    .in('id', recordIds)
+    .eq('user_id', userId)
+    .select('id');
+  if (error || (data?.length ?? 0) > 0) return { data, error };
+
+  // A policy can turn a delete into a zero-row success. Verify that no target
+  // row visible to this user remains before acknowledging the outbox item.
+  const { data: remaining, error: verifyError } = await supabase
+    .from(table)
+    .select('id')
+    .in('id', recordIds)
+    .eq('user_id', userId)
+    .limit(1);
+  if (verifyError) return { data: null, error: verifyError };
+  if ((remaining?.length ?? 0) > 0) {
+    return { data: null, error: new Error(`Supabase did not delete ${table} record`) };
+  }
+  return { data: [], error: null };
+};
+
 export const fetchTable = async (table: string, userId?: string, options?: FetchTableOptions) => {
   if (!supabase) return { data: null, error: new Error('Supabase not configured') };
   if (!userId) return { data: null, error: new Error('User is not authenticated') };
 
   const requestLimit = normalizeLimit(options?.limit);
-  const { data, error } = await supabase
-    .from(table)
-    .select('*')
-    .eq('user_id', userId)
-    .order('id', { ascending: true })
-    .limit(requestLimit);
-  if (error) return { data: null, error };
+  const rows: Record<string, unknown>[] = [];
 
-  const parsed = normalizeFetchedRows((data ?? []) as Record<string, unknown>[]);
+  while (requestLimit == null || rows.length < requestLimit) {
+    const remaining = requestLimit == null ? FETCH_PAGE_SIZE : requestLimit - rows.length;
+    const pageSize = Math.min(FETCH_PAGE_SIZE, remaining);
+    const from = rows.length;
+    const to = from + pageSize - 1;
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .eq('user_id', userId)
+      .order('id', { ascending: true })
+      .range(from, to);
+    if (error) return { data: null, error };
+
+    const page = (data ?? []) as Record<string, unknown>[];
+    rows.push(...page);
+    if (page.length === 0) break;
+  }
+
+  const parsed = normalizeFetchedRows(rows);
 
   return { data: parsed, error: null };
 };

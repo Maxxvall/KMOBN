@@ -52,6 +52,12 @@ const waitForTransaction = (tx: IDBTransaction): Promise<void> =>
 let cachedDb: IDBDatabase | null = null;
 let cachedDbPromise: Promise<IDBDatabase> | null = null;
 
+export const closeIndexedDbCache = (): void => {
+  cachedDb?.close();
+  cachedDb = null;
+  cachedDbPromise = null;
+};
+
 const openDb = (): Promise<IDBDatabase> => {
   if (cachedDb) return Promise.resolve(cachedDb);
   if (cachedDbPromise) return cachedDbPromise;
@@ -120,24 +126,69 @@ const clearHashCache = (table: CacheTableKey, id: string): void => {
 
 const getAllEntriesByUser = async <T>(table: CacheTableKey, userId: string): Promise<CacheRecord<T>[]> => {
   if (!isIndexedDbAvailable()) return [];
-  try {
-    const db = await openDb();
-    const storeName = getStoreName(table);
-    const tx = db.transaction(storeName, 'readonly');
-    const store = tx.objectStore(storeName);
-    const index = store.index('by_user');
-    const request = index.getAll(userId);
-    const result = await requestToPromise(request);
-    await waitForTransaction(tx);
-    return (result ?? []) as CacheRecord<T>[];
-  } catch {
-    return [];
-  }
+  const db = await openDb();
+  const storeName = getStoreName(table);
+  const tx = db.transaction(storeName, 'readonly');
+  const store = tx.objectStore(storeName);
+  const index = store.index('by_user');
+  const request = index.getAll(userId);
+  const result = await requestToPromise(request);
+  await waitForTransaction(tx);
+  return (result ?? []) as CacheRecord<T>[];
 };
 
 export const getCachedRecords = async <T>(table: CacheTableKey, userId: string): Promise<T[]> => {
   const entries = await getAllEntriesByUser<T>(table, userId);
   return entries.map(entry => entry.data);
+};
+
+export const upsertCachedRecords = async <T extends { id: string }>(
+  table: CacheTableKey,
+  userId: string,
+  records: T[],
+): Promise<void> => {
+  if (!records.length) return;
+  if (!isIndexedDbAvailable()) throw new Error('IndexedDB is not available');
+
+  const db = await openDb();
+  const storeName = getStoreName(table);
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
+  const updatedAt = new Date().toISOString();
+
+  records.forEach(record => {
+    if (!record?.id) throw new Error(`Cached ${table} record requires an id`);
+    const hash = getOrComputeHash(table, record.id, record);
+    const payload: CacheRecord<T> = {
+      key: buildRecordKey(userId, record.id),
+      id: record.id,
+      userId,
+      data: record,
+      hash,
+      updatedAt,
+    };
+    store.put(payload);
+  });
+
+  await waitForTransaction(tx);
+};
+
+export const deleteCachedRecords = async (
+  table: CacheTableKey,
+  userId: string,
+  recordIds: string[],
+): Promise<void> => {
+  if (!recordIds.length) return;
+  if (!isIndexedDbAvailable()) throw new Error('IndexedDB is not available');
+
+  const db = await openDb();
+  const tx = db.transaction(getStoreName(table), 'readwrite');
+  const store = tx.objectStore(getStoreName(table));
+  recordIds.forEach(recordId => {
+    store.delete(buildRecordKey(userId, recordId));
+    clearHashCache(table, recordId);
+  });
+  await waitForTransaction(tx);
 };
 
 export const syncCachedRecords = async <T extends { id: string }>(
@@ -148,54 +199,50 @@ export const syncCachedRecords = async <T extends { id: string }>(
   if (!isIndexedDbAvailable()) {
     return { changed: false, next: records, changedIds: [], cacheAvailable: false };
   }
-  try {
-    const db = await openDb();
-    const storeName = getStoreName(table);
-    const existingEntries = await getAllEntriesByUser<T>(table, userId);
-    const existingMap = new Map<string, string>();
-    existingEntries.forEach(entry => {
-      existingMap.set(entry.id, entry.hash);
-    });
+  const db = await openDb();
+  const storeName = getStoreName(table);
+  const existingEntries = await getAllEntriesByUser<T>(table, userId);
+  const existingMap = new Map<string, string>();
+  existingEntries.forEach(entry => {
+    existingMap.set(entry.id, entry.hash);
+  });
 
-    let changed = false;
+  let changed = false;
   const changedIds: string[] = [];
-    const nextIds = new Set<string>();
+  const nextIds = new Set<string>();
 
-    const tx = db.transaction(storeName, 'readwrite');
-    const store = tx.objectStore(storeName);
+  const tx = db.transaction(storeName, 'readwrite');
+  const store = tx.objectStore(storeName);
 
-    records.forEach(record => {
-      if (!record || !record.id) return;
-      const id = record.id;
-      nextIds.add(id);
-      const nextHash = getOrComputeHash(table, id, record);
-      const prevHash = existingMap.get(id);
-      if (prevHash !== nextHash) {
-        const payload: CacheRecord<T> = {
-          key: buildRecordKey(userId, id),
-          id,
-          userId,
-          data: record,
-          hash: nextHash,
-          updatedAt: new Date().toISOString(),
-        };
-        store.put(payload);
-        changed = true;
-        changedIds.push(id);
-      }
-    });
+  records.forEach(record => {
+    if (!record || !record.id) return;
+    const id = record.id;
+    nextIds.add(id);
+    const nextHash = getOrComputeHash(table, id, record);
+    const prevHash = existingMap.get(id);
+    if (prevHash !== nextHash) {
+      const payload: CacheRecord<T> = {
+        key: buildRecordKey(userId, id),
+        id,
+        userId,
+        data: record,
+        hash: nextHash,
+        updatedAt: new Date().toISOString(),
+      };
+      store.put(payload);
+      changed = true;
+      changedIds.push(id);
+    }
+  });
 
-    existingEntries.forEach(entry => {
-      if (!nextIds.has(entry.id)) {
-        store.delete(entry.key);
-        clearHashCache(table, entry.id);
-        changed = true;
-      }
-    });
+  existingEntries.forEach(entry => {
+    if (!nextIds.has(entry.id)) {
+      store.delete(entry.key);
+      clearHashCache(table, entry.id);
+      changed = true;
+    }
+  });
 
-    await waitForTransaction(tx);
-    return { changed, next: records, changedIds, cacheAvailable: true };
-  } catch {
-    return { changed: false, next: records, changedIds: [], cacheAvailable: false };
-  }
+  await waitForTransaction(tx);
+  return { changed, next: records, changedIds, cacheAvailable: true };
 };

@@ -20,10 +20,62 @@ interface EstimateHistoryProps {
 }
 
 const statusColors: { [key in EstimateStatus]: string } = {
-    [EstimateStatus.DRAFT]: 'bg-yellow-900 text-yellow-200 border border-yellow-700',
-    [EstimateStatus.SENT]: 'bg-blue-900 text-blue-200 border border-blue-700',
-    [EstimateStatus.APPROVED]: 'bg-green-900 text-green-200 border border-green-700',
-    [EstimateStatus.ARCHIVED]: 'bg-gray-700 text-gray-300 border border-gray-600',
+    [EstimateStatus.DRAFT]: 'border border-amber-500/30 bg-amber-500/10 text-amber-200',
+    [EstimateStatus.SENT]: 'border border-sky-500/30 bg-sky-500/10 text-sky-200',
+    [EstimateStatus.APPROVED]: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
+    [EstimateStatus.ARCHIVED]: 'border border-border bg-background/60 text-text-secondary',
+};
+
+const HistoryActionsMenu: React.FC<{
+    desktop?: boolean;
+    onExport: () => void | Promise<void>;
+    onImport: () => void;
+    onCheckDuplicates: () => void;
+}> = ({ desktop = false, onExport, onImport, onCheckDuplicates }) => {
+    const [open, setOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        if (!open) return;
+        const handlePointerDown = (event: MouseEvent) => {
+            if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') setOpen(false);
+        };
+        document.addEventListener('mousedown', handlePointerDown);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handlePointerDown);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [open]);
+
+    const runAction = (action: () => void | Promise<void>) => {
+        setOpen(false);
+        void action();
+    };
+
+    return (
+        <div ref={menuRef} className="relative">
+            <button
+                type="button"
+                onClick={() => setOpen(value => !value)}
+                aria-haspopup="menu"
+                aria-expanded={open}
+                className={`${desktop ? 'h-9' : 'min-h-11'} flex items-center justify-center rounded-lg border border-border bg-background/50 px-3 text-sm font-medium text-text-primary transition hover:border-text-secondary hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-primary/50`}
+            >
+                Ещё
+            </button>
+            {open && (
+                <div role="menu" className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-2xl">
+                    <button type="button" role="menuitem" onClick={() => runAction(onExport)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-text-primary hover:bg-white/5">Экспорт данных</button>
+                    <button type="button" role="menuitem" onClick={() => runAction(onImport)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-text-primary hover:bg-white/5">Импорт данных</button>
+                    <button type="button" role="menuitem" onClick={() => runAction(onCheckDuplicates)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-text-primary hover:bg-white/5">Найти дубли версий</button>
+                </div>
+            )}
+        </div>
+    );
 };
 
 const VersionDropdown: React.FC<{
@@ -59,19 +111,19 @@ const VersionDropdown: React.FC<{
     const selected = versions.find(v => v.id === selectedId) ?? versions[0];
 
     return (
-        <div className="inline-flex">
+        <div className="inline-flex min-w-0 flex-1 sm:flex-none">
             <button
                 ref={buttonRef}
                 type="button"
                 onClick={() => setOpen(v => !v)}
-                className="min-w-[180px] p-1 bg-background border border-border rounded-md text-sm text-left flex items-center justify-between gap-2 hover:border-primary transition"
+                className="flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-left text-sm transition hover:border-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 sm:min-h-9 sm:min-w-[168px]"
                 aria-haspopup="listbox"
                 aria-expanded={open}
             >
                 <span className="truncate">
                     {selected ? `v${selected.version} (${new Date(selected.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })})` : 'Выбрать версию'}
                 </span>
-                <span className="text-text-secondary">▾</span>
+                <span className="text-xs text-text-secondary">▾</span>
             </button>
 
             {open && rect && createPortal(
@@ -148,6 +200,15 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
     const [duplicateGroups, setDuplicateGroups] = useState<EstimateDuplicateGroup[]>([]);
     const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '';
+    const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1);
+
+    const resetFilters = () => {
+        setFilterClient('');
+        setFilterStatus('all');
+        setFilterBuildingType('');
+        setFilterAreaMin('');
+        setFilterAreaMax('');
+    };
 
     const handleCheckDuplicates = () => {
         const groups = findEstimateVersionDuplicates(estimateList);
@@ -347,141 +408,102 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     }, [estimateList]);
 
     return (
-        <div className="bg-surface p-3 sm:p-4 md:p-6 rounded-lg shadow-2xl">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-4 sm:mb-6 gap-3">
-                <h2 className="text-xl sm:text-2xl font-bold text-text-primary">История смет</h2>
-                <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
-                    {/* Mobile: show filter toggle + create button only */}
-                    <div className="flex gap-3 w-full sm:hidden">
-                        <button
-                            onClick={() => setShowFilters(prev => !prev)}
-                            className={`flex-1 min-h-[44px] font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm flex items-center justify-center gap-2 ${hasActiveFilters ? 'bg-amber-600 hover:bg-amber-700 text-white' : 'bg-gray-600 hover:bg-gray-500 text-text-primary'}`}
-                        >
-                            Фильтры
-                            {hasActiveFilters && <span className="w-2 h-2 rounded-full bg-white" />}
-                        </button>
-                        <button onClick={() => setShowQuickStart(true)} className="flex-1 min-h-[44px] bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
-                            Быстрый старт
-                        </button>
-                        <button onClick={() => createNewAction?.()} className="flex-1 min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm active:scale-95">
-                            Новая
-                        </button>
-                    </div>
-                    {/* Desktop: show all actions inline */}
-                    <div className="hidden sm:flex flex-col sm:flex-row gap-4 w-full sm:w-auto">
-                        <input
-                            type="text"
-                            placeholder="Фильтр по клиенту..."
-                            className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
-                            value={filterClient}
-                            onChange={(e) => setFilterClient(e.target.value)}
-                        />
-                        <select
-                            className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
-                            value={filterStatus}
-                            onChange={(e) => setFilterStatus(e.target.value as EstimateStatus | 'all')}
-                        >
-                            <option value="all">Все статусы</option>
-                            {Object.values(EstimateStatus).map(status => (
-                                <option key={status} value={status}>{status}</option>
-                            ))}
-                        </select>
-                        <input
-                            type="text"
-                            placeholder="Тип строения"
-                            className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full sm:w-auto"
-                            value={filterBuildingType}
-                            onChange={(e) => setFilterBuildingType(e.target.value)}
-                        />
-                        <div className="flex gap-2 w-full sm:w-auto">
-                            <input
-                                type="number"
-                                placeholder="Площадь от"
-                                className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full"
-                                value={filterAreaMin}
-                                onChange={(e) => setFilterAreaMin(e.target.value)}
-                            />
-                            <input
-                                type="number"
-                                placeholder="до"
-                                className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full"
-                                value={filterAreaMax}
-                                onChange={(e) => setFilterAreaMax(e.target.value)}
-                            />
-                        </div>
-                        <button onClick={handleExportData} className="min-h-[44px] bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
-                            Экспорт
-                        </button>
-                        <button onClick={handleImportData} className="min-h-[44px] bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
-                            Импорт
-                        </button>
-                        <button onClick={handleCheckDuplicates} className="min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
-                            Дубли версий
-                        </button>
-                        <button onClick={() => setShowQuickStart(true)} className="min-h-[44px] bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto">
-                            Быстрый старт
-                        </button>
-                        <button onClick={() => createNewAction?.()} className="min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 w-full sm:w-auto active:scale-95">
-                            Создать новую
-                        </button>
-                    </div>
+        <div className="rounded-xl border border-border bg-surface p-3 shadow-lg sm:p-4 md:p-5">
+            <div className="mb-4 flex flex-col gap-3 border-b border-border/70 pb-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                    <h2 className="text-lg font-semibold tracking-tight text-text-primary">История смет</h2>
+                    <p className="mt-0.5 text-xs text-text-secondary">
+                        {hasActiveFilters ? `Найдено: ${filteredEstimates.length}` : `Активных смет: ${filteredEstimates.length}`}
+                    </p>
+                </div>
+                <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                    <button
+                        type="button"
+                        onClick={() => setShowQuickStart(true)}
+                        className="min-h-11 rounded-lg border border-border bg-background/50 px-3 text-sm font-medium text-text-primary transition hover:border-text-secondary hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-primary/50 sm:min-h-9"
+                    >
+                        Быстрый старт
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => createNewAction?.()}
+                        className="min-h-11 rounded-lg bg-primary px-3 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface active:scale-[0.98] sm:min-h-9"
+                    >
+                        Создать смету
+                    </button>
                 </div>
             </div>
 
-            {/* Mobile collapsible filters */}
-            {showFilters && (
-                <div className="sm:hidden mb-4 space-y-3 p-3 bg-background/40 rounded-lg border border-border">
-                    <input
-                        type="text"
-                        placeholder="Фильтр по клиенту..."
-                        className="min-h-[44px] w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                        value={filterClient}
-                        onChange={(e) => setFilterClient(e.target.value)}
-                    />
-                    <select
-                        className="min-h-[44px] w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                        value={filterStatus}
-                        onChange={(e) => setFilterStatus(e.target.value as EstimateStatus | 'all')}
-                    >
+            <div className="mb-4 flex items-center gap-2 xl:hidden">
+                <button
+                    type="button"
+                    onClick={() => setShowFilters(prev => !prev)}
+                    aria-expanded={showFilters}
+                    className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-background/50 px-3 text-sm font-medium text-text-primary transition hover:border-text-secondary hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                    Фильтры
+                    {activeFilterCount > 0 && (
+                        <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">{activeFilterCount}</span>
+                    )}
+                </button>
+                <HistoryActionsMenu onExport={handleExportData} onImport={handleImportData} onCheckDuplicates={handleCheckDuplicates} />
+            </div>
+
+            <div className="mb-4 hidden items-center gap-2 xl:flex">
+                <label className="min-w-[220px] flex-1">
+                    <span className="sr-only">Клиент</span>
+                    <input type="text" placeholder="Клиент" className="h-9 w-full rounded-lg border border-border bg-background/60 px-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterClient} onChange={(e) => setFilterClient(e.target.value)} />
+                </label>
+                <label>
+                    <span className="sr-only">Статус</span>
+                    <select className="h-9 w-40 rounded-lg border border-border bg-background/60 px-2.5 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as EstimateStatus | 'all')}>
                         <option value="all">Все статусы</option>
-                        {Object.values(EstimateStatus).map(status => (
-                            <option key={status} value={status}>{status}</option>
-                        ))}
+                        {Object.values(EstimateStatus).map(status => <option key={status} value={status}>{status}</option>)}
                     </select>
-                    <input
-                        type="text"
-                        placeholder="Тип строения"
-                        className="min-h-[44px] w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                        value={filterBuildingType}
-                        onChange={(e) => setFilterBuildingType(e.target.value)}
-                    />
-                    <div className="flex gap-2">
-                        <input
-                            type="number"
-                            placeholder="Площадь от"
-                            className="min-h-[44px] flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                            value={filterAreaMin}
-                            onChange={(e) => setFilterAreaMin(e.target.value)}
-                        />
-                        <input
-                            type="number"
-                            placeholder="до"
-                            className="min-h-[44px] flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                            value={filterAreaMax}
-                            onChange={(e) => setFilterAreaMax(e.target.value)}
-                        />
-                    </div>
-                    <div className="flex gap-2">
-                        <button onClick={handleExportData} className="flex-1 min-h-[44px] bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
-                            Экспорт
-                        </button>
-                        <button onClick={handleImportData} className="flex-1 min-h-[44px] bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
-                            Импорт
-                        </button>
-                        <button onClick={handleCheckDuplicates} className="flex-1 min-h-[44px] bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 text-sm">
-                            Дубли
-                        </button>
-                    </div>
+                </label>
+                <label>
+                    <span className="sr-only">Тип строения</span>
+                    <input type="text" placeholder="Тип строения" className="h-9 w-44 rounded-lg border border-border bg-background/60 px-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterBuildingType} onChange={(e) => setFilterBuildingType(e.target.value)} />
+                </label>
+                <div className="flex items-center gap-1.5" aria-label="Площадь">
+                    <input type="number" placeholder="м² от" aria-label="Площадь от" className="h-9 w-24 rounded-lg border border-border bg-background/60 px-2.5 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterAreaMin} onChange={(e) => setFilterAreaMin(e.target.value)} />
+                    <input type="number" placeholder="до" aria-label="Площадь до" className="h-9 w-20 rounded-lg border border-border bg-background/60 px-2.5 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterAreaMax} onChange={(e) => setFilterAreaMax(e.target.value)} />
+                </div>
+                {hasActiveFilters && (
+                    <button type="button" onClick={resetFilters} className="h-9 rounded-lg px-2.5 text-sm text-text-secondary transition hover:bg-white/5 hover:text-text-primary">Сбросить</button>
+                )}
+                <div className="ml-auto">
+                    <HistoryActionsMenu desktop onExport={handleExportData} onImport={handleImportData} onCheckDuplicates={handleCheckDuplicates} />
+                </div>
+            </div>
+
+            {showFilters && (
+                <div className="mb-4 grid grid-cols-1 gap-3 rounded-lg border border-border bg-background/35 p-3 sm:grid-cols-2 xl:hidden">
+                    <label className="text-xs font-medium text-text-secondary">
+                        Клиент
+                        <input type="text" placeholder="Имя или компания" className="mt-1 min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterClient} onChange={(e) => setFilterClient(e.target.value)} />
+                    </label>
+                    <label className="text-xs font-medium text-text-secondary">
+                        Статус
+                        <select className="mt-1 min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as EstimateStatus | 'all')}>
+                            <option value="all">Все статусы</option>
+                            {Object.values(EstimateStatus).map(status => <option key={status} value={status}>{status}</option>)}
+                        </select>
+                    </label>
+                    <label className="text-xs font-medium text-text-secondary">
+                        Тип строения
+                        <input type="text" placeholder="Например, каркасный дом" className="mt-1 min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterBuildingType} onChange={(e) => setFilterBuildingType(e.target.value)} />
+                    </label>
+                    <fieldset>
+                        <legend className="text-xs font-medium text-text-secondary">Площадь, м²</legend>
+                        <div className="mt-1 flex gap-2">
+                            <input type="number" placeholder="От" aria-label="Площадь от" className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterAreaMin} onChange={(e) => setFilterAreaMin(e.target.value)} />
+                            <input type="number" placeholder="До" aria-label="Площадь до" className="min-h-11 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterAreaMax} onChange={(e) => setFilterAreaMax(e.target.value)} />
+                        </div>
+                    </fieldset>
+                    {hasActiveFilters && (
+                        <button type="button" onClick={resetFilters} className="min-h-11 rounded-lg border border-border px-3 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary sm:col-span-2">Сбросить фильтры</button>
+                    )}
                 </div>
             )}
 
@@ -490,15 +512,12 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
-                            <th className="text-left py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Номер</th>
-                            <th className="text-left py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Клиент</th>
-                            <th className="text-left py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Дата</th>
-                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Версия</th>
-                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Статус</th>
-                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Вид Стр.</th>
-                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Площадь</th>
-                            <th className="text-right py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Сумма</th>
-                            <th className="text-center py-2 px-3 uppercase font-semibold text-sm text-text-secondary">Действия</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">Клиент и смета</th>
+                            <th className="px-3 py-2 text-center text-xs font-medium text-text-secondary">Версия</th>
+                            <th className="px-3 py-2 text-center text-xs font-medium text-text-secondary">Статус</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">Объект</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-text-secondary">Сумма</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-text-secondary">Действия</th>
                         </tr>
                     </thead>
                     <tbody className="text-text-primary">
@@ -508,11 +527,14 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                             const versionHistory = getVersionHistory(estimate);
                             
                             return (
-                                <tr key={estimate.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
-                                    <td className="text-left py-2 px-3">{estimate.estimateNumber}</td>
-                                    <td className="text-left py-2 px-3">{estimate.client}</td>
-                                    <td className="text-left py-2 px-3">{new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td>
-                                    <td className="text-center py-2 px-3">
+                                <tr key={estimate.id} className="border-b border-border/70 transition-colors hover:bg-white/[0.03]">
+                                    <td className="px-3 py-2.5 text-left">
+                                        <div className="max-w-[240px] truncate text-sm font-medium">{selectedEstimate.client || 'Без клиента'}</div>
+                                        <div className="mt-0.5 text-xs text-text-secondary">
+                                            {selectedEstimate.estimateNumber} · {new Date(selectedEstimate.date).toLocaleDateString('ru-RU')}
+                                        </div>
+                                    </td>
+                                    <td className="px-3 py-2.5 text-center">
                                         <VersionDropdown
                                             versions={versionHistory}
                                             selectedId={selectedVersions[groupKey] || (versionHistory[0] && versionHistory[0].id) || estimate.id}
@@ -520,19 +542,21 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                             onDelete={(estimateVersion) => deleteVersionAction?.(estimateVersion)}
                                         />
                                     </td>
-                                    <td className="text-center py-3 px-4">
-                                        <span className={`py-1 px-3 rounded-full text-xs font-semibold ${statusColors[selectedEstimate.status]}`}>
+                                    <td className="px-3 py-2.5 text-center">
+                                        <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${statusColors[selectedEstimate.status]}`}>
                                             {selectedEstimate.status}
                                         </span>
                                     </td>
-                                    <td className="text-center py-2 px-3">{estimate.buildingType}</td>
-                                    <td className="text-center py-2 px-3">{estimate.area} м²</td>
-                                    <td className="text-right py-2 px-3 font-medium">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</td>
-                                    <td className="text-center py-2 px-3">
-                                        <div className="flex item-center justify-center gap-3">
-                                            <button onClick={() => editAction?.(selectedEstimate)} className="text-blue-400 hover:text-blue-300 font-semibold transition-colors">Просмотр</button>
-                                            <button onClick={() => generatePdfAction?.(selectedEstimate)} className="text-purple-400 hover:text-purple-300 font-semibold transition-colors">PDF</button>
-                                            <button onClick={() => deleteAction?.(estimate)} className="text-red-500 hover:text-red-400 font-semibold transition-colors">Удалить</button>
+                                    <td className="px-3 py-2.5 text-left">
+                                        <div className="max-w-[180px] truncate text-sm">{selectedEstimate.buildingType || 'Не указан'}</div>
+                                        <div className="mt-0.5 text-xs text-text-secondary">{selectedEstimate.area} м²</div>
+                                    </td>
+                                    <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm font-semibold">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</td>
+                                    <td className="px-3 py-2.5 text-right">
+                                        <div className="flex items-center justify-end gap-1">
+                                            <button onClick={() => editAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-primary transition hover:bg-white/5">Открыть</button>
+                                            <button onClick={() => generatePdfAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">PDF</button>
+                                            <button onClick={() => deleteAction?.(estimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-300">Удалить</button>
                                         </div>
                                     </td>
                                 </tr>
@@ -540,6 +564,12 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         })}
                     </tbody>
                 </table>
+                {filteredEstimates.length === 0 && (
+                    <div className="py-10 text-center text-sm text-text-secondary">
+                        <p>{hasActiveFilters ? 'По выбранным фильтрам смет не найдено' : 'Смет пока нет'}</p>
+                        {hasActiveFilters && <button type="button" onClick={resetFilters} className="mt-2 rounded-md px-3 py-1.5 font-medium text-text-primary hover:bg-white/5">Сбросить фильтры</button>}
+                    </div>
+                )}
             </div>
 
             {/* Mobile card list */}
@@ -550,36 +580,36 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     const versionHistory = getVersionHistory(estimate);
 
                     return (
-                        <article key={estimate.id} className="rounded-lg border border-border bg-background/40 p-3">
+                        <article key={estimate.id} className="rounded-lg border border-border bg-background/35 p-3">
                             <div className="flex items-start justify-between gap-2 mb-2">
                                 <div className="min-w-0 flex-1">
                                     <div className="font-semibold text-text-primary truncate">{estimate.client || 'Без клиента'}</div>
                                     <div className="text-xs text-text-secondary">{estimate.estimateNumber} &middot; {estimate.area} м² &middot; {estimate.buildingType}</div>
                                 </div>
-                                <span className={`shrink-0 py-1 px-2 rounded-full text-xs font-semibold ${statusColors[selectedEstimate.status]}`}>
+                                <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusColors[selectedEstimate.status]}`}>
                                     {selectedEstimate.status}
                                 </span>
                             </div>
                             <div className="text-xs text-text-secondary mb-2">
                                 {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </div>
-                            <div className="flex items-center justify-between mb-3">
+                            <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
                                 <VersionDropdown
                                     versions={versionHistory}
                                     selectedId={selectedVersions[groupKey] || (versionHistory[0] && versionHistory[0].id) || estimate.id}
                                     onSelect={(versionId) => handleVersionChange(groupKey, versionId)}
                                     onDelete={(estimateVersion) => deleteVersionAction?.(estimateVersion)}
                                 />
-                                <span className="font-bold text-text-primary">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</span>
+                                <span className="shrink-0 text-sm font-semibold text-text-primary">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</span>
                             </div>
                             <div className="flex gap-2">
-                                <button onClick={() => editAction?.(selectedEstimate)} className="flex-1 min-h-[44px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-sm font-semibold rounded-md transition-colors">
-                                    Просмотр
+                                <button onClick={() => editAction?.(selectedEstimate)} className="min-h-11 flex-1 rounded-lg bg-primary text-sm font-semibold text-white transition hover:bg-primary-hover">
+                                    Открыть
                                 </button>
-                                <button onClick={() => generatePdfAction?.(selectedEstimate)} className="flex-1 min-h-[44px] bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white text-sm font-semibold rounded-md transition-colors">
+                                <button onClick={() => generatePdfAction?.(selectedEstimate)} className="min-h-11 flex-1 rounded-lg border border-border bg-background/50 text-sm font-medium text-text-primary transition hover:bg-white/5">
                                     PDF
                                 </button>
-                                <button onClick={() => deleteAction?.(estimate)} className="min-h-[44px] min-w-[44px] bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-sm font-semibold rounded-md transition-colors flex items-center justify-center">
+                                <button onClick={() => deleteAction?.(estimate)} aria-label={`Удалить смету ${estimate.estimateNumber}`} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-border text-sm font-medium text-text-secondary transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300">
                                     ✕
                                 </button>
                             </div>
@@ -587,7 +617,10 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     );
                 })}
                 {filteredEstimates.length === 0 && (
-                    <div className="text-center py-8 text-text-secondary">Нет смет</div>
+                    <div className="py-8 text-center text-sm text-text-secondary">
+                        <p>{hasActiveFilters ? 'По выбранным фильтрам смет не найдено' : 'Смет пока нет'}</p>
+                        {hasActiveFilters && <button type="button" onClick={resetFilters} className="mt-2 min-h-11 rounded-lg border border-border px-3 font-medium text-text-primary">Сбросить фильтры</button>}
+                    </div>
                 )}
             </div>
 

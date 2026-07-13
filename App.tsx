@@ -46,6 +46,7 @@ import {
 } from './services/subscriptionService';
 import { createPayment } from './services/paymentService';
 import { setupAppUsageTracking } from './services/appUsage';
+import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './services/offlineIdentity';
 
 const EstimateHistory = lazy(() => import('./components/EstimateHistory'));
 const EstimateEditor = lazy(() => import('./components/EstimateEditor'));
@@ -223,7 +224,7 @@ const initialSaveState: SaveState = {
 };
 
 const createInitialAuthState = (): AuthState => ({
-    supabaseUser: null,
+    supabaseUser: typeof navigator !== 'undefined' && !navigator.onLine ? getOfflineUser() : null,
     subscription: null,
     subscriptionLoading: false,
     paymentLoading: false,
@@ -257,7 +258,7 @@ const App: React.FC = () => {
             }
         } catch { /* ignore */ }
     }, []);
-    const offlineSync = useOfflineSync();
+    const offlineSync = useOfflineSync(authState.supabaseUser?.id ?? null);
     const {
         supabaseUser,
         subscription,
@@ -316,10 +317,24 @@ const App: React.FC = () => {
     const setIsSaving = useCallback((v: React.SetStateAction<boolean>) => setSaveState(p => ({ ...p, isSaving: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.isSaving) : v })), []);
     const setLastSaved = useCallback((v: React.SetStateAction<Date | null>) => setSaveState(p => ({ ...p, lastSaved: typeof v === 'function' ? (v as (prev: Date | null) => Date | null)(p.lastSaved) : v })), []);
     const setSaveError = useCallback((v: React.SetStateAction<string | null>) => setSaveState(p => ({ ...p, saveError: typeof v === 'function' ? (v as (prev: string | null) => string | null)(p.saveError) : v })), []);
+    const handleEnterOfflineMode = useCallback(() => {
+        if (!useSupabaseAuth) {
+            setOfflineMode(true);
+            return;
+        }
+        const rememberedUser = getOfflineUser();
+        if (!rememberedUser) {
+            setOfflineMode(false);
+            setShowLoginModal(true);
+            return;
+        }
+        setSupabaseUser(rememberedUser);
+        setOfflineMode(true);
+    }, [setOfflineMode, setShowLoginModal, setSupabaseUser, useSupabaseAuth]);
     const recoveryIntent = recoveryRequired || hasRecoveryFlagInUrl();
     const isAuthenticated = useMemo(() => {
-        return (Boolean(supabaseUser) || offlineModeRaw) && !recoveryIntent;
-    }, [supabaseUser, offlineModeRaw, recoveryIntent]);
+        return (Boolean(supabaseUser) || (!useSupabaseAuth && offlineModeRaw)) && !recoveryIntent;
+    }, [supabaseUser, offlineModeRaw, recoveryIntent, useSupabaseAuth]);
     const displayName = useMemo(() => {
         if (supabaseUser) {
             const meta = supabaseUser.user_metadata as Record<string, string | undefined> | undefined;
@@ -383,6 +398,7 @@ const App: React.FC = () => {
     const saveInFlightRef = useRef(false);
     const saveQueuedRef = useRef(false);
     const savedIndicatorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const legacyPromptedRef = useRef<string | null>(null);
 
     // Dirty flags: track which data actually changed since last save
     const dirtyTablesRef = useRef<Record<string, boolean>>({
@@ -609,12 +625,21 @@ const App: React.FC = () => {
             console.error('Supabase signOut error:', error);
         }
         setSupabaseUser(null);
+        clearOfflineUser();
+        setOfflineMode(false);
+        setEstimates([]);
+        setTemplates([]);
+        setMaterials([]);
+        setWorks([]);
+        setBundles([]);
+        setLoadedFlags({ estimates: false, templates: false, materials: false, works: false, bundles: false });
+        setDataHashes({});
         setRecoveryRequired(false);
         try {
             localStorage.removeItem(RECOVERY_STORAGE_KEY);
         } catch {
         }
-    }, [setRecoveryRequired, setSupabaseUser]);
+    }, [setOfflineMode, setRecoveryRequired, setSupabaseUser]);
 
     useEffect(() => {
         const sb = supabase;
@@ -662,14 +687,20 @@ const App: React.FC = () => {
                     throw error;
                 }
                 if (!isMounted) return;
-                setSupabaseUser(data.session?.user ?? null);
                 if (data.session?.user) {
-                    setOfflineMode(false);
+                    rememberOfflineUser(data.session.user);
+                    setSupabaseUser(data.session.user);
+                    setOfflineMode(!navigator.onLine);
                 } else {
                     clearRecoveryRequired();
-                    // No session — check if we should enter offline mode
-                    if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
-                        setOfflineMode(true);
+                    if (!navigator.onLine) {
+                        const rememberedUser = getOfflineUser();
+                        setSupabaseUser(rememberedUser);
+                        setOfflineMode(Boolean(rememberedUser));
+                    } else {
+                        clearOfflineUser();
+                        setSupabaseUser(null);
+                        setOfflineMode(false);
                     }
                 }
                 if (data.session?.user && hasRecoveryFlagInUrl()) {
@@ -679,48 +710,35 @@ const App: React.FC = () => {
                 }
                 return;
             } catch {
-                // Offline or network error — try reading cached session from localStorage
-                try {
-                    let cachedUser = null;
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i);
-                        if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
-                            const raw = localStorage.getItem(key);
-                            if (raw) {
-                                const parsed = JSON.parse(raw);
-                                const session = parsed?.current_session || parsed?.session;
-                                if (session?.user) {
-                                    cachedUser = session.user;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if (cachedUser) {
-                        if (!isMounted) return;
-                        setSupabaseUser(cachedUser);
-                        setOfflineMode(true);
-                        return;
-                    }
-                } catch {
-                    // ignore localStorage errors
+                const cachedUser = getOfflineUser();
+                if (cachedUser) {
+                    if (!isMounted) return;
+                    setSupabaseUser(cachedUser);
+                    setOfflineMode(true);
+                    return;
                 }
             }
             if (!isMounted) return;
             setSupabaseUser(null);
-            // Restore offlineMode from localStorage if offline or was previously in offline mode
-            if (!navigator.onLine || localStorage.getItem(OFFLINE_MODE_KEY) === 'true') {
-                setOfflineMode(true);
-            } else {
-                setOfflineMode(false);
-            }
+            setOfflineMode(false);
         };
 
         void initSession();
 
         const { data } = sb.auth.onAuthStateChange((event, session) => {
+            if (!session?.user && !navigator.onLine) {
+                const rememberedUser = getOfflineUser();
+                setSupabaseUser(rememberedUser);
+                setOfflineMode(Boolean(rememberedUser));
+                return;
+            }
+            if (session?.user) {
+                rememberOfflineUser(session.user);
+            } else {
+                clearOfflineUser();
+            }
             setSupabaseUser(session?.user ?? null);
-            setOfflineMode(false);
+            setOfflineMode(session?.user ? !navigator.onLine : false);
             if (!session?.user) {
                 clearRecoveryRequired();
             }
@@ -851,6 +869,52 @@ const App: React.FC = () => {
             return () => clearTimeout(timer);
         }
     }, [offlineSync.syncedCount, setSync]);
+
+    useEffect(() => {
+        if (offlineSync.syncStatus !== 'error') return;
+        setSync({
+            visible: true,
+            message: 'Синхронизация не завершена. Изменения сохранены локально — повторите после восстановления связи.',
+            type: 'error',
+        });
+        const timer = setTimeout(() => setSync(current => ({ ...current, visible: false })), 5000);
+        return () => clearTimeout(timer);
+    }, [offlineSync.syncStatus, setSync]);
+
+    useEffect(() => {
+        if (!supabaseUser || offlineSync.legacyPendingCount === 0) {
+            legacyPromptedRef.current = null;
+            return;
+        }
+        const promptKey = `${supabaseUser.id}:${offlineSync.legacyPendingCount}`;
+        if (legacyPromptedRef.current === promptKey) return;
+        legacyPromptedRef.current = promptKey;
+        const accountLabel = supabaseUser.email || supabaseUser.phone || supabaseUser.id;
+        const confirmed = window.confirm(
+            `Найдены ${offlineSync.legacyPendingCount} несинхронизированных изменений старой версии. `
+            + `Привязать их к профилю ${accountLabel}? Делайте это только для исходного профиля.`,
+        );
+        if (!confirmed) return;
+        void offlineSync.claimLegacyChanges().then(migrated => {
+            setSync({
+                visible: true,
+                message: `Старые локальные изменения подготовлены к синхронизации (${migrated}).`,
+                type: 'success',
+            });
+        }).catch(error => {
+            console.error('Legacy offline queue claim failed:', error);
+            setSync({ visible: true, message: 'Не удалось подготовить старые локальные изменения.', type: 'error' });
+        });
+    }, [offlineSync, setSync, supabaseUser]);
+
+    useEffect(() => {
+        if (offlineSync.quarantinedErrorCount === 0) return;
+        setSync({
+            visible: true,
+            message: `Обнаружены повреждённые записи старой offline-очереди (${offlineSync.quarantinedErrorCount}). Они изолированы и не блокируют текущую работу.`,
+            type: 'error',
+        });
+    }, [offlineSync.quarantinedErrorCount, setSync]);
 
     // Reset loadedFlags after sync so data is re-fetched from Supabase/cache
     useEffect(() => {
@@ -1048,9 +1112,8 @@ const App: React.FC = () => {
             if (loadedFlags.materials && dirty.materials) tasks.push(saveMaterials(materials));
             if (loadedFlags.works && dirty.works) tasks.push(saveWorks(works));
             if (loadedFlags.bundles && dirty.bundles) tasks.push(saveBundles(bundles));
-            if (tasks.length) {
-                await Promise.all(tasks);
-            }
+            if (!tasks.length) return;
+            await Promise.all(tasks);
             // Reset dirty flags after successful save
             dirtyTablesRef.current = {
                 estimates: false,
@@ -1152,6 +1215,19 @@ const App: React.FC = () => {
             window.removeEventListener('offline', handleOffline);
         };
     }, [showToast]);
+
+    useEffect(() => {
+        const handleOnline = () => {
+            if (supabaseUser) setOfflineMode(false);
+        };
+        const handleOffline = () => setOfflineMode(true);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, [setOfflineMode, supabaseUser]);
 
     useEffect(() => {
         return () => {
@@ -1406,7 +1482,8 @@ const App: React.FC = () => {
         if (!materialName && !workName) return;
 
         setEstimates(prevEstimates => {
-            return prevEstimates.map(estimate => {
+            let changed = false;
+            const nextEstimates = prevEstimates.map(estimate => {
                 if (estimate.status !== EstimateStatus.DRAFT) return estimate;
                 const hasMatch = estimate.items.some(item => {
                     if (materialName && item.subgroup === EstimateSubgroup.MATERIALS && item.name === materialName) {
@@ -1418,8 +1495,13 @@ const App: React.FC = () => {
                     return false;
                 });
                 if (!hasMatch || estimate.needsPriceUpdate) return estimate;
+                changed = true;
                 return { ...estimate, needsPriceUpdate: true };
             });
+            if (changed) {
+                dirtyTablesRef.current.estimates = true;
+            }
+            return nextEstimates;
         });
     }, []);
 
@@ -1909,7 +1991,7 @@ const App: React.FC = () => {
         return (
             <ErrorBoundary>
             <div className="min-h-screen bg-background text-text-primary">
-                <LandingPage onOpenLogin={() => setShowLoginModal(true)} onOfflineMode={() => setOfflineMode(true)} />
+                <LandingPage onOpenLogin={() => setShowLoginModal(true)} onOfflineMode={handleEnterOfflineMode} />
                 {showLoginModal && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" role="dialog" aria-modal="true">
                         <div className="relative w-full max-w-md">
@@ -1931,8 +2013,9 @@ const App: React.FC = () => {
                             <div className="mt-4">
                                 <button
                                     type="button"
-                                    onClick={() => setOfflineMode(true)}
-                                    className="w-full rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-300 font-medium hover:bg-amber-500/20 transition"
+                                    onClick={handleEnterOfflineMode}
+                                    disabled={useSupabaseAuth && !getOfflineUser()}
+                                    className="w-full rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-300 font-medium hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50 transition"
                                 >
                                     Работать оффлайн
                                 </button>
