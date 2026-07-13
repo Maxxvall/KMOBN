@@ -15,8 +15,34 @@ export interface CacheRecord<T> {
   updatedAt: string;
 }
 
+export interface OfflineTableMetadata {
+  key: string;
+  userId: string;
+  table: CacheTableKey;
+  complete: boolean;
+  lastSyncedAt: string;
+  recordCount: number;
+}
+
+export interface OfflineCoverage {
+  ready: boolean;
+  missingTables: CacheTableKey[];
+  lastPreparedAt: string | null;
+  tables: Partial<Record<CacheTableKey, OfflineTableMetadata>>;
+}
+
 const DB_NAME = 'kmobn_indexeddb_cache';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+const METADATA_STORE_NAME = 'sync_metadata';
+
+export const OFFLINE_TABLES: readonly CacheTableKey[] = [
+  'estimates',
+  'templates',
+  'materials',
+  'works',
+  'bundles',
+  'salary_calculations',
+];
 
 const STORE_NAMES: Record<CacheTableKey, string> = {
   estimates: 'estimates',
@@ -34,6 +60,7 @@ export const getCacheUserId = (userId: string | null | undefined): string => use
 
 const getStoreName = (key: CacheTableKey): string => STORE_NAMES[key];
 const buildRecordKey = (userId: string, id: string): string => `${userId}:${id}`;
+const buildMetadataKey = (userId: string, table: CacheTableKey): string => `${userId}:${table}`;
 
 const requestToPromise = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
@@ -78,6 +105,10 @@ const openDb = (): Promise<IDBDatabase> => {
           store.createIndex('by_user_id', ['userId', 'id'], { unique: true });
         }
       });
+      if (!db.objectStoreNames.contains(METADATA_STORE_NAME)) {
+        const metadataStore = db.createObjectStore(METADATA_STORE_NAME, { keyPath: 'key' });
+        metadataStore.createIndex('by_user', 'userId', { unique: false });
+      }
     };
     request.onsuccess = () => {
       cachedDb = request.result;
@@ -140,6 +171,43 @@ const getAllEntriesByUser = async <T>(table: CacheTableKey, userId: string): Pro
 export const getCachedRecords = async <T>(table: CacheTableKey, userId: string): Promise<T[]> => {
   const entries = await getAllEntriesByUser<T>(table, userId);
   return entries.map(entry => entry.data);
+};
+
+export const getOfflineCoverage = async (userId: string): Promise<OfflineCoverage> => {
+  if (!isIndexedDbAvailable()) {
+    return { ready: false, missingTables: [...OFFLINE_TABLES], lastPreparedAt: null, tables: {} };
+  }
+  const db = await openDb();
+  const tx = db.transaction(METADATA_STORE_NAME, 'readonly');
+  const entries = await requestToPromise(tx.objectStore(METADATA_STORE_NAME).index('by_user').getAll(userId));
+  await waitForTransaction(tx);
+
+  const tables: Partial<Record<CacheTableKey, OfflineTableMetadata>> = {};
+  for (const entry of (entries ?? []) as OfflineTableMetadata[]) {
+    tables[entry.table] = entry;
+  }
+  const missingTables = OFFLINE_TABLES.filter(table => !tables[table]?.complete);
+  const completedDates = OFFLINE_TABLES
+    .map(table => tables[table]?.lastSyncedAt)
+    .filter((value): value is string => Boolean(value));
+
+  return {
+    ready: missingTables.length === 0,
+    missingTables,
+    lastPreparedAt: missingTables.length === 0 && completedDates.length > 0
+      ? completedDates.sort()[0]
+      : null,
+    tables,
+  };
+};
+
+export const isTableSnapshotComplete = async (table: CacheTableKey, userId: string): Promise<boolean> => {
+  if (!isIndexedDbAvailable()) return false;
+  const db = await openDb();
+  const tx = db.transaction(METADATA_STORE_NAME, 'readonly');
+  const entry = await requestToPromise(tx.objectStore(METADATA_STORE_NAME).get(buildMetadataKey(userId, table)));
+  await waitForTransaction(tx);
+  return Boolean((entry as OfflineTableMetadata | undefined)?.complete);
 };
 
 export const upsertCachedRecords = async <T extends { id: string }>(
@@ -211,8 +279,9 @@ export const syncCachedRecords = async <T extends { id: string }>(
   const changedIds: string[] = [];
   const nextIds = new Set<string>();
 
-  const tx = db.transaction(storeName, 'readwrite');
+  const tx = db.transaction([storeName, METADATA_STORE_NAME], 'readwrite');
   const store = tx.objectStore(storeName);
+  const metadataStore = tx.objectStore(METADATA_STORE_NAME);
 
   records.forEach(record => {
     if (!record || !record.id) return;
@@ -242,6 +311,17 @@ export const syncCachedRecords = async <T extends { id: string }>(
       changed = true;
     }
   });
+
+  const lastSyncedAt = new Date().toISOString();
+  const metadata: OfflineTableMetadata = {
+    key: buildMetadataKey(userId, table),
+    userId,
+    table,
+    complete: true,
+    lastSyncedAt,
+    recordCount: nextIds.size,
+  };
+  metadataStore.put(metadata);
 
   await waitForTransaction(tx);
   return { changed, next: records, changedIds, cacheAvailable: true };

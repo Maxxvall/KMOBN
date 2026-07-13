@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
-import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey } from './types';
+import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey, findDuplicates } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import StatusIndicators from './components/StatusIndicators';
@@ -47,6 +47,7 @@ import {
 import { createPayment } from './services/paymentService';
 import { setupAppUsageTracking } from './services/appUsage';
 import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './services/offlineIdentity';
+import { buildCatalogDuplicateDeletePlan, type CatalogDuplicateDecision } from './services/duplicateManagement';
 
 const EstimateHistory = lazy(() => import('./components/EstimateHistory'));
 const EstimateEditor = lazy(() => import('./components/EstimateEditor'));
@@ -679,6 +680,32 @@ const App: React.FC = () => {
             window.history.replaceState({}, document.title, url.toString());
         };
 
+        const validateOnlineSession = async () => {
+            if (!navigator.onLine) return;
+            const { data: sessionData, error: sessionError } = await sb.auth.getSession();
+            if (sessionError) throw sessionError;
+            if (!sessionData.session) {
+                clearOfflineUser();
+                setSupabaseUser(null);
+                setOfflineMode(false);
+                return;
+            }
+            const { data: userData, error: userError } = await sb.auth.getUser();
+            if (userError || !userData.user) {
+                const status = Number((userError as { status?: unknown } | null)?.status);
+                if (status === 401 || status === 403) {
+                    clearOfflineUser();
+                    setSupabaseUser(null);
+                    setOfflineMode(false);
+                    return;
+                }
+                throw userError ?? new Error('Не удалось подтвердить online-сессию');
+            }
+            rememberOfflineUser(userData.user);
+            setSupabaseUser(userData.user);
+            setOfflineMode(false);
+        };
+
         const initSession = async () => {
             try {
                 const { data, error } = await sb.auth.getSession();
@@ -688,9 +715,13 @@ const App: React.FC = () => {
                 }
                 if (!isMounted) return;
                 if (data.session?.user) {
-                    rememberOfflineUser(data.session.user);
-                    setSupabaseUser(data.session.user);
-                    setOfflineMode(!navigator.onLine);
+                    if (navigator.onLine) {
+                        await validateOnlineSession();
+                    } else {
+                        rememberOfflineUser(data.session.user);
+                        setSupabaseUser(data.session.user);
+                        setOfflineMode(true);
+                    }
                 } else {
                     clearRecoveryRequired();
                     if (!navigator.onLine) {
@@ -724,6 +755,15 @@ const App: React.FC = () => {
         };
 
         void initSession();
+        const handleOnlineSessionValidation = () => {
+            void validateOnlineSession().catch(error => {
+                console.error('Online session validation failed:', error);
+                const rememberedUser = getOfflineUser();
+                setSupabaseUser(rememberedUser);
+                setOfflineMode(Boolean(rememberedUser));
+            });
+        };
+        window.addEventListener('online', handleOnlineSessionValidation);
 
         const { data } = sb.auth.onAuthStateChange((event, session) => {
             if (!session?.user && !navigator.onLine) {
@@ -759,6 +799,7 @@ const App: React.FC = () => {
 
         return () => {
             isMounted = false;
+            window.removeEventListener('online', handleOnlineSessionValidation);
             data.subscription.unsubscribe();
         };
     }, [useSupabaseAuth, setRecoveryRequired, setShowPasswordRecoveryModal, setSupabaseUser, setOfflineMode]);
@@ -930,6 +971,13 @@ const App: React.FC = () => {
             });
         }
     }, [offlineSync.syncedTables]);
+
+    // A completed workspace refresh may update tables that had no local
+    // outbox entries, so make the active view re-read its local snapshot too.
+    useEffect(() => {
+        if (offlineSync.workspaceVersion === 0) return;
+        setLoadedFlags({ estimates: false, templates: false, materials: false, works: false, bundles: false });
+    }, [offlineSync.workspaceVersion]);
 
     const loadHistoryData = useCallback(async (showToast: boolean) => {
         if (loadedFlags.estimates && loadedFlags.templates) return;
@@ -1712,22 +1760,39 @@ const App: React.FC = () => {
         }
     }, []);
 
+    const findMaterialDuplicates = useCallback(async () => {
+        return findDuplicates(await loadMaterials());
+    }, []);
+
+    const findWorkDuplicates = useCallback(async () => {
+        return findDuplicates(await loadWorks());
+    }, []);
+
     const handleMergeCatalogDuplicates = useCallback(async (
         type: 'material' | 'work',
-        keepId: string,
-        deleteIds: string[]
-    ) => {
+        decisions: CatalogDuplicateDecision[],
+    ): Promise<number> => {
         try {
             if (type === 'material') {
-                await deleteMaterials(deleteIds);
-                setMaterials(prev => prev.filter(m => !deleteIds.includes(m.id)));
+                const currentMaterials = await loadMaterials();
+                const plan = buildCatalogDuplicateDeletePlan(currentMaterials, decisions);
+                if (plan.deleteIds.length === 0) return 0;
+                await deleteMaterials(plan.deleteIds);
+                const deleteSet = new Set(plan.deleteIds);
+                setMaterials(currentMaterials.filter(material => !deleteSet.has(material.id)));
+                return plan.deleteIds.length;
             } else {
-                await deleteWorks(deleteIds);
-                setWorks(prev => prev.filter(w => !deleteIds.includes(w.id)));
+                const currentWorks = await loadWorks();
+                const plan = buildCatalogDuplicateDeletePlan(currentWorks, decisions);
+                if (plan.deleteIds.length === 0) return 0;
+                await deleteWorks(plan.deleteIds);
+                const deleteSet = new Set(plan.deleteIds);
+                setWorks(currentWorks.filter(work => !deleteSet.has(work.id)));
+                return plan.deleteIds.length;
             }
         } catch (error) {
             console.error('Failed to merge duplicates:', error);
-            alert('Не удалось объединить дубликаты.');
+            throw error;
         }
     }, []);
 
@@ -1889,6 +1954,8 @@ const App: React.FC = () => {
         onAddBundle: handleAddBundle,
         onUpdateBundle: handleUpdateBundle,
         onDeleteBundle: handleDeleteBundle,
+        findMaterialDuplicates,
+        findWorkDuplicates,
         onMergeCatalogDuplicates: handleMergeCatalogDuplicates,
     }), [
         visibleSubscriptionData.materials,
@@ -1909,6 +1976,8 @@ const App: React.FC = () => {
         handleAddBundle,
         handleUpdateBundle,
         handleDeleteBundle,
+        findMaterialDuplicates,
+        findWorkDuplicates,
         handleMergeCatalogDuplicates,
     ]);
 
@@ -2070,6 +2139,10 @@ const App: React.FC = () => {
                     isGoogleAuthOk={offlineSync.isGoogleAuthOk}
                     pendingCount={offlineSync.pendingChanges.length}
                     syncStatus={offlineSync.syncStatus}
+                    workspaceStatus={offlineSync.workspaceStatus}
+                    missingTableCount={offlineSync.missingTables.length}
+                    lastPreparedAt={offlineSync.lastPreparedAt}
+                    retryAt={offlineSync.retryAt}
                     onSync={offlineSync.syncNow}
                 />
             </div>

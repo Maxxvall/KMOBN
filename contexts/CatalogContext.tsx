@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
-import { EstimateCategory, Material, Work, WorkBundle } from '../types';
+import { DuplicateGroup, EstimateCategory, Material, Work, WorkBundle } from '../types';
+import type { CatalogDuplicateDecision } from '../services/duplicateManagement';
 
 type CatalogContextValue = {
   materials: Material[];
@@ -20,7 +21,9 @@ type CatalogContextValue = {
   onAddBundle: (bundle: WorkBundle) => Promise<void>;
   onUpdateBundle: (bundle: WorkBundle) => Promise<void>;
   onDeleteBundle: (bundleId: string) => Promise<void>;
-  onMergeCatalogDuplicates: (type: 'material' | 'work', keepId: string, deleteIds: string[]) => Promise<void>;
+  findMaterialDuplicates: () => Promise<DuplicateGroup<Material>[]>;
+  findWorkDuplicates: () => Promise<DuplicateGroup<Work>[]>;
+  onMergeCatalogDuplicates: (type: 'material' | 'work', decisions: CatalogDuplicateDecision[]) => Promise<number>;
 };
 
 const CatalogContext = createContext<CatalogContextValue | undefined>(undefined);

@@ -15,6 +15,9 @@ export interface PendingChange {
   timestamp: string;
   retryCount: number;
   lastError?: string;
+  lastAttemptAt?: string;
+  nextRetryAt?: string;
+  failureKind?: 'transient' | 'permanent';
 }
 
 const QUEUE_DB_NAME = 'kmobn_offline_queue';
@@ -287,17 +290,28 @@ export const offlineQueue = {
     return shouldDelete;
   },
 
-  async markFailed(id: string, sequence: number, error: unknown): Promise<boolean> {
+  async markFailed(
+    id: string,
+    sequence: number,
+    error: unknown,
+    retryable = true,
+  ): Promise<boolean> {
     const db = await openQueueDb();
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const current = await requestToPromise(store.get(id)) as PendingChange | undefined;
     const shouldUpdate = isScopedChange(current) && current.sequence === sequence;
     if (shouldUpdate) {
+      const retryCount = current.retryCount + 1;
+      const now = new Date();
+      const retryDelayMs = Math.min(5 * 60_000, 1000 * (2 ** Math.max(0, retryCount - 1)));
       store.put({
         ...current,
-        retryCount: current.retryCount + 1,
+        retryCount,
         lastError: error instanceof Error ? error.message : String(error),
+        lastAttemptAt: now.toISOString(),
+        nextRetryAt: retryable ? new Date(now.getTime() + retryDelayMs).toISOString() : undefined,
+        failureKind: retryable ? 'transient' : 'permanent',
       });
     }
     await waitForTransaction(tx);

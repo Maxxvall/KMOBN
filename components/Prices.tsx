@@ -3,6 +3,7 @@ import { Material, EstimateCategory, DuplicateGroup, findDuplicates } from '../t
 
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import DuplicateCheckerDialog from './DuplicateCheckerDialog';
+import type { CatalogDuplicateDecision } from '../services/duplicateManagement';
 
 interface PricesProps {
     materials?: Material[];
@@ -57,17 +58,29 @@ const Prices: React.FC<PricesProps> = ({
 
     const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
     const [duplicateGroups, setDuplicateGroups] = useState<DuplicateGroup<Material>[]>([]);
+    const [isCheckingDuplicates, setIsCheckingDuplicates] = useState(false);
 
-    const handleCheckDuplicates = () => {
-        const groups = findDuplicates(materialList);
-        setDuplicateGroups(groups);
-        setShowDuplicateDialog(true);
+    const handleCheckDuplicates = async () => {
+        setIsCheckingDuplicates(true);
+        try {
+            const groups = catalogContext
+                ? await catalogContext.findMaterialDuplicates()
+                : findDuplicates(materialList);
+            setDuplicateGroups(groups);
+            setShowDuplicateDialog(true);
+        } catch (error) {
+            console.error('Failed to scan material duplicates:', error);
+            alert('Не удалось проверить дубликаты материалов.');
+        } finally {
+            setIsCheckingDuplicates(false);
+        }
     };
 
-    const handleMergeMaterials = async (keepId: string, deleteIds: string[]) => {
+    const handleMergeMaterials = async (decisions: CatalogDuplicateDecision[]): Promise<number> => {
         if (catalogContext?.onMergeCatalogDuplicates) {
-            await catalogContext.onMergeCatalogDuplicates('material', keepId, deleteIds);
+            return catalogContext.onMergeCatalogDuplicates('material', decisions);
         }
+        return 0;
     };
 
     const filteredMaterials = useMemo(() => {
@@ -217,10 +230,11 @@ const Prices: React.FC<PricesProps> = ({
                     ))}
                 </select>
                 <button
-                    onClick={handleCheckDuplicates}
-                    className="min-h-[44px] p-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white font-bold rounded-md transition"
+                    onClick={() => void handleCheckDuplicates()}
+                    disabled={isCheckingDuplicates}
+                    className="min-h-[44px] p-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 disabled:cursor-wait disabled:opacity-60 text-white font-bold rounded-md transition"
                 >
-                    Дубликаты
+                    {isCheckingDuplicates ? 'Проверяю…' : 'Дубликаты'}
                 </button>
             </div>
 

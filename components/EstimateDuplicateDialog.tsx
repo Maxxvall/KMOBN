@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import type { EstimateDuplicateGroup } from '../services/estimateIntelligence';
+import { getEstimateContentFingerprint, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
 
 interface EstimateDuplicateDialogProps {
     isOpen: boolean;
     onClose: () => void;
     duplicateGroups: EstimateDuplicateGroup[];
-    onDelete: (estimateNumber: string, idsToDelete: string[]) => Promise<void>;
+    onDelete: (requests: EstimateDuplicateDeleteRequest[]) => Promise<number>;
 }
 
 const EstimateDuplicateDialog: React.FC<EstimateDuplicateDialogProps> = ({
@@ -14,70 +14,59 @@ const EstimateDuplicateDialog: React.FC<EstimateDuplicateDialogProps> = ({
     duplicateGroups,
     onDelete,
 }) => {
-    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [pairSurvivors, setPairSurvivors] = useState<Record<string, string>>({});
     const [isDeleting, setIsDeleting] = useState(false);
     const [deleteResult, setDeleteResult] = useState<{ success: boolean; message: string } | null>(null);
 
-    // Initialize selection on open: select all duplicates (identicalToLatest + extras in identicalPairs)
+    // Keep the newest item from each identical historical group by default.
     React.useEffect(() => {
         if (!isOpen || duplicateGroups.length === 0) return;
-        const initial = new Set<string>();
+        const initial: Record<string, string> = {};
         for (const group of duplicateGroups) {
-            for (const e of group.identicalToLatest) {
-                initial.add(e.id);
-            }
-            for (const pair of group.identicalPairs) {
-                // Keep first in pair, select the rest for deletion
-                for (let i = 1; i < pair.length; i++) {
-                    initial.add(pair[i].id);
-                }
-            }
+            group.identicalPairs.forEach((pair, pairIndex) => {
+                if (pair[0]) initial[`${group.estimateNumber}:${pairIndex}`] = pair[0].id;
+            });
         }
-        setSelectedIds(initial);
+        setPairSurvivors(initial);
+        setDeleteResult(null);
     }, [isOpen, duplicateGroups]);
 
     if (!isOpen) return null;
 
-    const toggleSelect = (id: string) => {
-        setSelectedIds(prev => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-        });
-    };
-
-    const totalToDelete = Array.from(selectedIds).length;
+    const totalToDelete = duplicateGroups.reduce((total, group) => {
+        const identicalToLatestCount = group.identicalToLatest.length;
+        const historicalDuplicatesCount = group.identicalPairs.reduce((sum, pair) => sum + Math.max(0, pair.length - 1), 0);
+        return total + identicalToLatestCount + historicalDuplicatesCount;
+    }, 0);
 
     const handleDeleteAll = async () => {
         if (totalToDelete === 0) return;
         setIsDeleting(true);
         setDeleteResult(null);
-        let totalDeleted = 0;
         try {
-            for (const group of duplicateGroups) {
-                const idsForGroup = group.identicalToLatest
-                    .filter(e => selectedIds.has(e.id))
-                    .map(e => e.id);
-                for (const pair of group.identicalPairs) {
-                    for (let i = 1; i < pair.length; i++) {
-                        if (selectedIds.has(pair[i].id)) {
-                            idsForGroup.push(pair[i].id);
-                        }
-                    }
-                }
-                if (idsForGroup.length > 0) {
-                    await onDelete(group.estimateNumber, idsForGroup);
-                    totalDeleted += idsForGroup.length;
-                }
-            }
+            const requests: EstimateDuplicateDeleteRequest[] = duplicateGroups.map(group => {
+                const candidates = [...group.identicalToLatest];
+                group.identicalPairs.forEach((pair, pairIndex) => {
+                    const survivorId = pairSurvivors[`${group.estimateNumber}:${pairIndex}`] ?? pair[0]?.id;
+                    candidates.push(...pair.filter(estimate => estimate.id !== survivorId));
+                });
+                return {
+                    estimateNumber: group.estimateNumber,
+                    expectedLatestVersionId: group.latestVersionId,
+                    candidates: candidates.map(estimate => ({
+                        id: estimate.id,
+                        expectedFingerprint: getEstimateContentFingerprint(estimate),
+                    })),
+                };
+            }).filter(request => request.candidates.length > 0);
+            const totalDeleted = await onDelete(requests);
             setDeleteResult({ success: true, message: `Удалено дублей: ${totalDeleted}` });
             setTimeout(() => {
                 setDeleteResult(null);
                 onClose();
             }, 1200);
-        } catch {
-            setDeleteResult({ success: false, message: 'Ошибка при удалении дублей' });
+        } catch (error) {
+            setDeleteResult({ success: false, message: error instanceof Error ? error.message : 'Ошибка при удалении дублей' });
         } finally {
             setIsDeleting(false);
         }
@@ -131,7 +120,7 @@ const EstimateDuplicateDialog: React.FC<EstimateDuplicateDialogProps> = ({
                                 disabled={isDeleting || totalToDelete === 0}
                                 className="bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition"
                             >
-                                {isDeleting ? <><Spinner /> Удаление...</> : `Удалить выбранные (${totalToDelete})`}
+                                {isDeleting ? <><Spinner /> Удаление...</> : `Удалить дубли (${totalToDelete})`}
                             </button>
                             <button
                                 onClick={onClose}
@@ -175,27 +164,19 @@ const EstimateDuplicateDialog: React.FC<EstimateDuplicateDialogProps> = ({
                                                 Идентичны главной версии ({group.identicalToLatest.length} шт.) — будут удалены:
                                             </p>
                                             {group.identicalToLatest.map(e => (
-                                                <label
+                                                <div
                                                     key={e.id}
-                                                    className={`flex items-center justify-between p-2 rounded-md mb-1 cursor-pointer transition ${
-                                                        selectedIds.has(e.id) ? 'bg-red-500/10 border border-red-500/30' : 'opacity-50'
-                                                    }`}
+                                                    className="mb-1 flex items-center justify-between rounded-md border border-red-500/30 bg-red-500/10 p-2"
                                                 >
                                                     <div className="flex items-center gap-2">
-                                                        <input
-                                                            type="checkbox"
-                                                            checked={selectedIds.has(e.id)}
-                                                            onChange={() => toggleSelect(e.id)}
-                                                            className="accent-red-500"
-                                                            disabled={isDeleting}
-                                                        />
+                                                        <span className="text-xs font-medium text-red-300">удалить</span>
                                                         <span className="text-text-primary text-sm">v{e.version}</span>
                                                         <span className="text-text-secondary text-xs">
                                                             {new Date(e.date).toLocaleDateString('ru-RU')}
                                                         </span>
                                                     </div>
                                                     <span className="text-text-primary text-sm">{formatPrice(e.total)}</span>
-                                                </label>
+                                                </div>
                                             ))}
                                         </div>
                                     )}
@@ -206,34 +187,39 @@ const EstimateDuplicateDialog: React.FC<EstimateDuplicateDialogProps> = ({
                                             <p className="text-text-secondary text-xs mb-2">
                                                 Одинаковые версии ({pair.length} шт.) — оставить одну, остальные удалить:
                                             </p>
-                                            {pair.map((e, eIdx) => (
+                                            {pair.map(e => {
+                                                const survivorKey = `${group.estimateNumber}:${pairIdx}`;
+                                                const isSurvivor = (pairSurvivors[survivorKey] ?? pair[0]?.id) === e.id;
+                                                return (
                                                 <label
                                                     key={e.id}
                                                     className={`flex items-center justify-between p-2 rounded-md mb-1 cursor-pointer transition ${
-                                                        selectedIds.has(e.id) ? 'bg-red-500/10 border border-red-500/30' : 'opacity-50'
+                                                        isSurvivor ? 'bg-green-500/10 border border-green-500/30' : 'opacity-60'
                                                     }`}
                                                 >
                                                     <div className="flex items-center gap-2">
                                                         <input
-                                                            type="checkbox"
-                                                            checked={selectedIds.has(e.id)}
-                                                            onChange={() => toggleSelect(e.id)}
-                                                            className="accent-red-500"
+                                                            type="radio"
+                                                            name={`estimate-survivor-${survivorKey}`}
+                                                            checked={isSurvivor}
+                                                            onChange={() => setPairSurvivors(previous => ({ ...previous, [survivorKey]: e.id }))}
+                                                            className="accent-green-500"
                                                             disabled={isDeleting}
                                                         />
                                                         <span className="text-text-primary text-sm">v{e.version}</span>
                                                         <span className="text-text-secondary text-xs">
                                                             {new Date(e.date).toLocaleDateString('ru-RU')}
                                                         </span>
-                                                        {eIdx === 0 && (
+                                                        {isSurvivor && (
                                                             <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">
-                                                                оставить
+                                                                сохранится
                                                             </span>
                                                         )}
                                                     </div>
                                                     <span className="text-text-primary text-sm">{formatPrice(e.total)}</span>
                                                 </label>
-                                            ))}
+                                                );
+                                            })}
                                         </div>
                                     ))}
                                 </div>

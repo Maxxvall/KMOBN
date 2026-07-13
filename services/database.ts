@@ -4,6 +4,8 @@ import {
   deleteCachedRecords,
   getCachedRecords,
   getCacheUserId,
+  isTableSnapshotComplete,
+  OFFLINE_TABLES,
   syncCachedRecords,
   upsertCachedRecords,
 } from './indexedDbCache';
@@ -148,6 +150,68 @@ const markRefreshed = (key: CacheTableKey, userId: string): void => {
   lastRefreshTimestamps.set(compositeKey, Date.now());
 };
 
+type TableFetcher = (
+  userId: string,
+  options?: LoadTableOptions,
+) => Promise<{ data: unknown[] | null; error: unknown }>;
+
+const OFFLINE_TABLE_FETCHERS: Record<CacheTableKey, TableFetcher> = {
+  estimates: fetchEstimates,
+  templates: fetchTemplates,
+  materials: fetchMaterials,
+  works: fetchWorks,
+  bundles: fetchBundles,
+  salary_calculations: fetchSalaryCalculations,
+};
+
+export type OfflineWorkspaceRefreshResult = {
+  refreshedTables: CacheTableKey[];
+  skippedTables: CacheTableKey[];
+  failedTables: CacheTableKey[];
+};
+
+/** Downloads complete server snapshots without overwriting newer local changes. */
+export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWorkspaceRefreshResult> => {
+  if (!userId || userId === 'anon') throw new Error('Authenticated user is required');
+  const result: OfflineWorkspaceRefreshResult = {
+    refreshedTables: [],
+    skippedTables: [],
+    failedTables: [],
+  };
+
+  for (const table of OFFLINE_TABLES) {
+    const refreshKey = getRefreshKey(table, userId);
+    if ((await offlineQueue.getForTable(userId, table)).length > 0) {
+      result.skippedTables.push(table);
+      continue;
+    }
+    const refreshGeneration = getMutationGeneration(refreshKey);
+    try {
+      const { data, error } = await OFFLINE_TABLE_FETCHERS[table](userId);
+      if (error) throw error;
+      const records = normalizeStableOrder((data ?? []) as Array<{ id: string }>);
+      const applied = await withTableMutationLock(refreshKey, async (): Promise<boolean> => {
+        if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
+        if ((await offlineQueue.getForTable(userId, table)).length > 0) return false;
+        await syncCachedRecords(table, getCacheUserId(userId), records);
+        if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
+        markRefreshed(table, userId);
+        return true;
+      });
+      if (applied) {
+        result.refreshedTables.push(table);
+      } else {
+        result.skippedTables.push(table);
+      }
+    } catch (error) {
+      console.error(`[DB:${table}] Offline preload failed:`, error);
+      result.failedTables.push(table);
+    }
+  }
+
+  return result;
+};
+
 const refreshCacheInBackground = async <T extends { id: string }>(
   key: CacheTableKey,
   userId: string,
@@ -198,10 +262,11 @@ const readTableCached = async <T extends { id: string }>(
   const cacheUserId = getCacheUserId(userId);
   const pending = await offlineQueue.getForTable(cacheUserId, key);
   const cached = normalizeStableOrder(applyPendingChanges(await getCachedRecords<T>(key, cacheUserId), pending));
+  const hasCompleteSnapshot = await isTableSnapshotComplete(key, cacheUserId);
   const canFetch = isSupabaseConfigured() && !!userId;
   const limitedCached = typeof options?.limit === 'number' ? cached.slice(0, options.limit) : cached;
 
-  if (cached.length > 0) {
+  if (cached.length > 0 || hasCompleteSnapshot) {
     if (canFetch && pending.length === 0) {
       void refreshCacheInBackground<T>(key, userId as string, fetcher, options);
     }

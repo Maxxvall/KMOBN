@@ -21,13 +21,27 @@ export type OfflineSyncResult = {
 
 export class OfflineSyncError extends Error {
   readonly change: PendingChange;
+  readonly retryable: boolean;
 
-  constructor(change: PendingChange, cause: unknown) {
+  constructor(change: PendingChange, cause: unknown, retryable: boolean) {
     super(cause instanceof Error ? cause.message : String(cause));
     this.name = 'OfflineSyncError';
     this.change = change;
+    this.retryable = retryable;
   }
 }
+
+export const isRetryableSyncError = (error: unknown): boolean => {
+  if (!error || typeof error !== 'object') return true;
+  const value = error as { status?: unknown; statusCode?: unknown; code?: unknown };
+  const numericStatus = Number(value.status ?? value.statusCode);
+  if (Number.isFinite(numericStatus)) {
+    return numericStatus === 408 || numericStatus === 429 || numericStatus >= 500;
+  }
+  const code = typeof value.code === 'string' ? value.code : '';
+  if (/^(22|23|42|PGRST)/.test(code)) return false;
+  return true;
+};
 
 export const executeRemoteChange: ExecutePendingChange = async (change, userId) => {
   if (change.userId !== userId) {
@@ -69,11 +83,12 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
         syncedTables.add(change.table);
       }
     } catch (error) {
-      const stillCurrent = await offlineQueue.markFailed(change.id, change.sequence, error);
+      const retryable = isRetryableSyncError(error);
+      const stillCurrent = await offlineQueue.markFailed(change.id, change.sequence, error, retryable);
       // The failed snapshot may already have been replaced by a newer local
       // version. Do not block that newer version behind a stale failure.
       if (!stillCurrent) continue;
-      throw new OfflineSyncError(change, error);
+      throw new OfflineSyncError(change, error, retryable);
     }
   }
 

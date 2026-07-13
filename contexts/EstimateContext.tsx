@@ -1,13 +1,14 @@
 import { createContext, useContext } from 'react';
 import { Estimate, ProjectTemplate, View } from '../types';
 import type { EstimateValidationResult } from '../services/estimateValidation';
+import type { EstimateDuplicateDeleteRequest } from '../services/estimateIntelligence';
 
 type EstimateActions = {
   onCreateNew?: () => void;
   onEdit?: (estimate: Estimate) => void;
   onDelete?: (estimate: Estimate) => void;
   onDeleteVersion?: (estimate: Estimate) => void;
-  onDeleteVersionDuplicates?: (estimateNumber: string, idsToDelete: string[]) => Promise<void>;
+  onDeleteVersionDuplicates?: (requests: EstimateDuplicateDeleteRequest[]) => Promise<number>;
   onGeneratePdf?: (estimate: Estimate) => void;
   onRequestSave?: (estimate: Estimate) => void;
   onDraftChange?: (estimate: Estimate) => void;

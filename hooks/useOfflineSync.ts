@@ -1,9 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { getOfflineCoverage, type CacheTableKey } from '../services/indexedDbCache';
 import { offlineQueue, type PendingChange } from '../services/offlineQueue';
-import { processOfflineQueue } from '../services/offlineSync';
+import { prepareOfflineWorkspace } from '../services/offlineWorkspace';
 import { healthMonitor, type ServiceStatus } from '../services/healthMonitor';
 
 export type SyncStatus = 'idle' | 'syncing' | 'error';
+export type WorkspaceStatus = 'checking' | 'syncing' | 'downloading' | 'ready' | 'partial' | 'error';
+
+const retryDelay = (change: PendingChange | undefined): number | null => {
+  if (!change || !change.lastError) return 0;
+  if (change.failureKind === 'permanent') return null;
+  if (!change.nextRetryAt) return 0;
+  return Math.max(0, Date.parse(change.nextRetryAt) - Date.now());
+};
 
 export const useOfflineSync = (userId: string | null) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -16,10 +25,24 @@ export const useOfflineSync = (userId: string | null) => {
   const [legacyPendingCount, setLegacyPendingCount] = useState(0);
   const [quarantinedErrorCount, setQuarantinedErrorCount] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
+  const [workspaceStatus, setWorkspaceStatus] = useState<WorkspaceStatus>('checking');
+  const [missingTables, setMissingTables] = useState<CacheTableKey[]>([]);
+  const [lastPreparedAt, setLastPreparedAt] = useState<string | null>(null);
+  const [retryAt, setRetryAt] = useState<string | null>(null);
+  const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [syncedCount, setSyncedCount] = useState(0);
   const [syncedTables, setSyncedTables] = useState<string[]>([]);
-  const [syncCycle, setSyncCycle] = useState(0);
   const syncingRef = useRef(false);
+  const preparedUserRef = useRef<string | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const applyCoverage = useCallback(async (activeUserId: string) => {
+    const coverage = await getOfflineCoverage(activeUserId);
+    setMissingTables(coverage.missingTables);
+    setLastPreparedAt(coverage.lastPreparedAt);
+    if (!navigator.onLine) setWorkspaceStatus(coverage.ready ? 'ready' : 'partial');
+    return coverage;
+  }, []);
 
   const refreshPending = useCallback(async () => {
     if (!userId) {
@@ -45,22 +68,30 @@ export const useOfflineSync = (userId: string | null) => {
 
   useEffect(() => {
     const handleOnline = () => {
+      preparedUserRef.current = null;
       setIsOnline(true);
+      setWorkspaceStatus('checking');
       void refreshPending();
     };
-    const handleOffline = () => setIsOnline(false);
+    const handleOffline = () => {
+      setIsOnline(false);
+      if (userId) void applyCoverage(userId);
+    };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [refreshPending]);
+  }, [applyCoverage, refreshPending, userId]);
 
   useEffect(() => {
+    preparedUserRef.current = null;
+    setWorkspaceStatus('checking');
+    if (userId) void applyCoverage(userId);
     void refreshPending();
     return offlineQueue.subscribe(() => { void refreshPending(); });
-  }, [refreshPending]);
+  }, [applyCoverage, refreshPending, userId]);
 
   useEffect(() => {
     healthMonitor.startPeriodicCheck(setServiceStatus);
@@ -68,51 +99,74 @@ export const useOfflineSync = (userId: string | null) => {
     return () => healthMonitor.stopPeriodicCheck();
   }, []);
 
-  const syncNow = useCallback(async () => {
-    if (syncingRef.current) return;
-    if (!navigator.onLine || !userId || userId === 'anon') {
-      setSyncStatus('error');
-      return;
-    }
-
+  const runPreparation = useCallback(async () => {
+    if (syncingRef.current || !navigator.onLine || !userId || userId === 'anon') return;
     syncingRef.current = true;
     setSyncStatus('syncing');
     setSyncedCount(0);
-    let completed = false;
+    setRetryAt(null);
     try {
-      const result = await processOfflineQueue(userId);
-      setSyncedCount(result.syncedCount);
-      setSyncedTables(result.syncedTables);
+      const result = await prepareOfflineWorkspace(userId, true, {
+        onPhase: setWorkspaceStatus,
+      });
+      setSyncedCount(result.sync?.syncedCount ?? 0);
+      setSyncedTables(result.sync?.syncedTables ?? []);
+      setMissingTables(result.coverage.missingTables);
+      setLastPreparedAt(result.coverage.lastPreparedAt);
+      const refreshIncomplete = Boolean(result.refresh?.failedTables.length || result.refresh?.skippedTables.length);
+      setWorkspaceStatus(result.coverage.ready && !refreshIncomplete ? 'ready' : 'partial');
       setSyncStatus('idle');
-      completed = true;
+      preparedUserRef.current = userId;
+      setWorkspaceVersion(value => value + 1);
     } catch (error) {
-      console.error('Sync failed:', error);
+      console.error('Offline workspace preparation failed:', error);
       setSyncStatus('error');
+      setWorkspaceStatus('error');
+      preparedUserRef.current = null;
     } finally {
       syncingRef.current = false;
-      const remaining = await offlineQueue.getAll(userId);
-      setPendingChanges(remaining);
-      // A newer version of the same record may have been queued while its
-      // previous version was being sent. Start one more snapshot only after a
-      // successful pass; failures remain visible and wait for reconnect/manual retry.
-      if (completed && navigator.onLine && remaining.length > 0) {
-        setSyncCycle(value => value + 1);
-      }
+      await refreshPending();
     }
-  }, [userId]);
+  }, [refreshPending, userId]);
+
+  const syncNow = useCallback(() => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    preparedUserRef.current = null;
+    void runPreparation();
+  }, [runPreparation]);
 
   const claimLegacyChanges = useCallback(async () => {
     if (!userId) return 0;
     const migrated = await offlineQueue.claimQuarantined(userId);
+    preparedUserRef.current = null;
     await refreshPending();
     return migrated;
   }, [refreshPending, userId]);
 
   useEffect(() => {
-    if (isOnline && userId && userId !== 'anon' && pendingChanges.length > 0 && !syncingRef.current) {
-      void syncNow();
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    setRetryAt(null);
+    if (!isOnline || !userId || userId === 'anon' || syncingRef.current) return;
+
+    const firstPending = pendingChanges[0];
+    const delay = retryDelay(firstPending);
+    if (delay == null) {
+      setWorkspaceStatus('error');
+      return;
     }
-  }, [isOnline, pendingChanges.length, syncCycle, syncNow, userId]);
+    if (delay > 0) {
+      setRetryAt(firstPending.nextRetryAt ?? null);
+      retryTimerRef.current = setTimeout(() => void runPreparation(), delay);
+      return () => {
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+      };
+    }
+    if (preparedUserRef.current !== userId || pendingChanges.length > 0) {
+      void runPreparation();
+    }
+  }, [isOnline, pendingChanges, runPreparation, userId]);
 
   return {
     isOnline,
@@ -120,6 +174,11 @@ export const useOfflineSync = (userId: string | null) => {
     isGoogleAuthOk: serviceStatus.googleAuth,
     pendingChanges,
     syncStatus,
+    workspaceStatus,
+    missingTables,
+    lastPreparedAt,
+    retryAt,
+    workspaceVersion,
     syncNow,
     syncedCount,
     syncedTables,

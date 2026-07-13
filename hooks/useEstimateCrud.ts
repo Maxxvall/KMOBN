@@ -3,6 +3,7 @@ import { addTemplate as addTemplateToDb, deleteEstimateById, deleteEstimates, de
 import { validateEstimate } from '../services/estimateValidation';
 import { canCreateEstimate, canDeleteEstimate } from '../services/subscriptionService';
 import { Estimate, EstimateStatus, ProjectTemplate, SubscriptionLimits, SubscriptionUsage, View } from '../types';
+import { buildEstimateDuplicateDeletePlan, type EstimateDuplicateDeleteRequest } from '../services/estimateIntelligence';
 
 type SaveMode = 'overwrite' | 'new';
 
@@ -311,20 +312,25 @@ export const useEstimateCrud = ({
     }
   }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit, setSync]);
 
-  const handleDeleteVersionDuplicates = useCallback(async (estimateNumber: string, idsToDelete: string[]) => {
-    if (idsToDelete.length === 0) return;
+  const handleDeleteVersionDuplicates = useCallback(async (requests: EstimateDuplicateDeleteRequest[]): Promise<number> => {
+    if (requests.length === 0) return 0;
+    if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
+      goToView(View.SUBSCRIPTIONS);
+      throw new Error('Удаление смет доступно на платных планах или месячный лимит удалений исчерпан.');
+    }
     try {
-      await deleteEstimates(idsToDelete);
-      const deleteSet = new Set(idsToDelete);
-      const updatedEstimates = estimates.filter(e => !deleteSet.has(e.id));
-      await saveEstimates(updatedEstimates);
-      setEstimates(updatedEstimates);
+      const plan = buildEstimateDuplicateDeletePlan(estimates, requests);
+      if (plan.deleteIds.length === 0) return 0;
+      await deleteEstimates(plan.deleteIds);
+      const deleteSet = new Set(plan.deleteIds);
+      setEstimates(current => current.filter(estimate => !deleteSet.has(estimate.id)));
       consumeDeleteLimit();
+      return plan.deleteIds.length;
     } catch (error) {
       console.error('Failed to delete version duplicates:', error);
       throw error;
     }
-  }, [estimates, setEstimates, consumeDeleteLimit]);
+  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit]);
 
   const handleSaveAsTemplate = useCallback(async (estimate: Estimate) => {
     const templateName = prompt('Введите название шаблона:');

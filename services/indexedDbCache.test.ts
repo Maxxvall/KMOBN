@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   closeIndexedDbCache,
   getCachedRecords,
+  getOfflineCoverage,
   syncCachedRecords,
   upsertCachedRecords,
 } from './indexedDbCache';
@@ -68,5 +69,40 @@ describe('IndexedDB cache invalidation', () => {
     await syncCachedRecords('materials', USER_ID, completeRefresh);
 
     expect(await getCachedRecords<CachedMaterial>('materials', USER_ID)).toEqual(completeRefresh);
+  });
+
+  it('marks an empty complete snapshot as downloaded', async () => {
+    await syncCachedRecords('materials', USER_ID, []);
+
+    const coverage = await getOfflineCoverage(USER_ID);
+    expect(coverage.tables.materials).toMatchObject({
+      complete: true,
+      recordCount: 0,
+      userId: USER_ID,
+    });
+    expect(coverage.missingTables).not.toContain('materials');
+  });
+
+  it('keeps offline coverage isolated between users', async () => {
+    await syncCachedRecords('materials', USER_ID, records());
+
+    expect((await getOfflineCoverage(USER_ID)).missingTables).not.toContain('materials');
+    expect((await getOfflineCoverage('another-user')).missingTables).toContain('materials');
+  });
+
+  it('reports ready only after all six table snapshots are complete', async () => {
+    await Promise.all([
+      syncCachedRecords('estimates', USER_ID, []),
+      syncCachedRecords('templates', USER_ID, []),
+      syncCachedRecords('materials', USER_ID, []),
+      syncCachedRecords('works', USER_ID, []),
+      syncCachedRecords('bundles', USER_ID, []),
+      syncCachedRecords('salary_calculations', USER_ID, []),
+    ]);
+
+    const coverage = await getOfflineCoverage(USER_ID);
+    expect(coverage.ready).toBe(true);
+    expect(coverage.missingTables).toEqual([]);
+    expect(coverage.lastPreparedAt).toBeTruthy();
   });
 });

@@ -1,9 +1,17 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell, session } = require('electron');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require('path');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require('fs');
+
+const IS_E2E = process.env.KMOBN_E2E === '1';
+const e2eUserDataDir = process.env.KMOBN_E2E_USER_DATA_DIR;
+if (IS_E2E && e2eUserDataDir) {
+  fs.mkdirSync(e2eUserDataDir, { recursive: true });
+  app.setPath('userData', e2eUserDataDir);
+  app.setPath('sessionData', path.join(e2eUserDataDir, 'session'));
+}
 
 let store = null;
 let mainWindow = null;
@@ -24,7 +32,12 @@ function getDistPath() {
 }
 
 function sendAuthToRenderer(url) {
-  log('Auth callback received:', url);
+  try {
+    const parsed = new URL(url);
+    log('Auth callback received:', `${parsed.protocol}//${parsed.host}${parsed.pathname}`);
+  } catch {
+    log('Auth callback received (invalid URL)');
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
@@ -181,13 +194,16 @@ if (!gotTheLock) {
   app.whenReady().then(async () => {
     log('=== App is ready ===');
 
-    if (!app.isDefaultProtocolClient(PROTOCOL_NAME)) {
+    if (!IS_E2E && !app.isDefaultProtocolClient(PROTOCOL_NAME)) {
       app.setAsDefaultProtocolClient(PROTOCOL_NAME);
       log('Registered protocol:', PROTOCOL_NAME);
     }
 
     await initStore();
-    await initAutoUpdater();
+    if (!IS_E2E) await initAutoUpdater();
+    if (IS_E2E && process.env.KMOBN_E2E_INITIAL_OFFLINE === '1') {
+      await session.defaultSession.enableNetworkEmulation({ offline: true });
+    }
     createWindow();
 
     app.on('activate', () => {
@@ -206,13 +222,8 @@ app.on('window-all-closed', () => {
 
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  log('open-url:', url);
+  log('open-url callback received');
   sendAuthToRenderer(url);
-});
-
-app.on('certificate-error', (event, webContents, url, error, certificate, callback) => {
-  event.preventDefault();
-  callback(true);
 });
 
 ipcMain.handle('get-store', (_, key) => {
@@ -280,7 +291,18 @@ ipcMain.handle('get-app-version', () => {
 });
 
 ipcMain.handle('open-external', (_, url) => {
-  shell.openExternal(url).catch((e) => {
+  let parsed;
+  try {
+    parsed = new URL(String(url));
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    log('Blocked external URL with unsupported protocol:', parsed.protocol);
+    return false;
+  }
+  return shell.openExternal(parsed.toString()).then(() => true).catch((e) => {
     log('Failed to open external URL:', e.message);
+    return false;
   });
 });

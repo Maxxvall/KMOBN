@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { DuplicateGroup, Material, Work, EstimateCategory, normalizeKey } from '../types';
+import { DuplicateGroup, Material, Work, EstimateCategory } from '../types';
+import { getCatalogDuplicateFingerprint, selectPreferredCatalogDuplicate, type CatalogDuplicateDecision } from '../services/duplicateManagement';
 
 interface DuplicateCheckerDialogProps {
     isOpen: boolean;
     onClose: () => void;
     title: string;
     duplicateGroups: DuplicateGroup<Material | Work>[];
-    onMerge: (keepId: string, deleteIds: string[]) => Promise<void>;
+    onMerge: (decisions: CatalogDuplicateDecision[]) => Promise<number>;
 }
 
 const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
@@ -16,36 +17,26 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
     duplicateGroups,
     onMerge,
 }) => {
-    const [keptIds, setKeptIds] = useState<Set<string>>(new Set());
+    const [survivorByKey, setSurvivorByKey] = useState<Record<string, string>>({});
     const [isMerging, setIsMerging] = useState(false);
     const [mergeResult, setMergeResult] = useState<{ success: boolean; message: string } | null>(null);
 
     // Auto-select best item in each group on open
     useEffect(() => {
         if (!isOpen || duplicateGroups.length === 0) return;
-        const initial = new Set<string>();
+        const initial: Record<string, string> = {};
         for (const group of duplicateGroups) {
-            const generalItem = group.items.find(
-                item => 'category' in item && item.category === EstimateCategory.GENERAL
-            );
-            const best = generalItem ?? group.items[0];
-            initial.add(best.id);
+            const best = selectPreferredCatalogDuplicate(group.items);
+            if (best) initial[group.normalizedKey] = best.id;
         }
-        setKeptIds(initial);
+        setSurvivorByKey(initial);
+        setMergeResult(null);
     }, [isOpen, duplicateGroups]);
 
     if (!isOpen) return null;
 
-    const toggleKeep = (itemId: string) => {
-        setKeptIds(prev => {
-            const next = new Set(prev);
-            if (next.has(itemId)) {
-                next.delete(itemId);
-            } else {
-                next.add(itemId);
-            }
-            return next;
-        });
+    const selectSurvivor = (normalizedKey: string, itemId: string) => {
+        setSurvivorByKey(prev => ({ ...prev, [normalizedKey]: itemId }));
     };
 
     const handleBackdropClick = (e: React.MouseEvent) => {
@@ -55,38 +46,27 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
     };
 
     const selectBestInGroup = (group: DuplicateGroup<Material | Work>) => {
-        const generalItem = group.items.find(
-            item => 'category' in item && item.category === EstimateCategory.GENERAL
-        );
-        const bestItem = generalItem ?? group.items[0];
-        setKeptIds(prev => {
-            const next = new Set(prev);
-            for (const item of group.items) {
-                next.delete(item.id);
-            }
-            next.add(bestItem.id);
-            return next;
-        });
+        const bestItem = selectPreferredCatalogDuplicate(group.items);
+        if (bestItem) selectSurvivor(group.normalizedKey, bestItem.id);
     };
 
     const handleMergeAll = async () => {
         setIsMerging(true);
         setMergeResult(null);
-        let totalDeleted = 0;
         try {
-            for (const group of duplicateGroups) {
-                const itemsToKeep = group.items.filter(item => keptIds.has(item.id));
-                if (itemsToKeep.length === 0) continue;
-
-                const keepId = itemsToKeep[0].id;
-                const deleteIds = group.items
-                    .filter(item => item.id !== keepId)
-                    .map(item => item.id);
-                if (deleteIds.length > 0) {
-                    await onMerge(keepId, deleteIds);
-                    totalDeleted += deleteIds.length;
-                }
-            }
+            const decisions: CatalogDuplicateDecision[] = duplicateGroups.map(group => {
+                const survivorId = survivorByKey[group.normalizedKey] ?? selectPreferredCatalogDuplicate(group.items)?.id;
+                if (!survivorId) throw new Error('Не удалось выбрать сохраняемую запись.');
+                return {
+                    normalizedKey: group.normalizedKey,
+                    survivorId,
+                    expectedItems: group.items.map(item => ({
+                        id: item.id,
+                        fingerprint: getCatalogDuplicateFingerprint(item),
+                    })),
+                };
+            });
+            const totalDeleted = await onMerge(decisions);
             const parts: string[] = [];
             if (totalDeleted > 0) parts.push(`удалено: ${totalDeleted}`);
             setMergeResult({ success: true, message: parts.join(', ') || 'Нечего удалять' });
@@ -94,15 +74,15 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                 setMergeResult(null);
                 onClose();
             }, 1200);
-        } catch {
-            setMergeResult({ success: false, message: 'Ошибка при удалении' });
+        } catch (error) {
+            setMergeResult({ success: false, message: error instanceof Error ? error.message : 'Ошибка при удалении' });
         } finally {
             setIsMerging(false);
         }
     };
 
     const totalToDelete = duplicateGroups.reduce((sum, g) => {
-        return sum + g.items.filter(item => !keptIds.has(item.id)).length;
+        return sum + Math.max(0, g.items.length - 1);
     }, 0);
 
     const formatPrice = (price: number) => {
@@ -148,7 +128,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                             Найдено групп: {duplicateGroups.length}. Автоматически выбран элемент из каждой группы.
                         </p>
                         <p className="text-text-secondary mb-4 text-sm">
-                            Если в группе есть позиция из раздела <strong className="text-text-primary">ОБЩАЯ</strong> — она выбрана приоритетно. Можете изменить выбор галочками.
+                            Сохранится ровно одна наиболее полная и свежая запись. При необходимости выберите другую.
                         </p>
 
                         <div className="flex gap-3 mb-4">
@@ -157,7 +137,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                 disabled={isMerging || totalToDelete === 0}
                                 className="bg-primary hover:bg-primary-hover disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-2 px-4 rounded-md transition"
                             >
-                                {isMerging ? <><Spinner /> Удаление...</> : `Удалить выбранные (${totalToDelete})`}
+                                {isMerging ? <><Spinner /> Удаление...</> : `Удалить дубли (${totalToDelete})`}
                             </button>
                             <button
                                 onClick={onClose}
@@ -173,7 +153,6 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                 const hasGeneral = group.items.some(
                                     item => 'category' in item && item.category === EstimateCategory.GENERAL
                                 );
-                                const selectedCount = group.items.filter(item => keptIds.has(item.id)).length;
                                 return (
                                     <div key={group.normalizedKey} className="bg-background rounded-lg p-4 border border-border">
                                         <div className="flex items-center justify-between mb-3">
@@ -181,11 +160,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                                 «{group.displayName}»
                                                 <span className="ml-2 text-sm text-text-secondary">
                                                     ({group.items.length} шт.)
-                                                    {selectedCount > 0 && (
-                                                        <span className="ml-2 text-green-400">
-                                                            — оставлено: {selectedCount}
-                                                        </span>
-                                                    )}
+                                                    <span className="ml-2 text-green-400">— останется: 1</span>
                                                 </span>
                                                 {hasGeneral && (
                                                     <span className="ml-2 text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">
@@ -198,7 +173,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                                 disabled={isMerging}
                                                 className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-bold py-1 px-3 rounded-md transition"
                                             >
-                                                Выбрать
+                                                Лучший вариант
                                             </button>
                                         </div>
                                         <table className="w-full text-sm">
@@ -212,7 +187,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                             </thead>
                                             <tbody>
                                                 {group.items.map(item => {
-                                                    const isKept = keptIds.has(item.id);
+                                                    const isKept = survivorByKey[group.normalizedKey] === item.id;
                                                     const isGeneral = 'category' in item && item.category === EstimateCategory.GENERAL;
                                                     return (
                                                         <tr
@@ -223,9 +198,10 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                                         >
                                                             <td className="py-2">
                                                                 <input
-                                                                    type="checkbox"
+                                                                    type="radio"
+                                                                    name={`duplicate-survivor-${group.normalizedKey}`}
                                                                     checked={isKept}
-                                                                    onChange={() => toggleKeep(item.id)}
+                                                                    onChange={() => selectSurvivor(group.normalizedKey, item.id)}
                                                                     className="accent-green-500"
                                                                     disabled={isMerging}
                                                                 />

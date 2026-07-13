@@ -443,24 +443,44 @@ export function pickFewShotExamples(
 
 // ── Estimate version deduplication ──
 
-function contentFingerprint(e: Estimate): string {
-  const sortedItems = [...(e.items || [])]
-    .map(it => ({
-      name: it.name,
-      unit: it.unit,
-      quantity: it.quantity,
-      price: it.price,
-      total: it.total,
-      category: it.category,
-      subgroup: it.subgroup ?? null,
+const optionalNumber = (value: unknown): number | null => {
+  return value === null || value === undefined ? null : safeNumber(value, 0);
+};
+
+export function getEstimateContentFingerprint(e: Estimate): string {
+  const sortedItems = (e.items || [])
+    .map(item => ({
+      name: normalizeKey(item.name),
+      unit: normalizeKey(item.unit),
+      quantity: safeNumber(item.quantity, 0),
+      price: safeNumber(item.price, 0),
+      total: safeNumber(item.total, 0),
+      category: item.category,
+      subgroup: item.subgroup ?? null,
+      note: normalizeKey(item.note || ''),
+      isActualOnly: Boolean(item.isActualOnly),
+      actual: item.actual ? {
+        unit: normalizeKey(item.actual.unit || ''),
+        quantity: optionalNumber(item.actual.quantity),
+        price: optionalNumber(item.actual.price),
+        total: optionalNumber(item.actual.total),
+        note: normalizeKey(item.actual.note || ''),
+      } : null,
     }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .map(item => ({ item, key: hashData(item) }))
+    .sort((left, right) => left.key.localeCompare(right.key))
+    .map(({ item }) => item);
+
   return hashData({
     items: sortedItems,
-    total: e.total,
-    client: e.client,
-    area: e.area,
-    buildingType: e.buildingType,
+    total: safeNumber(e.total, 0),
+    client: normalizeKey(e.client),
+    area: safeNumber(e.area, 0),
+    buildingType: normalizeKey(e.buildingType),
+    status: e.status,
+    isArchived: Boolean(e.isArchived),
+    selectedSections: [...(e.selectedSections || [])].sort(),
+    needsPriceUpdate: Boolean(e.needsPriceUpdate),
   });
 }
 
@@ -496,12 +516,12 @@ export function findEstimateVersionDuplicates(estimates: Estimate[]): EstimateDu
     const latest = sorted[0];
     const older = sorted.slice(1);
 
-    const latestHash = contentFingerprint(latest);
+    const latestHash = getEstimateContentFingerprint(latest);
     const identicalToLatest: Estimate[] = [];
     const remaining: Estimate[] = [];
 
     for (const e of older) {
-      if (contentFingerprint(e) === latestHash) {
+      if (getEstimateContentFingerprint(e) === latestHash) {
         identicalToLatest.push(e);
       } else {
         remaining.push(e);
@@ -511,7 +531,7 @@ export function findEstimateVersionDuplicates(estimates: Estimate[]): EstimateDu
     // Group remaining by content hash to find identical pairs
     const hashGroups = new Map<string, Estimate[]>();
     for (const e of remaining) {
-      const h = contentFingerprint(e);
+      const h = getEstimateContentFingerprint(e);
       const group = hashGroups.get(h) || [];
       group.push(e);
       hashGroups.set(h, group);
@@ -535,4 +555,93 @@ export function findEstimateVersionDuplicates(estimates: Estimate[]): EstimateDu
   }
 
   return result;
+}
+
+export type EstimateDuplicateDeleteRequest = {
+  estimateNumber: string;
+  expectedLatestVersionId: string;
+  candidates: Array<{ id: string; expectedFingerprint: string }>;
+};
+
+export type EstimateDuplicateDeletePlan = {
+  deleteIds: string[];
+};
+
+const sortEstimateVersions = (versions: Estimate[]): Estimate[] => {
+  return [...versions].sort((left, right) => {
+    const versionDiff = safeNumber(right.version, 0) - safeNumber(left.version, 0);
+    if (versionDiff !== 0) return versionDiff;
+    return parseDateMs(right.date) - parseDateMs(left.date);
+  });
+};
+
+export function buildEstimateDuplicateDeletePlan(
+  currentEstimates: Estimate[],
+  requests: EstimateDuplicateDeleteRequest[],
+): EstimateDuplicateDeletePlan {
+  const deleteIds: string[] = [];
+  const requestedIds = new Set<string>();
+
+  for (const request of requests) {
+    if (!request.estimateNumber || request.candidates.length === 0) {
+      throw new Error('План удаления дублей пуст или некорректен.');
+    }
+
+    const chain = sortEstimateVersions(
+      currentEstimates.filter(estimate => estimate.estimateNumber === request.estimateNumber),
+    );
+    if (chain.length < 2 || chain[0].id !== request.expectedLatestVersionId) {
+      throw new Error(`Смета №${request.estimateNumber} изменилась. Запустите поиск дублей повторно.`);
+    }
+
+    const chainById = new Map(chain.map(estimate => [estimate.id, estimate]));
+    const idsForRequest = new Set<string>();
+    for (const candidate of request.candidates) {
+      if (requestedIds.has(candidate.id) || idsForRequest.has(candidate.id)) {
+        throw new Error('Одна версия выбрана для удаления несколько раз.');
+      }
+      const current = chainById.get(candidate.id);
+      if (!current) {
+        throw new Error(`Версия сметы №${request.estimateNumber} больше не существует или принадлежит другой цепочке.`);
+      }
+      if (current.id === chain[0].id) {
+        throw new Error(`Актуальная версия сметы №${request.estimateNumber} не может быть удалена как дубль.`);
+      }
+      if (getEstimateContentFingerprint(current) !== candidate.expectedFingerprint) {
+        throw new Error(`Версия сметы №${request.estimateNumber} была изменена. Удаление отменено.`);
+      }
+      idsForRequest.add(candidate.id);
+    }
+
+    const fingerprintGroups = new Map<string, Estimate[]>();
+    for (const estimate of chain) {
+      const fingerprint = getEstimateContentFingerprint(estimate);
+      const group = fingerprintGroups.get(fingerprint) || [];
+      group.push(estimate);
+      fingerprintGroups.set(fingerprint, group);
+    }
+
+    for (const id of idsForRequest) {
+      const estimate = chainById.get(id) as Estimate;
+      const group = fingerprintGroups.get(getEstimateContentFingerprint(estimate)) || [];
+      if (group.length < 2) {
+        throw new Error(`Версия сметы №${request.estimateNumber} больше не является дублем.`);
+      }
+      const remainingInGroup = group.filter(item => !idsForRequest.has(item.id));
+      if (remainingInGroup.length === 0) {
+        throw new Error(`Для каждой одинаковой группы сметы №${request.estimateNumber} нужно сохранить одну версию.`);
+      }
+    }
+
+    if (chain.length - idsForRequest.size < 1) {
+      throw new Error(`Нельзя удалить все версии сметы №${request.estimateNumber}.`);
+    }
+
+    for (const id of idsForRequest) {
+      requestedIds.add(id);
+      deleteIds.push(id);
+    }
+  }
+
+  return { deleteIds };
 }

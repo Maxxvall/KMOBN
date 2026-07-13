@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
-import { filterToLatestEstimateVersions, findEstimateVersionDuplicates, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
+import { filterToLatestEstimateVersions, findEstimateVersionDuplicates, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
 import { exportData, importData, validateImportData } from '../services/database';
 
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
@@ -211,14 +211,14 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     };
 
     const handleCheckDuplicates = () => {
-        const groups = findEstimateVersionDuplicates(estimateList);
+        const groups = findEstimateVersionDuplicates(allEstimatesList);
         setDuplicateGroups(groups);
         setShowDuplicateDialog(true);
     };
 
-    const handleDeleteDuplicates = async (estimateNumber: string, idsToDelete: string[]) => {
-        if (!deleteVersionDuplicatesAction) return;
-        await deleteVersionDuplicatesAction(estimateNumber, idsToDelete);
+    const handleDeleteDuplicates = async (requests: EstimateDuplicateDeleteRequest[]): Promise<number> => {
+        if (!deleteVersionDuplicatesAction) return 0;
+        return deleteVersionDuplicatesAction(requests);
     };
 
     const handleExportData = async () => {
