@@ -145,6 +145,31 @@ describe('houseCalculator history selection', () => {
         expect(variants.map(variant => variant.tier)).toEqual(['economy', 'optimal', 'premium']);
         expect(variants.map(variant => variant.result.base).every(value => value > 0)).toBe(true);
     });
+
+    it('adds confirmed finishing and engineering positions from other house estimates to the relevant variants', () => {
+        const base = estimate({
+            id: 'base',
+            estimateNumber: 'КМ-БАЗА',
+            client: 'Наталья_Дубровка',
+            buildingType: 'Одноэтажный дачный дом',
+            items: [item({ id: 'frame', total: 1_000 })],
+        });
+        const fullScope = estimate({
+            id: 'full-scope',
+            estimateNumber: 'КМ-ПОД-КЛЮЧ',
+            area: 79,
+            items: [
+                item({ id: 'rough', name: 'Монтаж ГКЛ', total: 200 }),
+                item({ id: 'finish', name: 'Укладка ламината', total: 300 }),
+                item({ id: 'engineering', name: 'Электрика под ключ', total: 400, category: EstimateCategory.ELECTRICAL }),
+            ],
+        });
+
+        const variants = calculateHouseVariants(input({ estimates: [base, fullScope] }));
+
+        expect(variants.map(variant => variant.result.base)).toEqual([1_000, 1_200, 1_900]);
+        expect(variants[2].result.warnings.join(' ')).toContain('КМ-ПОД-КЛЮЧ');
+    });
 });
 
 describe('houseCalculator reference and packages', () => {
@@ -187,6 +212,26 @@ describe('houseCalculator reference and packages', () => {
 
         expect(box.items.map(value => value.name)).toEqual(['Пиломатериал каркаса']);
         expect(warm.items.map(value => value.name)).toEqual(['Пиломатериал каркаса', 'Окна ПВХ', 'Входная дверь']);
+    });
+
+    it('scales exterior and interior doors by their own source quantities', () => {
+        const source = estimate({
+            items: [
+                item({ id: 'frame', total: 100 }),
+                item({ id: 'interior', name: 'Межкомнатная дверь с монтажом', quantity: 4, price: 35_000, total: 140_000, category: EstimateCategory.WINDOWS }),
+                item({ id: 'exterior', name: 'Входная дверь с монтажом', quantity: 1, price: 45_000, total: 45_000, category: EstimateCategory.WINDOWS }),
+            ],
+        });
+
+        const result = calculateHouseEstimate(input({
+            estimates: [source],
+            interiorDoors: 5,
+            exteriorDoors: 1,
+            doors: 6,
+        }));
+
+        expect(result.items.find(value => value.id.includes('interior'))?.total).toBe(175_000);
+        expect(result.items.find(value => value.id.includes('exterior'))?.total).toBe(45_000);
     });
 });
 

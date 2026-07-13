@@ -189,7 +189,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             try {
                 const text = await file.text();
                 const validation = validateImportData(text);
-                if (!validation.ok) {
+                if (validation.ok === false) {
                     alert(validation.error);
                     return;
                 }

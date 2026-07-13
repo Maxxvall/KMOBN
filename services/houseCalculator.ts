@@ -239,6 +239,14 @@ const roofFactor: Record<RoofShape, number> = {
     mansard: 1.25,
 };
 
+const quantityByName = (source: Estimate, matches: (name: string) => boolean, fallback: number): number => {
+    const quantity = source.items.reduce((total, item) => {
+        const name = normalize(item.name);
+        return matches(name) ? total + Math.max(0, item.quantity) : total;
+    }, 0);
+    return quantity > 0 ? quantity : fallback;
+};
+
 const additionTypesIn = (item: EstimateItem): HouseAddition['type'][] => {
     const text = normalize(item.name);
     const types: HouseAddition['type'][] = [];
@@ -274,11 +282,16 @@ export function scaleReferenceItems(source: Estimate, input: HouseCalculatorInpu
         const name = normalize(item.name);
         return name.includes('установка окон') ? Math.max(largest, item.quantity) : largest;
     }, 0) || Math.round(sourceArea / 10));
-    const sourceDoors = Math.max(1, source.items.reduce((largest, item) => {
-        const name = normalize(item.name);
-        return name.includes('межкомнатн') && item.unit.toLocaleLowerCase('ru-RU').includes('шт')
-            ? Math.max(largest, item.quantity) : largest;
-    }, 0) || Math.round(sourceArea / 20));
+    const sourceInteriorDoors = quantityByName(
+        source,
+        name => name.includes('межкомнатн'),
+        Math.max(1, Math.round(sourceArea / 20)),
+    );
+    const sourceExteriorDoors = quantityByName(
+        source,
+        name => name.includes('входн') || name.includes('террасн'),
+        1,
+    );
     const targetInteriorDoors = input.interiorDoors ?? input.doors;
     const targetExteriorDoors = input.exteriorDoors ?? Math.max(0, input.doors - targetInteriorDoors);
 
@@ -290,9 +303,9 @@ export function scaleReferenceItems(source: Estimate, input: HouseCalculatorInpu
         if (kind === 'warm-shell') {
             const text = normalize(item.name);
             if (text.includes('окн')) factor = input.windows / sourceWindows;
-            else if (text.includes('межкомнатн')) factor = targetInteriorDoors / sourceDoors;
-            else if (text.includes('входн') || text.includes('террасн')) factor = targetExteriorDoors / sourceDoors;
-            else if (text.includes('двер')) factor = input.doors / sourceDoors;
+            else if (text.includes('межкомнатн')) factor = targetInteriorDoors / sourceInteriorDoors;
+            else if (text.includes('входн') || text.includes('террасн')) factor = targetExteriorDoors / sourceExteriorDoors;
+            else if (text.includes('двер')) factor = input.doors / (sourceInteriorDoors + sourceExteriorDoors);
         }
         if (kind === 'addition') {
             const additions = additionFactor(input, source, item);
@@ -308,6 +321,62 @@ export function scaleReferenceItems(source: Estimate, input: HouseCalculatorInpu
         return [{ ...item, id: `house-${index}-${item.id}`, quantity, price, total }];
     });
 }
+
+const scopeKindsByPackage: Record<HousePackage, ItemKind[]> = {
+    box: [],
+    'warm-shell': [],
+    'rough-finish': ['rough-finish'],
+    turnkey: ['rough-finish', 'finish'],
+    'turnkey-engineering': ['rough-finish', 'finish', 'engineering'],
+};
+
+const scopeKindLabel: Record<ItemKind, string> = {
+    structure: 'конструктив',
+    roof: 'кровля',
+    'warm-shell': 'тёплый контур',
+    addition: 'дополнительные строения',
+    'rough-finish': 'черновая отделка',
+    finish: 'чистовая отделка',
+    engineering: 'инженерные системы',
+    logistics: 'логистика',
+    equipment: 'техника',
+};
+
+const sourceHasKind = (source: Estimate, kind: ItemKind): boolean => source.items.some(item => itemKind(item) === kind);
+
+const chooseScopeSource = (sources: Estimate[], primary: Estimate, kind: ItemKind, targetArea: number): Estimate | undefined => {
+    const statusWeight: Record<EstimateStatus, number> = {
+        [EstimateStatus.APPROVED]: 0,
+        [EstimateStatus.SENT]: 1,
+        [EstimateStatus.DRAFT]: 2,
+        [EstimateStatus.ARCHIVED]: 3,
+    };
+    return sources
+        .filter(source => source.id !== primary.id && sourceHasKind(source, kind))
+        .sort((left, right) => (
+            statusWeight[left.status] - statusWeight[right.status]
+            || Math.abs(left.area - targetArea) - Math.abs(right.area - targetArea)
+        ))[0];
+};
+
+const scalePackageScope = (primary: Estimate, history: Estimate[], input: HouseCalculatorInput): { items: EstimateItem[]; supplements: string[] } => {
+    const items = scaleReferenceItems(primary, input);
+    const supplements: string[] = [];
+
+    for (const kind of scopeKindsByPackage[input.package]) {
+        if (sourceHasKind(primary, kind)) continue;
+        const source = chooseScopeSource(history, primary, kind, input.area);
+        if (!source) continue;
+        const scopeItems = scaleReferenceItems(source, input)
+            .filter(item => itemKind(item) === kind)
+            .map((item, index) => ({ ...item, id: `house-supplement-${kind}-${source.id}-${index}-${item.id}` }));
+        if (!scopeItems.length) continue;
+        items.push(...scopeItems);
+        supplements.push(`${scopeKindLabel[kind]}: ${source.estimateNumber}`);
+    }
+
+    return { items, supplements };
+};
 
 const validateRates = (rates: HouseFinancialRates): void => {
     for (const [name, value] of Object.entries(rates)) {
@@ -396,21 +465,28 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     const source = chooseHouseReference(history, input.area);
     if (!source) throw new Error(`В личной базе загружено ${input.estimates.length} смет, но нет согласованных смет с позициями для расчёта дома.`);
 
-    const items = scaleReferenceItems(source, input);
+    const { items, supplements } = scalePackageScope(source, history, input);
     const warnings: string[] = [];
     if (!eligible.length && broaderApproved.length) {
         warnings.push('Тип объекта не распознан автоматически: использована ближайшая согласованная смета из личной базы.');
     }
     const sourceKinds = new Set(source.items.map(itemKind));
     if ((input.package === 'rough-finish' || input.package === 'turnkey' || input.package === 'turnkey-engineering') && !sourceKinds.has('rough-finish')) {
-        warnings.push('В эталонной смете нет подтверждённых позиций черновой отделки: они не включены в стоимость.');
+        if (!supplements.some(value => value.startsWith('черновая отделка:'))) {
+            warnings.push('В подтверждённых сметах нет позиций черновой отделки: они не включены в стоимость.');
+        }
     }
     if ((input.package === 'turnkey' || input.package === 'turnkey-engineering') && !sourceKinds.has('finish')) {
-        warnings.push('В эталонной смете нет подтверждённых позиций чистовой отделки: они не включены в стоимость.');
+        if (!supplements.some(value => value.startsWith('чистовая отделка:'))) {
+            warnings.push('В подтверждённых сметах нет позиций чистовой отделки: они не включены в стоимость.');
+        }
     }
     if (input.package === 'turnkey-engineering' && !sourceKinds.has('engineering')) {
-        warnings.push('В эталонной смете нет инженерных систем: инженерия не включена в стоимость.');
+        if (!supplements.some(value => value.startsWith('инженерные системы:'))) {
+            warnings.push('В подтверждённых сметах нет инженерных систем: инженерия не включена в стоимость.');
+        }
     }
+    if (supplements.length) warnings.push(`Комплектация дополнена позициями из личной базы: ${supplements.join('; ')}.`);
     const sourceAdditionTypes = new Set(source.items.flatMap(additionTypesIn));
     for (const addition of input.additions) {
         if (!sourceAdditionTypes.has(addition.type)) {

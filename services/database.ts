@@ -584,7 +584,7 @@ export interface ImportResult {
 
 export const importData = async (jsonData: string): Promise<ImportResult> => {
   const validation = validateImportData(jsonData);
-  if (!validation.ok) {
+  if (validation.ok === false) {
     throw new Error(validation.error);
   }
 

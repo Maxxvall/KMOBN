@@ -188,7 +188,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               </div>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="rounded-2xl border border-border bg-background/50 p-5"><p className="text-sm text-text-secondary">Создано смет</p><p className="mt-3 text-3xl font-bold tracking-tight text-text-primary">{stats.totalEstimates}</p></div>
-                <div className="rounded-2xl border border-border bg-background/50 p-5"><p className="text-sm text-text-secondary">Объём работ</p><p className="mt-3 text-2xl font-bold tracking-tight text-text-primary">{stats.totalWorkVolume.toLocaleString('ru-RU')} ₽</p></div>
+                <div className="rounded-2xl border border-border bg-background/50 p-5"><p className="text-sm text-text-secondary">Объём работ</p><p className="mt-3 text-2xl font-bold tracking-tight text-text-primary">{Number(stats.totalWorkVolume).toLocaleString('ru-RU')} ₽</p></div>
                 <div className="rounded-2xl border border-primary/30 bg-primary/10 p-5"><p className="text-sm text-red-100/80">Активное время</p><p className="mt-3 text-2xl font-bold tracking-tight text-white">{formatDuration(activeUsage)}</p></div>
               </div>
               <div className="rounded-2xl border border-border bg-background/40 p-4 text-sm leading-6 text-text-secondary">
