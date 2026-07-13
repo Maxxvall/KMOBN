@@ -101,6 +101,59 @@ const createLegacyV1Queue = async (): Promise<void> => {
   database.close();
 };
 
+const createLegacySameRecordHistory = async (): Promise<void> => {
+  const request = indexedDB.open(QUEUE_DB_NAME, 1);
+  request.onupgradeneeded = () => {
+    const store = request.result.createObjectStore(STORE_NAME, { keyPath: 'id' });
+    store.createIndex('by_table', 'table', { unique: false });
+    store.createIndex('by_timestamp', 'timestamp', { unique: false });
+  };
+  const database = await requestToPromise(request);
+  const transaction = database.transaction(STORE_NAME, 'readwrite');
+  const store = transaction.objectStore(STORE_NAME);
+  // IDs intentionally sort opposite to timestamps so migration must use time,
+  // not IndexedDB key order, to determine the final mutation.
+  store.put({
+    id: 'a-materials:delete:legacy-newer',
+    table: 'materials',
+    operation: 'delete',
+    data: ['material-collision'],
+    timestamp: '2026-07-12T11:00:00.000Z',
+    retryCount: 0,
+  });
+  store.put({
+    id: 'z-materials:upsert:legacy-older',
+    table: 'materials',
+    operation: 'upsert',
+    data: [{ id: 'material-collision', name: 'Old board', price: 100 }],
+    timestamp: '2026-07-12T10:00:00.000Z',
+    retryCount: 0,
+  });
+  await waitForTransaction(transaction);
+  database.close();
+};
+
+const createLegacyCollisionWithCurrentV3 = async (): Promise<void> => {
+  const request = indexedDB.open(QUEUE_DB_NAME, 1);
+  request.onupgradeneeded = () => {
+    const store = request.result.createObjectStore(STORE_NAME, { keyPath: 'id' });
+    store.createIndex('by_table', 'table', { unique: false });
+    store.createIndex('by_timestamp', 'timestamp', { unique: false });
+  };
+  const database = await requestToPromise(request);
+  const transaction = database.transaction(STORE_NAME, 'readwrite');
+  transaction.objectStore(STORE_NAME).put({
+    id: 'materials:upsert:legacy-collision',
+    table: 'materials',
+    operation: 'upsert',
+    data: [{ id: 'material-current', name: 'Legacy board', price: 100 }],
+    timestamp: '2026-07-12T10:00:00.000Z',
+    retryCount: 0,
+  });
+  await waitForTransaction(transaction);
+  database.close();
+};
+
 const createMixedV2Queue = async (): Promise<void> => {
   const request = indexedDB.open(QUEUE_DB_NAME, 2);
   request.onupgradeneeded = () => {
@@ -215,5 +268,49 @@ describe('offlineQueue v1 migration', () => {
       }),
     ]);
     expect(await offlineQueue.getQuarantinedCount()).toBe(1);
+  });
+
+  it('coalesces legacy history for one record to the latest delete tombstone', async () => {
+    rememberOfflineUser(migrationUser());
+    await createLegacySameRecordHistory();
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([]);
+    expect(await offlineQueue.getQuarantinedCount()).toBe(2);
+
+    await offlineQueue.claimQuarantined(USER_ID);
+
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([
+      expect.objectContaining({
+        userId: USER_ID,
+        table: 'materials',
+        recordId: 'material-collision',
+        operation: 'delete',
+        data: null,
+      }),
+    ]);
+    expect(await offlineQueue.getQuarantinedCount()).toBe(0);
+  });
+
+  it('preserves a current v3 change and leaves a colliding legacy mutation non-claimable', async () => {
+    rememberOfflineUser(migrationUser());
+    await createLegacyCollisionWithCurrentV3();
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([]);
+    expect(await offlineQueue.getQuarantinedCount()).toBe(1);
+
+    const currentPayload = { id: 'material-current', name: 'Current board', price: 500 };
+    await offlineQueue.enqueueUpserts(USER_ID, 'materials', [currentPayload]);
+    const [current] = await offlineQueue.getAll(USER_ID);
+
+    expect(await offlineQueue.claimQuarantined(USER_ID)).toBe(0);
+
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([current]);
+    expect(current).toMatchObject({
+      userId: USER_ID,
+      table: 'materials',
+      recordId: currentPayload.id,
+      operation: 'upsert',
+      data: currentPayload,
+    });
+    expect(await offlineQueue.getQuarantinedCount()).toBe(1);
+    expect(await offlineQueue.getClaimableQuarantinedCount()).toBe(0);
   });
 });

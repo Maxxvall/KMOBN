@@ -911,7 +911,7 @@ const App: React.FC = () => {
         if (offlineSync.quarantinedErrorCount === 0) return;
         setSync({
             visible: true,
-            message: `Обнаружены повреждённые записи старой offline-очереди (${offlineSync.quarantinedErrorCount}). Они изолированы и не блокируют текущую работу.`,
+            message: `Обнаружены повреждённые или конфликтующие записи старой offline-очереди (${offlineSync.quarantinedErrorCount}). Они изолированы и не блокируют текущую работу.`,
             type: 'error',
         });
     }, [offlineSync.quarantinedErrorCount, setSync]);

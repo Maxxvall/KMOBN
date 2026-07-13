@@ -140,7 +140,7 @@ type LegacyPendingChange = {
 type QuarantinedChange = {
   id: string;
   raw: unknown;
-  reason: 'legacy-v1' | 'unrecognized';
+  reason: 'legacy-v1' | 'unrecognized' | 'conflict';
   quarantinedAt: string;
 };
 
@@ -318,7 +318,7 @@ export const offlineQueue = {
   async getClaimableQuarantinedCount(): Promise<number> {
     const db = await openQueueDb();
     await quarantineLegacyChanges(db);
-    return (await getQuarantined(db)).filter(entry => isLegacyChange(entry.raw)).length;
+    return (await getQuarantined(db)).filter(entry => entry.reason === 'legacy-v1' && isLegacyChange(entry.raw)).length;
   },
 
   async claimQuarantined(userId: string): Promise<number> {
@@ -328,31 +328,66 @@ export const offlineQueue = {
     const db = await openQueueDb();
     await quarantineLegacyChanges(db);
     const entries = await getQuarantined(db);
-    const claimable = entries.filter(entry => isLegacyChange(entry.raw));
+    const claimable = entries
+      .filter(entry => entry.reason === 'legacy-v1' && isLegacyChange(entry.raw))
+      .sort((left, right) => {
+        const leftChange = left.raw as LegacyPendingChange;
+        const rightChange = right.raw as LegacyPendingChange;
+        return String(leftChange.timestamp ?? '').localeCompare(String(rightChange.timestamp ?? ''));
+      });
     if (!claimable.length) return 0;
 
     const tx = db.transaction([STORE_NAME, QUARANTINE_STORE_NAME], 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const quarantine = tx.objectStore(QUARANTINE_STORE_NAME);
-    let migratedCount = 0;
+    const current = await requestToPromise(store.getAll());
+    const currentIds = new Set((current ?? []).filter(isScopedChange).map(change => change.id));
+    const coalesced = new Map<string, {
+      change: LegacyPendingChange;
+      item: { recordId: string; data: unknown };
+      order: number;
+    }>();
+    let order = 0;
     for (const entry of claimable) {
       const change = entry.raw as LegacyPendingChange;
       for (const item of getLegacyItems(change)) {
-        const migrated: PendingChange = {
-          id: buildChangeId(userId, change.table, item.recordId),
-          userId,
-          table: change.table,
-          recordId: item.recordId,
-          operation: change.operation,
-          data: item.data,
-          sequence: nextSequence(),
-          timestamp: change.timestamp ?? new Date().toISOString(),
-          retryCount: change.retryCount ?? 0,
-        };
-        store.put(migrated);
-        migratedCount += 1;
+        coalesced.set(buildChangeId(userId, change.table, item.recordId), { change, item, order });
+        order += 1;
       }
       quarantine.delete(entry.id);
+    }
+
+    let migratedCount = 0;
+    const resolved = [...coalesced.entries()].sort((left, right) => left[1].order - right[1].order);
+    for (const [id, { change, item }] of resolved) {
+      if (currentIds.has(id)) {
+        const conflictRaw: LegacyPendingChange = {
+          ...change,
+          id: `conflict-raw:${id}`,
+          data: change.operation === 'delete' ? [item.recordId] : [item.data],
+        };
+        const conflict: QuarantinedChange = {
+          id: `conflict:${id}`,
+          raw: conflictRaw,
+          reason: 'conflict',
+          quarantinedAt: new Date().toISOString(),
+        };
+        quarantine.put(conflict);
+        continue;
+      }
+      const migrated: PendingChange = {
+        id,
+        userId,
+        table: change.table,
+        recordId: item.recordId,
+        operation: change.operation,
+        data: item.data,
+        sequence: nextSequence(),
+        timestamp: change.timestamp ?? new Date().toISOString(),
+        retryCount: change.retryCount ?? 0,
+      };
+      store.put(migrated);
+      migratedCount += 1;
     }
     await waitForTransaction(tx);
     notifyListeners();
