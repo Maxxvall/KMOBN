@@ -4,6 +4,8 @@ const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell, session } = req
 const path = require('path');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require('fs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { pathToFileURL } = require('url');
 
 const IS_E2E = process.env.KMOBN_E2E === '1';
 const e2eUserDataDir = process.env.KMOBN_E2E_USER_DATA_DIR;
@@ -29,6 +31,23 @@ function log(...args) {
 
 function getDistPath() {
   return path.join(__dirname, '../dist');
+}
+
+function openExternalUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(String(url));
+  } catch {
+    return Promise.resolve(false);
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    log('Blocked external URL with unsupported protocol:', parsed.protocol);
+    return Promise.resolve(false);
+  }
+  return shell.openExternal(parsed.toString()).then(() => true).catch((e) => {
+    log('Failed to open external URL:', e.message);
+    return false;
+  });
 }
 
 function sendAuthToRenderer(url) {
@@ -134,6 +153,24 @@ function createWindow() {
     });
 
     mainWindow.loadFile(indexPath);
+    const trustedIndexUrl = new URL(pathToFileURL(indexPath).toString());
+    const isTrustedAppNavigation = (targetUrl) => {
+      try {
+        const target = new URL(targetUrl);
+        return target.protocol === trustedIndexUrl.protocol && target.pathname === trustedIndexUrl.pathname;
+      } catch {
+        return false;
+      }
+    };
+    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+      void openExternalUrl(url);
+      return { action: 'deny' };
+    });
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+      if (isTrustedAppNavigation(url)) return;
+      event.preventDefault();
+      void openExternalUrl(url);
+    });
 
     mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
       log('did-fail-load:', errorCode, errorDescription, validatedURL);
@@ -291,18 +328,5 @@ ipcMain.handle('get-app-version', () => {
 });
 
 ipcMain.handle('open-external', (_, url) => {
-  let parsed;
-  try {
-    parsed = new URL(String(url));
-  } catch {
-    return false;
-  }
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
-    log('Blocked external URL with unsupported protocol:', parsed.protocol);
-    return false;
-  }
-  return shell.openExternal(parsed.toString()).then(() => true).catch((e) => {
-    log('Failed to open external URL:', e.message);
-    return false;
-  });
+  return openExternalUrl(url);
 });

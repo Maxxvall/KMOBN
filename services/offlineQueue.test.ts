@@ -148,7 +148,20 @@ describe('offlineQueue', () => {
       sequence: pending.sequence,
       retryCount: 1,
       lastError: 'network unavailable',
+      failureKind: 'transient',
     });
+    expect(Date.parse(changes[0].nextRetryAt ?? '')).toBeGreaterThan(Date.parse(changes[0].lastAttemptAt ?? ''));
+  });
+
+  it('records permanent failures without an automatic retry time', async () => {
+    await offlineQueue.enqueueUpserts(TEST_USERS[0], 'materials', [material('material-1', 100)]);
+    const pending = (await offlineQueue.getAll(TEST_USERS[0]))[0];
+
+    await offlineQueue.markFailed(pending.id, pending.sequence, new Error('RLS denied'), false);
+
+    const [failed] = await offlineQueue.getAll(TEST_USERS[0]);
+    expect(failed.failureKind).toBe('permanent');
+    expect(failed.nextRetryAt).toBeUndefined();
   });
 
   it('accepts every CacheTableKey', async () => {

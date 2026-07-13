@@ -193,6 +193,7 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
       const applied = await withTableMutationLock(refreshKey, async (): Promise<boolean> => {
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
         if ((await offlineQueue.getForTable(userId, table)).length > 0) return false;
+        if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
         await syncCachedRecords(table, getCacheUserId(userId), records);
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
         markRefreshed(table, userId);
@@ -238,6 +239,7 @@ const refreshCacheInBackground = async <T extends { id: string }>(
     await withTableMutationLock(refreshKey, async () => {
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
       if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
+      if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
       const changed = (await syncCachedRecords(key, cacheUserId, records)).changed;
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
       markRefreshed(key, userId);
@@ -295,6 +297,7 @@ const readTableCached = async <T extends { id: string }>(
       ));
       return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
     }
+    if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
     await syncCachedRecords(key, cacheUserId, records);
     if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
     return typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
@@ -352,6 +355,9 @@ export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
       throw new Error('Во время обновления появились локальные изменения смет. Данные из базы не применены.');
     }
     if ((await offlineQueue.getForTable(userId, 'estimates')).length > 0) {
+      throw new Error('Во время обновления появились локальные изменения смет. Данные из базы не применены.');
+    }
+    if (getMutationGeneration(refreshKey) !== refreshGeneration) {
       throw new Error('Во время обновления появились локальные изменения смет. Данные из базы не применены.');
     }
     await syncCachedRecords('estimates', getCacheUserId(userId), records);

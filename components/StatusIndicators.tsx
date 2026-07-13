@@ -11,6 +11,7 @@ type Props = {
   missingTableCount: number;
   lastPreparedAt: string | null;
   retryAt: string | null;
+  syncError: string | null;
   onSync?: () => void;
 };
 
@@ -32,6 +33,7 @@ const StatusIndicators: React.FC<Props> = ({
   missingTableCount,
   lastPreparedAt,
   retryAt,
+  syncError,
   onSync,
 }) => {
   const lastPreparedTime = formatTime(lastPreparedAt);
@@ -74,10 +76,15 @@ const StatusIndicators: React.FC<Props> = ({
         onClick={canRetry ? onSync : undefined}
         disabled={!canRetry || syncStatus === 'syncing'}
         className={`rounded-md border px-2.5 py-1 text-xs font-medium transition ${statusStyle} disabled:cursor-default disabled:opacity-90`}
-        title={canRetry ? 'Повторить синхронизацию и подготовку offline-данных' : statusText}
+        title={syncError ?? (canRetry ? 'Повторить синхронизацию и подготовку offline-данных' : statusText)}
       >
         {statusText}
       </button>
+      {syncError && (
+        <p className="max-w-64 px-1 text-[10px] text-red-300" data-testid="sync-error-detail">
+          {syncError}
+        </p>
+      )}
     </div>
   );
 };

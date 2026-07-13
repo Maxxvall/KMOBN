@@ -61,7 +61,6 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks: {
             ...(isElectron ? {} : { wiki: ['./components/Wiki/index.tsx'] }),
-            vendor: ['react', 'react-dom'],
             charts: ['recharts'],
           },
         },

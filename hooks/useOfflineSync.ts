@@ -35,6 +35,8 @@ export const useOfflineSync = (userId: string | null) => {
   const syncingRef = useRef(false);
   const preparedUserRef = useRef<string | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const workspaceRetryCountRef = useRef(0);
+  const workspaceRetryAtRef = useRef<string | null>(null);
 
   const applyCoverage = useCallback(async (activeUserId: string) => {
     const coverage = await getOfflineCoverage(activeUserId);
@@ -69,6 +71,8 @@ export const useOfflineSync = (userId: string | null) => {
   useEffect(() => {
     const handleOnline = () => {
       preparedUserRef.current = null;
+      workspaceRetryCountRef.current = 0;
+      workspaceRetryAtRef.current = null;
       setIsOnline(true);
       setWorkspaceStatus('checking');
       void refreshPending();
@@ -111,13 +115,27 @@ export const useOfflineSync = (userId: string | null) => {
       });
       setSyncedCount(result.sync?.syncedCount ?? 0);
       setSyncedTables(result.sync?.syncedTables ?? []);
-      setMissingTables(result.coverage.missingTables);
       setLastPreparedAt(result.coverage.lastPreparedAt);
       const refreshIncomplete = Boolean(result.refresh?.failedTables.length || result.refresh?.skippedTables.length);
+      const incompleteTables = new Set<CacheTableKey>([
+        ...result.coverage.missingTables,
+        ...(result.refresh?.failedTables ?? []),
+        ...(result.refresh?.skippedTables ?? []),
+      ]);
+      setMissingTables([...incompleteTables]);
       setWorkspaceStatus(result.coverage.ready && !refreshIncomplete ? 'ready' : 'partial');
       setSyncStatus('idle');
       preparedUserRef.current = userId;
       setWorkspaceVersion(value => value + 1);
+      if (refreshIncomplete) {
+        workspaceRetryCountRef.current += 1;
+        const delay = Math.min(60_000, 1000 * (2 ** Math.max(0, workspaceRetryCountRef.current - 1)));
+        workspaceRetryAtRef.current = new Date(Date.now() + delay).toISOString();
+        setRetryAt(workspaceRetryAtRef.current);
+      } else {
+        workspaceRetryCountRef.current = 0;
+        workspaceRetryAtRef.current = null;
+      }
     } catch (error) {
       console.error('Offline workspace preparation failed:', error);
       setSyncStatus('error');
@@ -133,6 +151,8 @@ export const useOfflineSync = (userId: string | null) => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     retryTimerRef.current = null;
     preparedUserRef.current = null;
+    workspaceRetryCountRef.current = 0;
+    workspaceRetryAtRef.current = null;
     void runPreparation();
   }, [runPreparation]);
 
@@ -151,14 +171,22 @@ export const useOfflineSync = (userId: string | null) => {
     if (!isOnline || !userId || userId === 'anon' || syncingRef.current) return;
 
     const firstPending = pendingChanges[0];
-    const delay = retryDelay(firstPending);
+    const delay = firstPending
+      ? retryDelay(firstPending)
+      : workspaceRetryAtRef.current
+        ? Math.max(0, Date.parse(workspaceRetryAtRef.current) - Date.now())
+        : 0;
     if (delay == null) {
       setWorkspaceStatus('error');
       return;
     }
     if (delay > 0) {
-      setRetryAt(firstPending.nextRetryAt ?? null);
-      retryTimerRef.current = setTimeout(() => void runPreparation(), delay);
+      setRetryAt(firstPending?.nextRetryAt ?? workspaceRetryAtRef.current);
+      retryTimerRef.current = setTimeout(() => {
+        workspaceRetryAtRef.current = null;
+        preparedUserRef.current = null;
+        void runPreparation();
+      }, delay);
       return () => {
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       };

@@ -22,6 +22,7 @@ export interface OfflineTableMetadata {
   complete: boolean;
   lastSyncedAt: string;
   recordCount: number;
+  schemaVersion: number;
 }
 
 export interface OfflineCoverage {
@@ -34,6 +35,7 @@ export interface OfflineCoverage {
 const DB_NAME = 'kmobn_indexeddb_cache';
 const DB_VERSION = 2;
 const METADATA_STORE_NAME = 'sync_metadata';
+export const OFFLINE_CACHE_SCHEMA_VERSION = 1;
 
 export const OFFLINE_TABLES: readonly CacheTableKey[] = [
   'estimates',
@@ -184,7 +186,7 @@ export const getOfflineCoverage = async (userId: string): Promise<OfflineCoverag
 
   const tables: Partial<Record<CacheTableKey, OfflineTableMetadata>> = {};
   for (const entry of (entries ?? []) as OfflineTableMetadata[]) {
-    tables[entry.table] = entry;
+    if (entry.schemaVersion === OFFLINE_CACHE_SCHEMA_VERSION) tables[entry.table] = entry;
   }
   const missingTables = OFFLINE_TABLES.filter(table => !tables[table]?.complete);
   const completedDates = OFFLINE_TABLES
@@ -207,7 +209,8 @@ export const isTableSnapshotComplete = async (table: CacheTableKey, userId: stri
   const tx = db.transaction(METADATA_STORE_NAME, 'readonly');
   const entry = await requestToPromise(tx.objectStore(METADATA_STORE_NAME).get(buildMetadataKey(userId, table)));
   await waitForTransaction(tx);
-  return Boolean((entry as OfflineTableMetadata | undefined)?.complete);
+  const metadata = entry as OfflineTableMetadata | undefined;
+  return Boolean(metadata?.complete && metadata.schemaVersion === OFFLINE_CACHE_SCHEMA_VERSION);
 };
 
 export const upsertCachedRecords = async <T extends { id: string }>(
@@ -320,6 +323,7 @@ export const syncCachedRecords = async <T extends { id: string }>(
     complete: true,
     lastSyncedAt,
     recordCount: nextIds.size,
+    schemaVersion: OFFLINE_CACHE_SCHEMA_VERSION,
   };
   metadataStore.put(metadata);
 

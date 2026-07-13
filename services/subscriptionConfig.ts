@@ -14,13 +14,13 @@ export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, SubscriptionLimits> =
         },
     },
     basic: {
-        estimates: { max: 5, canDelete: true, deletePerMonth: 2 },
-        materials: { max: 50 },
-        works: { max: 10 },
-        bundles: { max: 5 },
-        aiRequestsPerDay: 10,
+        estimates: { max: null, canDelete: true, deletePerMonth: null },
+        materials: { max: null },
+        works: { max: null },
+        bundles: { max: null },
+        aiRequestsPerDay: null,
         features: {
-            analytics: false,
+            analytics: true,
             salaryCalculator: true,
             wiki: true,
         },
@@ -40,12 +40,6 @@ export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, SubscriptionLimits> =
 };
 
 export const getSubscriptionLabel = (tier: SubscriptionTier): string => {
-    switch (tier) {
-        case 'basic':
-            return 'Basic';
-        case 'premium':
-            return 'Premium';
-        default:
-            return 'Free';
-    }
+    void tier;
+    return 'Безлимит';
 };

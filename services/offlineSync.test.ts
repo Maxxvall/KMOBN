@@ -66,6 +66,19 @@ describe('processOfflineQueue', () => {
     expect(remaining[1]).toMatchObject({ retryCount: 0 });
   });
 
+  it('classifies a 4xx database rejection as permanent', async () => {
+    await enqueueMaterial('material-1', 100);
+    const rejection = Object.assign(new Error('RLS denied'), { status: 403 });
+
+    await expect(processOfflineQueue(TEST_USER, async () => {
+      throw rejection;
+    })).rejects.toMatchObject({ retryable: false });
+
+    const [failed] = await offlineQueue.getAll(TEST_USER);
+    expect(failed).toMatchObject({ failureKind: 'permanent', retryCount: 1 });
+    expect(failed.nextRetryAt).toBeUndefined();
+  });
+
   it('does not delete a newer change enqueued while its older sequence is syncing', async () => {
     await enqueueMaterial('material-1', 100);
     const original = (await offlineQueue.getAll(TEST_USER))[0];

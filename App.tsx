@@ -2143,6 +2143,9 @@ const App: React.FC = () => {
                     missingTableCount={offlineSync.missingTables.length}
                     lastPreparedAt={offlineSync.lastPreparedAt}
                     retryAt={offlineSync.retryAt}
+                    syncError={offlineSync.pendingChanges[0]?.lastError
+                        ? `${offlineSync.pendingChanges[0].table}/${offlineSync.pendingChanges[0].recordId}: ${offlineSync.pendingChanges[0].lastError}`
+                        : null}
                     onSync={offlineSync.syncNow}
                 />
             </div>
