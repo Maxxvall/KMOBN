@@ -45,6 +45,7 @@ import {
     updateUserSubscription,
 } from './services/subscriptionService';
 import { createPayment } from './services/paymentService';
+import { setupAppUsageTracking } from './services/appUsage';
 
 const EstimateHistory = lazy(() => import('./components/EstimateHistory'));
 const EstimateEditor = lazy(() => import('./components/EstimateEditor'));
@@ -805,33 +806,8 @@ const App: React.FC = () => {
         window.electronAPI.onUpdateError?.(handleError);
     }, []);
 
-    // Track app usage time
     useEffect(() => {
-        localStorage.setItem('kmobn:appStartTime', String(Date.now()));
-
-        const saveTime = () => {
-            const start = parseInt(localStorage.getItem('kmobn:appStartTime') || '0', 10);
-            if (start > 0) {
-                const sessionMinutes = Math.floor((Date.now() - start) / 60000);
-                if (sessionMinutes >= 1) {
-                    const currentSavedTotal = parseInt(localStorage.getItem('kmobn:totalTimeSpent') || '0', 10);
-                    localStorage.setItem('kmobn:totalTimeSpent', String(currentSavedTotal + sessionMinutes));
-                    localStorage.setItem('kmobn:appStartTime', String(Date.now()));
-                }
-            }
-        };
-
-        const interval = setInterval(saveTime, 30000);
-        const handleVisibility = () => {
-            if (document.visibilityState === 'hidden') saveTime();
-        };
-        document.addEventListener('visibilitychange', handleVisibility);
-
-        return () => {
-            clearInterval(interval);
-            document.removeEventListener('visibilitychange', handleVisibility);
-            saveTime();
-        };
+        return setupAppUsageTracking();
     }, []);
 
     const handleUpdatePassword = useCallback(async () => {
