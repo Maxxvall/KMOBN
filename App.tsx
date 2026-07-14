@@ -2117,6 +2117,24 @@ const App: React.FC = () => {
                 onProfileClick={() => setIsProfileModalOpen(true)}
                 subscriptionSummary={headerSubscriptionSummary}
                 isElectron={!!window.electronAPI?.isElectron}
+                mobileStatus={(
+                    <StatusIndicators
+                        compact
+                        isOnline={offlineSync.isOnline}
+                        isSupabaseConnected={offlineSync.isSupabaseConnected}
+                        isGoogleAuthOk={offlineSync.isGoogleAuthOk}
+                        pendingCount={offlineSync.pendingChanges.length}
+                        syncStatus={offlineSync.syncStatus}
+                        workspaceStatus={offlineSync.workspaceStatus}
+                        missingTableCount={offlineSync.missingTables.length}
+                        lastPreparedAt={offlineSync.lastPreparedAt}
+                        retryAt={offlineSync.retryAt}
+                        syncError={offlineSync.pendingChanges[0]?.lastError
+                            ? `${offlineSync.pendingChanges[0].table}/${offlineSync.pendingChanges[0].recordId}: ${offlineSync.pendingChanges[0].lastError}`
+                            : null}
+                        onSync={offlineSync.syncNow}
+                    />
+                )}
             />
             {offlineModeRaw && (
                 <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-center text-sm text-amber-300">
@@ -2132,7 +2150,7 @@ const App: React.FC = () => {
                     onDismiss={() => setAppUpdateInfo(null)}
                 />
             )}
-            <div className="fixed bottom-4 left-4 z-50">
+            <div className="fixed bottom-4 left-4 z-50 hidden lg:block">
                 <StatusIndicators
                     isOnline={offlineSync.isOnline}
                     isSupabaseConnected={offlineSync.isSupabaseConnected}

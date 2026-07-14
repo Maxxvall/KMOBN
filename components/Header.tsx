@@ -11,6 +11,7 @@ interface HeaderProps {
     subscriptionSummary?: unknown;
     onUpgradeClick?: () => void;
     isElectron?: boolean;
+    mobileStatus?: React.ReactNode;
 }
 
 type NavIconName = 'file-text' | 'house' | 'tag' | 'briefcase-business' | 'more-horizontal' | 'wrench';
@@ -76,6 +77,7 @@ const Header: React.FC<HeaderProps> = ({
     onUserNameClick,
     onProfileClick,
     isElectron = false,
+    mobileStatus,
 }) => {
     const [showMoreMenu, setShowMoreMenu] = useState(false);
     const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -197,13 +199,7 @@ const Header: React.FC<HeaderProps> = ({
                             <p className="truncate text-xs text-primary">Генератор смет</p>
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={openDrawer}
-                        className="min-h-11 rounded-lg px-3 text-xs font-semibold text-text-secondary transition hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary"
-                    >
-                        Меню
-                    </button>
+                    {mobileStatus && <div className="shrink-0">{mobileStatus}</div>}
                 </div>
             </header>
 

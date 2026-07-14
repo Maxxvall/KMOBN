@@ -13,6 +13,7 @@ type Props = {
   retryAt: string | null;
   syncError: string | null;
   onSync?: () => void;
+  compact?: boolean;
 };
 
 const dot = (ok: boolean) => ok ? 'bg-emerald-500' : 'bg-red-500';
@@ -35,6 +36,7 @@ const StatusIndicators: React.FC<Props> = ({
   retryAt,
   syncError,
   onSync,
+  compact = false,
 }) => {
   const lastPreparedTime = formatTime(lastPreparedAt);
   const retryTime = formatTime(retryAt);
@@ -57,6 +59,21 @@ const StatusIndicators: React.FC<Props> = ({
       ? 'border-red-500/40 bg-red-500/15 text-red-300'
       : 'border-amber-500/40 bg-amber-500/15 text-amber-300';
   const canRetry = Boolean(onSync && isOnline && (pendingCount > 0 || workspaceStatus === 'partial' || workspaceStatus === 'error'));
+
+  if (compact) {
+    return (
+      <button
+        type="button"
+        data-testid="offline-readiness"
+        onClick={canRetry ? onSync : undefined}
+        disabled={!canRetry || syncStatus === 'syncing'}
+        className={`min-h-9 max-w-[156px] truncate rounded-md border px-2 text-[11px] font-semibold transition ${statusStyle} disabled:cursor-default disabled:opacity-90`}
+        title={syncError ?? (canRetry ? 'Повторить синхронизацию и подготовку offline-данных' : statusText)}
+      >
+        {statusText}{pendingCount > 0 ? ` · ${pendingCount}` : ''}
+      </button>
+    );
+  }
 
   return (
     <div className="flex flex-col items-start gap-1.5 rounded-lg bg-slate-950/80 p-2 shadow-lg backdrop-blur">
