@@ -1249,27 +1249,51 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                 )}
 
-                {/* Row 1: Клиент, Дата, Статус, Тип строения, Площадь */}
-                <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-5">
-                    <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Клиент" className={inputStyles + " min-h-[44px] sm:col-span-2 md:min-h-9"} />
-                    <input type="date" value={estimate.date} onChange={e => setEstimate({ ...estimate, date: e.target.value })} className={inputStyles + " min-h-[44px] md:min-h-9"} />
-                    <select value={estimate.status} onChange={e => setEstimate({ ...estimate, status: e.target.value as EstimateStatus })} className={inputStyles + " min-h-[44px] md:min-h-9"}>
-                        {Object.values(EstimateStatus).filter(s => s !== EstimateStatus.ARCHIVED).map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <input type="text" value={estimate.buildingType} onChange={e => setEstimate({ ...estimate, buildingType: e.target.value })} placeholder="Тип строения" className={inputStyles + " min-h-[44px] md:min-h-9"} />
+                <div className="mb-3 grid grid-cols-6 gap-2 xl:grid-cols-[minmax(220px,1.5fr)_150px_170px_minmax(220px,1fr)_110px]">
+                    <label className="col-span-6 min-w-0 xl:col-auto">
+                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Клиент</span>
+                        <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Имя клиента" className={inputStyles + " min-h-[44px] min-w-0 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
+                    </label>
+                    <label className="col-span-3 min-w-0 xl:col-auto">
+                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Дата</span>
+                        <input type="date" value={estimate.date} onChange={e => setEstimate({ ...estimate, date: e.target.value })} className={inputStyles + " min-h-[44px] min-w-0 tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
+                    </label>
+                    <label className="col-span-3 min-w-0 xl:col-auto">
+                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Статус</span>
+                        <select value={estimate.status} onChange={e => setEstimate({ ...estimate, status: e.target.value as EstimateStatus })} className={inputStyles + " min-h-[44px] min-w-0 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"}>
+                            {Object.values(EstimateStatus).filter(s => s !== EstimateStatus.ARCHIVED).map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    </label>
+                    <label className="col-span-4 min-w-0 xl:col-auto">
+                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Тип строения</span>
+                        <input type="text" value={estimate.buildingType} onChange={e => setEstimate({ ...estimate, buildingType: e.target.value })} placeholder="Например, дачный дом" className={inputStyles + " min-h-[44px] min-w-0 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
+                    </label>
+                    <label className="col-span-2 min-w-0 xl:col-auto">
+                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Площадь, м²</span>
+                        <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="0" className={inputStyles + " min-h-[44px] min-w-0 tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
+                    </label>
                 </div>
 
-                {/* Row 2: Площадь, Шаблон + удалить, Кнопка генерации + AI, AI-анализ */}
-                <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-5">
-                    <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="Площадь" className={inputStyles + " min-h-[44px] md:min-h-9"} />
-                    <div className="flex gap-2 sm:col-span-2">
-                        <select value={genParams.projectTemplateId} onChange={e => setGenParams({ ...genParams, projectTemplateId: e.target.value })} className={inputStyles + " min-h-[44px] flex-1 md:min-h-9"}>
-                            {templatesValue.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
-                        </select>
-                        <button onClick={() => onDeleteTemplateAction?.(genParams.projectTemplateId)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-2 text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">✖</button>
+                <div className="mb-3 grid grid-cols-6 items-end gap-2 xl:grid-cols-[minmax(260px,1fr)_minmax(140px,220px)_72px_minmax(140px,180px)]">
+                    <div className="col-span-6 min-w-0 xl:col-auto">
+                        <label htmlFor="estimate-template" className="mb-1 block text-[11px] font-medium text-text-secondary">Шаблон генерации</label>
+                        <span className="flex min-w-0 gap-2">
+                            <select id="estimate-template" value={genParams.projectTemplateId} onChange={e => setGenParams({ ...genParams, projectTemplateId: e.target.value })} className={inputStyles + " min-h-[44px] min-w-0 flex-1 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"}>
+                                {templatesValue.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
+                            </select>
+                            <button
+                                type="button"
+                                onClick={() => onDeleteTemplateAction?.(genParams.projectTemplateId)}
+                                aria-label="Удалить выбранный шаблон"
+                                title="Удалить выбранный шаблон"
+                                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-transparent text-red-500 transition-colors hover:border-red-500/20 hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
+                            >
+                                ✖
+                            </button>
+                        </span>
                     </div>
-                    <div className="flex gap-2 items-center sm:col-span-2">
-                        <button onClick={handleGenerate} disabled={isLoading} className="min-h-[44px] flex-1 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:bg-gray-500 md:min-h-9">
+                    <div className="col-span-6 grid min-w-0 grid-cols-3 gap-2 xl:col-span-3 xl:grid-cols-[minmax(140px,220px)_72px_minmax(140px,180px)]">
+                        <button onClick={handleGenerate} disabled={isLoading} className="min-h-[44px] min-w-0 rounded-md bg-primary px-2 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 md:min-h-9">
                             {isLoading ? 'Генерация...' : 'По шаблону'}
                         </button>
                         <button
@@ -1294,41 +1318,37 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                 setAiGenModalOpen(true);
                             }}
                             disabled={isLoading}
-                            className="min-h-[44px] min-w-[44px] rounded-md bg-gray-600 px-3 py-2 font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:bg-gray-500 md:min-h-9 md:min-w-9"
+                            className="min-h-[44px] min-w-0 rounded-md bg-gray-600 px-2 py-2 font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 md:min-h-9"
                         >
                             AI
                         </button>
                         <button
                             onClick={handleAnalyzeEstimate}
                             disabled={isLoading}
-                            className="min-h-[44px] min-w-[44px] rounded-md bg-gray-600 px-3 py-2 text-sm font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:bg-gray-500 md:min-h-9 md:min-w-9"
+                            className="min-h-[44px] min-w-0 rounded-md bg-gray-600 px-2 py-2 text-sm font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 md:min-h-9"
                         >
                             🤖 AI-анализ
                         </button>
                     </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 items-stretch gap-2 sm:grid-cols-2 md:grid-cols-12">
-                    <div className="rounded-lg border border-border bg-background/45 p-2 sm:col-span-2 md:col-span-3">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-xs font-semibold tabular-nums text-text-secondary">v{estimate.version} · {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                            {getPreviousVersion() && (
-                                <button onClick={() => setShowComparison(true)} className="min-h-[44px] rounded px-1 text-xs text-blue-400 hover:bg-white/5 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">Сравнить</button>
-                            )}
-                            {initialEstimateValue && (
-                                <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="min-h-[44px] rounded px-1 text-xs font-semibold text-green-400 hover:bg-white/5 hover:text-green-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">Шаблон</button>
-                            )}
-                        </div>
+                    <div className="grid min-w-0 gap-2 rounded-lg border border-border/70 bg-background/25 p-2 xl:grid-cols-[minmax(240px,auto)_minmax(330px,1fr)_minmax(480px,auto)] xl:items-center">
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="text-xs font-semibold tabular-nums text-text-secondary">v{estimate.version} · {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                        {getPreviousVersion() && (
+                            <button onClick={() => setShowComparison(true)} className="min-h-[44px] rounded px-1.5 text-xs text-blue-400 transition-colors hover:bg-white/5 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">Сравнить</button>
+                        )}
+                        {initialEstimateValue && (
+                            <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="min-h-[44px] rounded px-1.5 text-xs font-semibold text-green-400 transition-colors hover:bg-white/5 hover:text-green-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">В шаблон</button>
+                        )}
                     </div>
-                    <div className="flex items-center rounded-lg border border-border bg-background/45 p-2 sm:col-span-1 md:col-span-2">
+                    <div className="grid min-w-0 grid-cols-3 gap-2">
                         <button
                             onClick={() => setBundlePickerOpen(true)}
-                            className="min-h-[44px] w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary transition hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
+                            className="min-h-[44px] min-w-0 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary transition hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                         >
                             Комплекты
                         </button>
-                    </div>
-                    <div className="flex items-center rounded-lg border border-border bg-background/45 p-2 sm:col-span-1 md:col-span-2">
                         <select
                             onChange={(e) => {
                                 const val = e.target.value as EstimateCategory;
@@ -1337,7 +1357,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     e.target.value = '';
                                 }
                             }}
-                            className="min-h-[44px] w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
+                            className="min-h-[44px] min-w-0 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                             defaultValue=""
                         >
                             <option value="">+ Раздел...</option>
@@ -1345,41 +1365,38 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                 <option key={cat} value={cat} disabled={visibleCategories.includes(cat)}>{cat}</option>
                             ))}
                         </select>
+                        <button
+                            type="button"
+                            onClick={() => setShowActuals(prev => !prev)}
+                            aria-pressed={showActuals}
+                            className={`min-h-[44px] min-w-0 rounded-md border px-2 py-1 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 ${showActuals ? 'border-primary bg-primary text-white' : 'border-border bg-transparent text-text-secondary hover:border-primary hover:bg-background hover:text-text-primary'}`}
+                            title="Показать фактические количество, цену и отклонения"
+                        >
+                            Факт
+                        </button>
                     </div>
-                    <div className="flex flex-col gap-2 rounded-lg border border-border bg-background/45 p-2 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between md:col-span-5">
-                        <div className="flex flex-wrap gap-x-3 gap-y-1 items-center text-xs">
-                            <span className="text-text-secondary whitespace-nowrap">Р: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="text-text-secondary whitespace-nowrap">М: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="text-text-secondary whitespace-nowrap">Д: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="text-sm font-bold text-primary whitespace-nowrap">ИТОГ: {estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+                        <div className="grid min-w-0 grid-cols-3 gap-x-2 gap-y-1 text-[11px] tabular-nums">
+                            <span className="min-w-0 whitespace-nowrap text-text-secondary">Р: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                            <span className="min-w-0 whitespace-nowrap text-text-secondary">М: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                            <span className="min-w-0 whitespace-nowrap text-text-secondary">Д: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                            <span className="col-span-3 whitespace-nowrap text-sm font-bold text-primary">ИТОГО: {estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
                         </div>
-                        <button onClick={handleSave} className="min-h-[44px] w-full whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 active:scale-95 sm:ml-3 sm:w-auto md:min-h-9">
+                        <button onClick={handleSave} className="min-h-[44px] whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 active:scale-95 md:min-h-9">
                             Сохранить
                         </button>
                     </div>
                 </div>
 
-                <div className="mt-2 flex flex-col gap-2 rounded-lg border border-border bg-background/35 p-2 md:flex-row md:items-center md:justify-between">
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <button
-                            type="button"
-                            onClick={() => setShowActuals(prev => !prev)}
-                            className={`min-h-[44px] rounded-md border px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 ${showActuals ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-primary hover:border-primary'}`}
-                            title="Показать фактические количество, цену и отклонения"
-                        >
-                            Факт
-                        </button>
-                        {showActuals && (
-                            <>
-                                <span className="text-text-secondary whitespace-nowrap">План: <span className="font-semibold text-text-primary">{actualSummary.planTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                                <span className="text-text-secondary whitespace-nowrap">Факт: <span className="font-semibold text-text-primary">{actualSummary.actualFilledTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                                <span className="text-text-secondary whitespace-nowrap">Прогноз: <span className="font-semibold text-text-primary">{actualSummary.forecastTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                                <span className={`font-semibold whitespace-nowrap ${actualSummary.diff > 0 ? 'text-red-300' : actualSummary.diff < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>Δ {actualSummary.diff > 0 ? '+' : ''}{actualSummary.diff.toLocaleString('ru-RU')}&nbsp;₽</span>
-                                <span className="text-text-secondary whitespace-nowrap">Заполнено: <span className="font-semibold text-text-primary">{actualSummary.filledItems}/{actualSummary.totalItems}</span></span>
-                            </>
-                        )}
-                    </div>
-                    {showActuals && (
+                {showActuals && (
+                    <div className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-2 lg:flex-row lg:items-center lg:justify-between">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums">
+                            <span className="whitespace-nowrap text-text-secondary">План: <span className="font-semibold text-text-primary">{actualSummary.planTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                            <span className="whitespace-nowrap text-text-secondary">Факт: <span className="font-semibold text-text-primary">{actualSummary.actualFilledTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                            <span className="whitespace-nowrap text-text-secondary">Прогноз: <span className="font-semibold text-text-primary">{actualSummary.forecastTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
+                            <span className={`whitespace-nowrap font-semibold ${actualSummary.diff > 0 ? 'text-red-300' : actualSummary.diff < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>Δ {actualSummary.diff > 0 ? '+' : ''}{actualSummary.diff.toLocaleString('ru-RU')}&nbsp;₽</span>
+                            <span className="whitespace-nowrap text-text-secondary">Заполнено: <span className="font-semibold text-text-primary">{actualSummary.filledItems}/{actualSummary.totalItems}</span></span>
+                        </div>
                         <div className="flex flex-wrap items-center gap-2">
                             {([
                                 ['all', 'Все'],
@@ -1404,8 +1421,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                 Заполнить факт планом
                             </button>
                         </div>
-                    )}
-                </div>
+                    </div>
+                )}
 
                 {(quickBundleWork || quickBundleNotice) && (
                     <div className="mt-4 rounded-lg border border-primary/40 bg-primary/10 p-3">
