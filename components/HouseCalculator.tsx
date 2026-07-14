@@ -14,6 +14,7 @@ import {
     selectEligibleHouseHistory,
 } from '../services/houseCalculator';
 import { explainHouseCalculation } from '../services/openRouterService';
+import { buildCrewToolPlan } from '../services/toolPlanning';
 
 interface HouseCalculatorProps {
     estimates: Estimate[];
@@ -71,12 +72,12 @@ const Choice: React.FC<{ active: boolean; label: string; onClick: () => void }> 
 );
 
 const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials, works, historyLoaded, onRefreshEstimates, onCreateEstimate }) => {
-    // Catalogs are part of the shared screen contract; prices in this MVP come only from historical estimates.
+    // Materials remain part of the shared screen contract; prices in this MVP come from history.
     void materials;
-    void works;
 
     const [area, setArea] = useState(79);
     const [floors, setFloors] = useState(1);
+    const [crewSize, setCrewSize] = useState(4);
     const [windows, setWindows] = useState(6);
     const [externalDoors, setExternalDoors] = useState(0);
     const [interiorDoors, setInteriorDoors] = useState(3);
@@ -95,6 +96,11 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const [selectedTier, setSelectedTier] = useState<HouseTier>('optimal');
     const [isProposalLoading, setIsProposalLoading] = useState(false);
     const [proposalError, setProposalError] = useState('');
+    const houseToolPlanning = useMemo(() => result ? buildCrewToolPlan({
+        estimateItems: result.items,
+        works,
+        crewSize,
+    }) : null, [crewSize, result, works]);
 
     const calculationInput = useMemo<HouseCalculatorInput>(() => ({
         estimates,
@@ -311,6 +317,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             total: result.base,
             buildingType: 'Каркасный дом',
             area,
+            crewToolPlan: houseToolPlanning?.plan,
             needsPriceUpdate: false,
             sortOrder: timestamp,
         });
@@ -344,6 +351,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                                 <div className="grid grid-cols-2 gap-2">{[1, 2].map(value => <Choice key={value} active={floors === value} label={`${value} этаж${value === 1 ? '' : 'а'}`} onClick={() => setFloors(value)} />)}</div>
                             </div>
                             <Stepper label="Окна" value={windows} min={0} onChange={setWindows} />
+                            <Stepper label="Бригада" value={crewSize} min={1} max={30} onChange={setCrewSize} />
                             <Stepper label="Входные двери" value={externalDoors} min={0} onChange={setExternalDoors} />
                             <Stepper label="Межкомнатные двери" value={interiorDoors} min={0} onChange={setInteriorDoors} />
                             <div className="sm:col-span-2">
@@ -440,6 +448,21 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                             <details className="p-5 sm:p-6" open>
                                 <summary className={`min-h-[44px] cursor-pointer font-bold ${buttonFocus}`}>Разделы строительства</summary>
                                 <div className="space-y-2 pt-2">{result.sections.length ? result.sections.map(section => <div key={section.category} className="flex items-start justify-between gap-4 text-sm"><span className="min-w-0 text-text-secondary">{section.category}</span><span className="whitespace-nowrap font-semibold">{money(section.total)}</span></div>) : <p className="text-sm text-text-secondary">В эталонной смете нет подходящих позиций.</p>}</div>
+                            </details>
+                            <details className="p-5 sm:p-6">
+                                <summary className={`min-h-[44px] cursor-pointer font-bold ${buttonFocus}`}>Инструмент для бригады{houseToolPlanning?.aggregated.length ? ` · ${houseToolPlanning.aggregated.length}` : ''}</summary>
+                                <p className="mt-1 text-xs text-text-secondary">Внутреннее · не попадёт в коммерческое предложение</p>
+                                {houseToolPlanning && houseToolPlanning.aggregated.length > 0 ? (
+                                    <div className="mt-3 space-y-2">
+                                        {houseToolPlanning.aggregated.map(tool => (
+                                            <div key={tool.toolKey} className="flex items-start justify-between gap-4 text-sm">
+                                                <span className="min-w-0 text-text-secondary">{tool.name}</span>
+                                                <span className="whitespace-nowrap font-semibold text-text-primary">{tool.quantity} шт.</span>
+                                            </div>
+                                        ))}
+                                        <p className="pt-2 text-xs leading-5 text-text-secondary">Набор найден для {houseToolPlanning.coverage.coveredWorkItems} из {houseToolPlanning.coverage.totalWorkItems} работ.</p>
+                                    </div>
+                                ) : <p className="mt-3 text-sm leading-6 text-text-secondary">Для работ этого расчёта инструмент пока не настроен в справочнике.</p>}
                             </details>
                             <div className="p-5 sm:p-6">
                                 <h2 className="font-bold">Основание расчёта</h2>

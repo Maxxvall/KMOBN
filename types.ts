@@ -23,6 +23,30 @@ export interface EstimateItem {
     note?: string;
     actual?: EstimateItemActual;
     isActualOnly?: boolean;
+    catalogWorkId?: string;
+}
+
+export type ToolQuantityMode = 'crew' | 'person';
+
+export interface WorkToolRequirement {
+    name: string;
+    key?: string;
+    quantity: number;
+    quantityMode: ToolQuantityMode;
+    note?: string;
+}
+
+export interface CrewToolRequirement extends WorkToolRequirement {
+    toolKey: string;
+    source: 'work' | 'manual' | 'ai';
+    catalogWorkId?: string;
+    estimateItemId?: string;
+}
+
+export interface CrewToolPlan {
+    crewSize: number;
+    requirements: CrewToolRequirement[];
+    quantityOverrides?: Record<string, number>;
 }
 
 export interface EstimateItemActual {
@@ -52,13 +76,13 @@ export interface Estimate {
     sortOrder?: number;
     created_at?: string | null;
     updated_at?: string | null;
+    crewToolPlan?: CrewToolPlan;
 }
 
 export enum EstimateStatus {
     DRAFT = 'Черновик',
     SENT = 'Отправлена',
     APPROVED = 'Согласована',
-    ARCHIVED = 'В архиве',
 }
 
 export enum View {
@@ -179,6 +203,7 @@ export interface Work {
     sortOrder?: number;
     created_at?: string | null;
     updated_at?: string | null;
+    toolRequirements?: WorkToolRequirement[];
 }
 
 export interface WorkBundle {

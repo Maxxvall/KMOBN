@@ -30,6 +30,8 @@ import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 import { useEstimateCrud } from './hooks/useEstimateCrud';
+import { normalizeEstimateChains } from './services/estimateLifecycle';
+import { toClientEstimate } from './services/clientEstimate';
 import {
     canCreateBundle,
     canCreateMaterial,
@@ -71,84 +73,6 @@ const hasRecoveryFlagInUrl = (): boolean => {
     if (typeof window === 'undefined') return false;
     const combined = `${window.location.search}${window.location.hash}`.toLowerCase();
     return combined.includes('type=recovery');
-};
-
-const normalizeEstimateChains = (raw: Estimate[]): { normalized: Estimate[]; changed: boolean } => {
-    const byNumber = new Map<string, Estimate[]>();
-    raw.forEach(e => {
-        const key = e.estimateNumber || e.id;
-        const list = byNumber.get(key) ?? [];
-        list.push(e);
-        byNumber.set(key, list);
-    });
-
-    let changed = false;
-    const normalized: Estimate[] = [];
-
-    byNumber.forEach(list => {
-        // Deduplicate entries with the same version number: keep the one with the most recent date
-        const deduped: Estimate[] = [];
-        const seenVersions = new Map<number, Estimate[]>();
-        for (const e of list) {
-            const v = typeof e.version === 'number' ? e.version : 0;
-            const existing = seenVersions.get(v);
-            if (existing) {
-                existing.push(e);
-            } else {
-                seenVersions.set(v, [e]);
-            }
-        }
-        seenVersions.forEach((entries, _v) => {
-            if (entries.length === 1) {
-                deduped.push(entries[0]);
-            } else {
-                // Keep the most recent by date, archive the rest
-                const sorted = [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                deduped.push(sorted[0]);
-                // Mark extras for removal (will be replaced with duplicates below)
-                for (let i = 1; i < sorted.length; i++) {
-                    deduped.push({ ...sorted[i], isArchived: true, status: EstimateStatus.ARCHIVED } as Estimate);
-                }
-            }
-        });
-
-        if (deduped.length === 1) {
-            const only = deduped[0];
-            const fixed = {
-                ...only,
-                parentId: undefined,
-                isArchived: false,
-            };
-            if (only.parentId || only.isArchived) changed = true;
-            normalized.push(fixed);
-            return;
-        }
-
-        const sorted = [...deduped].sort((a, b) => {
-            const vA = typeof a.version === 'number' ? a.version : 0;
-            const vB = typeof b.version === 'number' ? b.version : 0;
-            if (vB !== vA) return vB - vA;
-            return new Date(b.date).getTime() - new Date(a.date).getTime();
-        });
-        const latest = sorted[0];
-        sorted.forEach(e => {
-            if (e.id === latest.id) {
-                const fixed = { ...e, parentId: undefined, isArchived: false };
-                if (e.parentId || e.isArchived) changed = true;
-                normalized.push(fixed);
-            } else {
-                const fixed = {
-                    ...e,
-                    parentId: latest.id,
-                    // Не трогаем isArchived и status — оставляем оригинальные значения
-                };
-                if (e.parentId !== latest.id) changed = true;
-                normalized.push(fixed);
-            }
-        });
-    });
-
-    return { normalized, changed };
 };
 
 type SyncState = { visible: boolean; message: string; type: 'success' | 'error' | 'info' };
@@ -393,6 +317,7 @@ const App: React.FC = () => {
     const [appUpdateInfo, setAppUpdateInfo] = useState<{ version: string } | null>(null);
     const [appUpdateDownloaded, setAppUpdateDownloaded] = useState(false);
     const [appUpdateProgress, setAppUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; transferred: number; total: number } | null>(null);
+    const [restoreArchivedOnSave, setRestoreArchivedOnSave] = useState(true);
     const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const autosaveSuppressedRef = useRef(false);
     const didHydrateRef = useRef(false);
@@ -1372,6 +1297,7 @@ const App: React.FC = () => {
         handleDeleteEstimate,
         handleDeleteEstimateVersion,
         handleDeleteVersionDuplicates,
+        handleSetArchived,
         handleSaveAsTemplate,
         handleDeleteTemplate,
     } = useEstimateCrud({
@@ -1405,6 +1331,7 @@ const App: React.FC = () => {
 
     const handleSaveRequest = useCallback((draft: Estimate) => {
         setEditorDraft(draft);
+        setRestoreArchivedOnSave(true);
         setViewAfterSave(View.HISTORY);
         setShowSaveOptions(true);
         setShowUnsavedModal(false);
@@ -1413,8 +1340,8 @@ const App: React.FC = () => {
 
     const handleConfirmSave = useCallback((mode: SaveMode) => {
         if (!editorDraft) return;
-        handleSaveEstimate(editorDraft, mode, viewAfterSave);
-    }, [editorDraft, handleSaveEstimate, viewAfterSave]);
+        handleSaveEstimate(editorDraft, mode, viewAfterSave, restoreArchivedOnSave);
+    }, [editorDraft, handleSaveEstimate, restoreArchivedOnSave, viewAfterSave]);
 
     const handleUnsavedSave = useCallback(() => {
         const target = pendingView ?? View.HISTORY;
@@ -1483,7 +1410,7 @@ const App: React.FC = () => {
             return;
         }
 
-        setPendingExportEstimate(exportEstimate);
+        setPendingExportEstimate(toClientEstimate(exportEstimate));
         setShowPdfStyleModal(true);
     }, [goToView, recalculateEstimatePrices, currentEstimate, setCurrentEstimate, setEditorDirty, setEditorDraft, setEditorValidationResult, setEstimates, setPendingExportEstimate, setPendingView, setShowPdfStyleModal, setShowSaveOptions, setShowUnsavedModal]);
 
@@ -1904,6 +1831,7 @@ const App: React.FC = () => {
             onDelete: handleDeleteEstimate,
             onDeleteVersion: handleDeleteEstimateVersion,
             onDeleteVersionDuplicates: handleDeleteVersionDuplicates,
+            onSetArchived: handleSetArchived,
             onGeneratePdf: handleGeneratePdf,
             onRequestSave: handleSaveRequest,
             onDraftChange: handleDraftChange,
@@ -1926,6 +1854,7 @@ const App: React.FC = () => {
         handleDeleteEstimate,
         handleDeleteEstimateVersion,
         handleDeleteVersionDuplicates,
+        handleSetArchived,
         handleGeneratePdf,
         handleSaveRequest,
         handleDraftChange,
@@ -2231,18 +2160,24 @@ const App: React.FC = () => {
                         <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-md">
                             <h3 className="text-xl font-semibold mb-3">Сохранить изменения</h3>
                             <p className="text-sm text-text-secondary mb-5">Выберите, хотите ли вы обновить текущую версию сметы или создать новую.</p>
+                            {editorDraft?.isArchived && (
+                                <label className="mb-4 flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-sm text-amber-100">
+                                    <input type="checkbox" checked={restoreArchivedOnSave} onChange={event => setRestoreArchivedOnSave(event.target.checked)} className="h-4 w-4 accent-primary" />
+                                    После сохранения вернуть смету в текущие
+                                </label>
+                            )}
                             <div className="flex flex-col gap-3">
                                 <button
                                     onClick={() => handleConfirmSave('overwrite')}
                                     className="w-full bg-primary text-white py-2 rounded-md font-semibold"
                                 >
-                                    Сохранить в текущую версию
+                                    {editorDraft?.isArchived && restoreArchivedOnSave ? 'Сохранить и вернуть в текущие' : 'Сохранить в текущую версию'}
                                 </button>
                                 <button
                                     onClick={() => handleConfirmSave('new')}
                                     className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-2 rounded-md font-semibold"
                                 >
-                                    Создать новую версию
+                                    {editorDraft?.isArchived && restoreArchivedOnSave ? 'Создать новую версию и вернуть' : 'Создать новую версию'}
                                 </button>
                                 <button
                                     onClick={() => setShowSaveOptions(false)}

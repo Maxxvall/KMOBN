@@ -3,6 +3,7 @@ import { Work, EstimateCategory, DuplicateGroup, findDuplicates } from '../types
 
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import DuplicateCheckerDialog from './DuplicateCheckerDialog';
+import WorkToolRequirementsEditor from './WorkToolRequirementsEditor';
 import type { CatalogDuplicateDecision } from '../services/duplicateManagement';
 
 interface WorksProps {
@@ -39,6 +40,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
         return () => { if (debounceTimer.current) clearTimeout(debounceTimer.current); };
     }, []);
     const [editingWorkId, setEditingWorkId] = useState<string | null>(null);
+    const [toolWork, setToolWork] = useState<Work | null>(null);
     const [editingPrice, setEditingPrice] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const ITEMS_PER_PAGE = 25;
@@ -86,6 +88,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
     }, [filteredWorks, currentPage]);
 
     const totalPages = Math.ceil(filteredWorks.length / ITEMS_PER_PAGE);
+    const toolSuggestions = useMemo(() => worksList.flatMap(work => work.toolRequirements?.map(tool => tool.name) ?? []), [worksList]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -223,6 +226,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                             <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Категория</th>
                             <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Наименование</th>
                             <th className="text-right py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Цена (₽)</th>
+                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Инструмент</th>
                             <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Действия</th>
                         </tr>
                     </thead>
@@ -243,6 +247,11 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                                     ) : (
                                         `${work.price.toLocaleString('ru-RU')} ₽`
                                     )}
+                                </td>
+                                <td className="text-center py-3 px-4">
+                                    <button type="button" onClick={() => setToolWork(work)} className="min-h-9 rounded-md border border-border px-3 text-sm font-medium text-text-primary transition hover:border-primary hover:bg-primary/10 focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                        {work.toolRequirements?.length ? `${work.toolRequirements.length} поз.` : 'Настроить'}
+                                    </button>
                                 </td>
                                 <td className="text-center py-3 px-4">
                                     {editingWorkId === work.id ? (
@@ -285,7 +294,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                         ))}
                         {filteredWorks.length === 0 && (
                             <tr>
-                                <td colSpan={4} className="text-center py-8 text-text-secondary">
+                                <td colSpan={5} className="text-center py-8 text-text-secondary">
                                     Нет работ. Добавьте первую работу выше.
                                 </td>
                             </tr>
@@ -315,6 +324,9 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                                 <span className="shrink-0 font-bold text-text-primary text-sm">{work.price.toLocaleString('ru-RU')} ₽</span>
                             )}
                         </div>
+                        <button type="button" onClick={() => setToolWork(work)} className="mb-2 min-h-11 w-full rounded-md border border-border bg-background px-3 text-left text-sm text-text-secondary hover:border-primary hover:text-text-primary">
+                            Инструмент: <span className="font-semibold text-text-primary">{work.toolRequirements?.length ? `${work.toolRequirements.length} позиций` : 'не настроен'}</span>
+                        </button>
                         <div className="flex gap-2 mt-2">
                             {editingWorkId === work.id ? (
                                 <>
@@ -389,6 +401,14 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 duplicateGroups={duplicateGroups}
                 onMerge={handleMergeWorks}
             />
+            {toolWork && (
+                <WorkToolRequirementsEditor
+                    work={worksList.find(work => work.id === toolWork.id) ?? toolWork}
+                    suggestions={toolSuggestions}
+                    onClose={() => setToolWork(null)}
+                    onSave={requirements => updateWorkAction?.({ ...toolWork, toolRequirements: requirements })}
+                />
+            )}
         </div>
     );
 };

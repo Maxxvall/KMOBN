@@ -154,7 +154,7 @@ export function selectEligibleHouseHistory(estimates: Estimate[], now = new Date
     const draftStart = now.getTime() - 90 * DAY_MS;
     const latestDraftIds = new Set(selectLatestVersions(estimates.filter(estimate => estimate.status === EstimateStatus.DRAFT)).map(estimate => estimate.id));
     return estimates.filter(estimate => {
-        if (estimate.isArchived || estimate.status === EstimateStatus.ARCHIVED || !estimate.items?.length || !isFrameHouse(estimate)) return false;
+        if (estimate.isArchived || !estimate.items?.length || !isFrameHouse(estimate)) return false;
         const timestamp = dateOf(estimate);
         if (estimate.status === EstimateStatus.DRAFT) return latestDraftIds.has(estimate.id) && timestamp >= draftStart && timestamp <= now.getTime();
         return estimate.status === EstimateStatus.APPROVED || estimate.status === EstimateStatus.SENT;
@@ -165,7 +165,7 @@ export function selectEligibleHouseHistory(estimates: Estimate[], now = new Date
 export function selectHouseHistoryForAi(estimates: Estimate[]): Estimate[] {
     const excluded = ['баня', 'террас', 'пристрой', 'пост охраны', 'крыша', 'изолятор', 'обшив'];
     return estimates.filter(estimate => {
-        if (estimate.isArchived || estimate.status === EstimateStatus.ARCHIVED || !estimate.items?.length) return false;
+        if (estimate.isArchived || !estimate.items?.length) return false;
         if (estimate.status !== EstimateStatus.APPROVED && estimate.status !== EstimateStatus.SENT) return false;
         const buildingType = normalize(estimate.buildingType || '');
         return !excluded.some(word => buildingType.includes(word));
@@ -349,7 +349,6 @@ const chooseScopeSource = (sources: Estimate[], primary: Estimate, kind: ItemKin
         [EstimateStatus.APPROVED]: 0,
         [EstimateStatus.SENT]: 1,
         [EstimateStatus.DRAFT]: 2,
-        [EstimateStatus.ARCHIVED]: 3,
     };
     return sources
         .filter(source => source.id !== primary.id && sourceHasKind(source, kind))

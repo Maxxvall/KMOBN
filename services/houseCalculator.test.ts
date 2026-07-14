@@ -7,6 +7,7 @@ import {
     HouseCalculatorInput,
     parseHouseDescription,
     selectEligibleHouseHistory,
+    selectHouseHistoryForAi,
     selectLatestVersions,
 } from './houseCalculator';
 import {
@@ -97,9 +98,15 @@ describe('houseCalculator history selection', () => {
 
     it('excludes archived estimates', () => {
         const byFlag = estimate({ id: 'flag', estimateNumber: 'А-1', isArchived: true });
-        const byStatus = estimate({ id: 'status', estimateNumber: 'А-2', status: EstimateStatus.ARCHIVED });
 
-        expect(selectEligibleHouseHistory([byFlag, byStatus], NOW)).toEqual([]);
+        expect(selectEligibleHouseHistory([byFlag], NOW)).toEqual([]);
+    });
+
+    it('excludes archived estimates from AI history as well', () => {
+        const current = estimate({ id: 'current', estimateNumber: 'А-1' });
+        const archived = estimate({ id: 'archived', estimateNumber: 'А-2', isArchived: true });
+
+        expect(selectHouseHistoryForAi([archived, current]).map(value => value.id)).toEqual(['current']);
     });
 
     it('counts generic frame house estimates and fresh frame drafts separately', () => {

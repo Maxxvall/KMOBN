@@ -5,6 +5,7 @@ import { ESTIMATE_CATEGORIES } from '../types';
 import { generateEstimateWithAI } from '../services/geminiService';
 import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
+import CrewToolPlanPanel from './CrewToolPlanPanel';
 import AILoadingIndicator from './AILoadingIndicator';
 import AIMissingItemsModal from './AIMissingItemsModal';
 import AIGenerationModal from './AIGenerationModal';
@@ -99,6 +100,21 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
         hash = hashNumber(hash, item.actual?.quantity ?? 0);
         hash = hashNumber(hash, item.actual?.price ?? 0);
         hash = hashText(hash, item.actual?.note || '');
+    }
+
+    if (value.crewToolPlan) {
+        hash = hashNumber(hash, value.crewToolPlan.crewSize);
+        for (const tool of value.crewToolPlan.requirements) {
+            hash = hashText(hash, tool.toolKey);
+            hash = hashText(hash, tool.name);
+            hash = hashNumber(hash, tool.quantity);
+            hash = hashText(hash, tool.quantityMode);
+            hash = hashText(hash, tool.source);
+        }
+        for (const [key, quantity] of Object.entries(value.crewToolPlan.quantityOverrides ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+            hash = hashText(hash, key);
+            hash = hashNumber(hash, quantity);
+        }
     }
 
     return hash;
@@ -515,6 +531,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         updatedItem.total = (updatedItem.quantity || 0) * (updatedItem.price || 0);
                     } else {
                         updatedItem[field] = String(value);
+                        if (field === 'name') delete updatedItem.catalogWorkId;
                     }
                     return updatedItem as EstimateItem;
                 }
@@ -656,12 +673,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             // Allow AI suggestions that are not in the catalog
             const aiSuggested = suggestions[itemId]?.find(suggestion => suggestion.name === workName);
             if (aiSuggested && typeof aiSuggested.price === 'number') {
-                updateItemFields(itemId, { name: workName, price: aiSuggested.price, unit: 'шт' });
+                updateItemFields(itemId, { name: workName, price: aiSuggested.price, unit: 'шт', catalogWorkId: undefined });
             }
             return;
         }
 
-        updateItemFields(itemId, { name: work.name, price: work.price, unit: 'шт' }); // Assume unit шт
+        updateItemFields(itemId, { name: work.name, price: work.price, unit: 'шт', catalogWorkId: work.id }); // Assume unit шт
     };
 
 
@@ -1214,6 +1231,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         <button onClick={() => onBackAction?.()} className="min-h-[44px] rounded-lg border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-background hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 active:scale-95 md:min-h-9">&larr; Назад к истории</button>
                 </div>
 
+                {initialEstimateValue?.isArchived && (
+                    <div className="mb-4 rounded-lg border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-100">
+                        <div className="font-semibold">Смета находится в архиве</div>
+                        <div className="mt-1 text-amber-100/75">Она не участвует в расчёте дома. При сохранении можно вернуть её в текущие или оставить в архиве.</div>
+                    </div>
+                )}
+
                 {hasValidationIssues && (
                     <div className="mb-4 p-3 border border-red-500/40 bg-background/40 rounded-md">
                         <div className="font-semibold text-red-400">Есть ошибки в смете — исправьте перед PDF/отправкой</div>
@@ -1261,7 +1285,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     <label className="col-span-3 min-w-0 xl:col-auto">
                         <span className="mb-1 block text-[11px] font-medium text-text-secondary">Статус</span>
                         <select value={estimate.status} onChange={e => setEstimate({ ...estimate, status: e.target.value as EstimateStatus })} className={inputStyles + " min-h-[44px] min-w-0 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"}>
-                            {Object.values(EstimateStatus).filter(s => s !== EstimateStatus.ARCHIVED).map(s => <option key={s} value={s}>{s}</option>)}
+                            {Object.values(EstimateStatus).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
                     </label>
                     <label className="col-span-4 min-w-0 xl:col-auto">
@@ -1941,6 +1965,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         );
                     })}
                 </div>
+
+                <CrewToolPlanPanel
+                    estimate={estimate}
+                    works={worksValue}
+                    onChange={crewToolPlan => setEstimate(previous => ({ ...previous, crewToolPlan }))}
+                />
 
                 <div className="mt-5 flex justify-end border-t border-border pt-4">
                     <div className="flex flex-col items-end">

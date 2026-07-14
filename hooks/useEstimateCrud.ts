@@ -1,9 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { addTemplate as addTemplateToDb, deleteEstimateById, deleteEstimates, deleteEstimatesByNumber, deleteTemplate as deleteTemplateFromDb, saveEstimates } from '../services/database';
 import { validateEstimate } from '../services/estimateValidation';
 import { canCreateEstimate, canDeleteEstimate } from '../services/subscriptionService';
 import { Estimate, EstimateStatus, ProjectTemplate, SubscriptionLimits, SubscriptionUsage, View } from '../types';
 import { buildEstimateDuplicateDeletePlan, type EstimateDuplicateDeleteRequest } from '../services/estimateIntelligence';
+import { applyEstimateSave, setEstimateChainArchived } from '../services/estimateLifecycle';
 
 type SaveMode = 'overwrite' | 'new';
 
@@ -50,6 +51,9 @@ export const useEstimateCrud = ({
   setViewAfterSave,
   setSync,
 }: UseEstimateCrudParams) => {
+  const estimatesRef = useRef(estimates);
+  estimatesRef.current = estimates;
+  const archiveMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const handleCreateNew = useCallback(() => {
     // Don't block action while subscription is loading — allow creation with subsequent check
     if (!subscriptionLoading && !canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
@@ -106,7 +110,7 @@ export const useEstimateCrud = ({
     goToView,
   ]);
 
-  const handleSaveEstimate = useCallback((draft: Estimate, saveMode: SaveMode, afterSaveView: View = View.HISTORY) => {
+  const handleSaveEstimate = useCallback((draft: Estimate, saveMode: SaveMode, afterSaveView: View = View.HISTORY, restoreFromArchive = true) => {
     if (!draft) return;
 
     const validation = validateEstimate(draft);
@@ -125,57 +129,14 @@ export const useEstimateCrud = ({
       return;
     }
 
-    const now = new Date().toISOString();
-    let updatedEstimates: Estimate[];
-
-    // Find existing chain by estimateNumber (stable business key, unlike id which can mismatch)
-    const chainAll = estimates.filter(e => e.estimateNumber === draft.estimateNumber);
-    const chainLatest = chainAll.length > 0
-      ? chainAll.reduce((best, e) => e.version > best.version ? e : best)
-      : null;
-    const chainMaxVersion = chainAll.length > 0
-      ? Math.max(...chainAll.map(e => e.version))
-      : 0;
-
-    if (saveMode === 'overwrite') {
-      if (chainLatest) {
-        // OVERWRITE: replace the latest version in-place, update date
-        const updated = {
-          ...draft,
-          id: chainLatest.id,
-          version: chainLatest.version,
-          parentId: chainLatest.parentId,
-          date: now,
-          sortOrder: chainLatest.sortOrder,
-          isArchived: false,
-          status: chainLatest.status,
-        };
-        updatedEstimates = estimates.map(e => e.id === chainLatest.id ? updated : e);
-      } else {
-        // First save of a brand-new estimate — no existing chain
-        updatedEstimates = [...estimates, { ...draft, date: now }];
-      }
-    } else {
-      // NEW VERSION: archive the current latest, create next version
-      if (chainLatest) {
-        const nextVersion = chainMaxVersion + 1;
-        // Не архивируем старую версию автоматически — оставляем её оригинальный статус
-        const newVersion: Estimate = {
-          ...draft,
-          id: `sm-id-${Date.now()}`,
-          version: nextVersion,
-          date: now,
-          parentId: chainLatest.parentId || chainLatest.id,
-          isArchived: false,
-          sortOrder: chainLatest.sortOrder,
-        };
-        updatedEstimates = estimates.map(e => e.id === chainLatest.id ? { ...chainLatest } : e);
-        updatedEstimates.push(newVersion);
-      } else {
-        // No chain exists yet — create v1
-        updatedEstimates = [...estimates, { ...draft, version: 1, date: now }];
-      }
-    }
+    const updatedEstimates = applyEstimateSave({
+      estimates,
+      draft,
+      saveMode,
+      now: new Date().toISOString(),
+      newId: `sm-id-${Date.now()}`,
+      restoreFromArchive,
+    });
 
     // Save directly to DB first, then update state — prevents cache event from overwriting stale data
     void saveEstimates(updatedEstimates).then(() => {
@@ -205,6 +166,27 @@ export const useEstimateCrud = ({
     setViewAfterSave,
     setSync,
   ]);
+
+  const handleSetArchived = useCallback((estimate: Estimate, archived: boolean) => {
+    archiveMutationQueueRef.current = archiveMutationQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const updatedEstimates = setEstimateChainArchived(estimatesRef.current, estimate.estimateNumber, archived);
+        await saveEstimates(updatedEstimates);
+        estimatesRef.current = updatedEstimates;
+        setEstimates(updatedEstimates);
+        setSync({
+          visible: true,
+          message: archived ? 'Смета перемещена в архив и исключена из расчёта дома' : 'Смета возвращена в текущие',
+          type: 'success',
+        });
+        setTimeout(() => setSync(state => ({ ...state, visible: false })), 3000);
+      })
+      .catch(error => {
+        console.error('Failed to update estimate archive state:', error);
+        setSync({ visible: true, message: 'Не удалось изменить архив', type: 'error' });
+      });
+  }, [setEstimates, setSync]);
 
   const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
     if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
@@ -372,6 +354,7 @@ export const useEstimateCrud = ({
     handleDeleteEstimate,
     handleDeleteEstimateVersion,
     handleDeleteVersionDuplicates,
+    handleSetArchived,
     handleSaveAsTemplate,
     handleDeleteTemplate,
   };

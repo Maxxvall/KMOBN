@@ -23,7 +23,6 @@ const statusColors: { [key in EstimateStatus]: string } = {
     [EstimateStatus.DRAFT]: 'border border-amber-500/30 bg-amber-500/10 text-amber-200',
     [EstimateStatus.SENT]: 'border border-sky-500/30 bg-sky-500/10 text-sky-200',
     [EstimateStatus.APPROVED]: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
-    [EstimateStatus.ARCHIVED]: 'border border-border bg-background/60 text-text-secondary',
 };
 
 const HistoryActionsMenu: React.FC<{
@@ -253,9 +252,11 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const deleteVersionAction = onDeleteVersion ?? estimateContext?.actions.onDeleteVersion;
     const deleteVersionDuplicatesAction = estimateContext?.actions.onDeleteVersionDuplicates;
     const generatePdfAction = onGeneratePdf ?? estimateContext?.actions.onGeneratePdf;
+    const setArchivedAction = estimateContext?.actions.onSetArchived;
 
     const [filterClient, setFilterClient] = useState('');
     const [filterStatus, setFilterStatus] = useState<EstimateStatus | 'all'>('all');
+    const [archiveView, setArchiveView] = useState<'current' | 'archive'>('current');
     const [filterBuildingType, setFilterBuildingType] = useState<string>('');
     const [filterAreaMin, setFilterAreaMin] = useState('');
     const [filterAreaMax, setFilterAreaMax] = useState('');
@@ -269,6 +270,10 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [duplicateGroups, setDuplicateGroups] = useState<EstimateDuplicateGroup[]>([]);
     const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '';
     const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1);
+    const archiveCounts = useMemo(() => filterToLatestEstimateVersions(allEstimatesList).reduce((counts, estimate) => {
+        counts[estimate.isArchived ? 'archive' : 'current'] += 1;
+        return counts;
+    }, { current: 0, archive: 0 }), [allEstimatesList]);
 
     const resetFilters = () => {
         setFilterClient('');
@@ -386,23 +391,10 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     };
 
     const filteredEstimates = useMemo(() => {
-        if (filterStatus === EstimateStatus.ARCHIVED) {
-            // Show only archived estimates — use full list to bypass subscription limit
-            return allEstimatesList
-                .filter(e => e.isArchived || e.status === EstimateStatus.ARCHIVED)
-                .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
-                .filter(e => filterBuildingType === '' || e.buildingType.toLowerCase().includes(filterBuildingType.toLowerCase()))
-                .filter(e => {
-                    const min = filterAreaMin === '' ? 0 : parseFloat(filterAreaMin);
-                    const max = filterAreaMax === '' ? Infinity : parseFloat(filterAreaMax);
-                    return e.area >= min && e.area <= max;
-                })
-                .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        }
-        // Normal non-archived view
-        const latestEstimates = filterToLatestEstimateVersions(estimateList);
+        const source = archiveView === 'archive' ? allEstimatesList : estimateList;
+        const latestEstimates = filterToLatestEstimateVersions(source)
+            .filter(e => archiveView === 'archive' ? e.isArchived : !e.isArchived);
         return latestEstimates
-            .filter(e => !e.isArchived && e.status !== EstimateStatus.ARCHIVED)
             .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
             .filter(e => filterStatus === 'all' || e.status === filterStatus)
             .filter(e => filterBuildingType === '' || e.buildingType.toLowerCase().includes(filterBuildingType.toLowerCase()))
@@ -412,11 +404,11 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 return e.area >= min && e.area <= max;
             })
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [estimateList, allEstimatesList, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
+    }, [estimateList, allEstimatesList, archiveView, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
     
     const getVersionHistory = (estimate: Estimate) => {
         const groupKey = estimate.estimateNumber;
-        return estimateList
+        return allEstimatesList
             .filter(e => e.estimateNumber === groupKey)
             .sort((a, b) => b.version - a.version);
     }
@@ -426,7 +418,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
         const selectedVersionId = selectedVersions[groupKey];
         
         if (selectedVersionId) {
-            const selectedEstimate = estimateList.find(e => e.id === selectedVersionId);
+            const selectedEstimate = allEstimatesList.find(e => e.id === selectedVersionId);
             if (selectedEstimate) return selectedEstimate;
         }
         
@@ -500,6 +492,11 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         Создать смету
                     </button>
                 </div>
+            </div>
+
+            <div className="mb-4 inline-flex rounded-lg border border-border bg-background/40 p-1" role="tablist" aria-label="Состояние смет">
+                <button type="button" role="tab" aria-selected={archiveView === 'current'} onClick={() => setArchiveView('current')} className={`min-h-9 rounded-md px-4 text-sm font-medium transition ${archiveView === 'current' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'}`}>Текущие {archiveCounts.current}</button>
+                <button type="button" role="tab" aria-selected={archiveView === 'archive'} onClick={() => setArchiveView('archive')} className={`min-h-9 rounded-md px-4 text-sm font-medium transition ${archiveView === 'archive' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'}`}>Архив {archiveCounts.archive}</button>
             </div>
 
             <div className="mb-4 flex items-center gap-2 xl:hidden">
@@ -623,7 +620,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                     <td className="px-3 py-2.5 text-right">
                                         <div className="flex items-center justify-end gap-1">
                                             <button onClick={() => editAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-primary transition hover:bg-white/5">Открыть</button>
-                                            <button onClick={() => generatePdfAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">PDF</button>
+                                            <button onClick={() => generatePdfAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">PDF для клиента</button>
+                                            <button onClick={() => setArchivedAction?.(selectedEstimate, archiveView !== 'archive')} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">{archiveView === 'archive' ? 'Вернуть' : 'В архив'}</button>
                                             <button onClick={() => deleteAction?.(estimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-300">Удалить</button>
                                         </div>
                                     </td>
@@ -670,15 +668,18 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                 />
                                 <span className="shrink-0 self-end text-sm font-semibold text-text-primary min-[420px]:self-auto">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</span>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="grid grid-cols-2 gap-2">
                                 <button onClick={() => editAction?.(selectedEstimate)} className="min-h-11 flex-1 rounded-lg bg-primary text-sm font-semibold text-white transition hover:bg-primary-hover">
                                     Открыть
                                 </button>
                                 <button onClick={() => generatePdfAction?.(selectedEstimate)} className="min-h-11 flex-1 rounded-lg border border-border bg-background/50 text-sm font-medium text-text-primary transition hover:bg-white/5">
-                                    PDF
+                                    PDF клиенту
                                 </button>
-                                <button onClick={() => deleteAction?.(estimate)} aria-label={`Удалить смету ${estimate.estimateNumber}`} className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-border text-sm font-medium text-text-secondary transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300">
-                                    ✕
+                                <button onClick={() => setArchivedAction?.(selectedEstimate, archiveView !== 'archive')} className="min-h-11 flex-1 rounded-lg border border-border bg-background/50 px-2 text-sm font-medium text-text-primary transition hover:bg-white/5">
+                                    {archiveView === 'archive' ? 'Вернуть' : 'В архив'}
+                                </button>
+                                <button onClick={() => deleteAction?.(estimate)} aria-label={`Удалить смету ${estimate.estimateNumber}`} className="flex min-h-11 items-center justify-center rounded-lg border border-border text-sm font-medium text-text-secondary transition hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300">
+                                    Удалить
                                 </button>
                             </div>
                         </article>
