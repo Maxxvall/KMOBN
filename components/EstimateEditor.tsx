@@ -1207,11 +1207,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
     return (
-        <div className="space-y-6">
-            <div className="bg-surface p-2 sm:p-4 md:p-6 rounded-lg shadow-2xl">
-                <div className="flex justify-between items-center border-b border-border pb-4 mb-6">
-                    <h2 className="text-2xl font-bold text-text-primary">{initialEstimateValue ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
-                        <button onClick={() => onBackAction?.()} className="text-sm px-3 py-1 rounded-full border border-border text-text-secondary hover:bg-background transition-colors active:scale-95 min-h-[44px]">&larr; Назад к истории</button>
+        <div className="space-y-4">
+            <div className="rounded-xl border border-border/70 bg-surface p-2 shadow-2xl sm:p-4 md:p-5">
+                <div className="mb-4 flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
+                    <h2 className="text-xl font-semibold text-text-primary">{initialEstimateValue ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
+                        <button onClick={() => onBackAction?.()} className="min-h-[44px] rounded-lg border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-background hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 active:scale-95 md:min-h-9">&larr; Назад к истории</button>
                 </div>
 
                 {hasValidationIssues && (
@@ -1250,26 +1250,26 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 )}
 
                 {/* Row 1: Клиент, Дата, Статус, Тип строения, Площадь */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-                    <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Клиент" className={inputStyles + " sm:col-span-2 min-h-[44px]"} />
-                    <input type="date" value={estimate.date} onChange={e => setEstimate({ ...estimate, date: e.target.value })} className={inputStyles + " min-h-[44px]"} />
-                    <select value={estimate.status} onChange={e => setEstimate({ ...estimate, status: e.target.value as EstimateStatus })} className={inputStyles + " min-h-[44px]"}>
+                <div className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-5">
+                    <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Клиент" className={inputStyles + " min-h-[44px] sm:col-span-2 md:min-h-9"} />
+                    <input type="date" value={estimate.date} onChange={e => setEstimate({ ...estimate, date: e.target.value })} className={inputStyles + " min-h-[44px] md:min-h-9"} />
+                    <select value={estimate.status} onChange={e => setEstimate({ ...estimate, status: e.target.value as EstimateStatus })} className={inputStyles + " min-h-[44px] md:min-h-9"}>
                         {Object.values(EstimateStatus).filter(s => s !== EstimateStatus.ARCHIVED).map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
-                    <input type="text" value={estimate.buildingType} onChange={e => setEstimate({ ...estimate, buildingType: e.target.value })} placeholder="Тип строения" className={inputStyles + " min-h-[44px]"} />
+                    <input type="text" value={estimate.buildingType} onChange={e => setEstimate({ ...estimate, buildingType: e.target.value })} placeholder="Тип строения" className={inputStyles + " min-h-[44px] md:min-h-9"} />
                 </div>
 
                 {/* Row 2: Площадь, Шаблон + удалить, Кнопка генерации + AI, AI-анализ */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-                    <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="Площадь" className={inputStyles + " min-h-[44px]"} />
+                <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-5">
+                    <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="Площадь" className={inputStyles + " min-h-[44px] md:min-h-9"} />
                     <div className="flex gap-2 sm:col-span-2">
-                        <select value={genParams.projectTemplateId} onChange={e => setGenParams({ ...genParams, projectTemplateId: e.target.value })} className={inputStyles + " flex-1 min-h-[44px]"}>
+                        <select value={genParams.projectTemplateId} onChange={e => setGenParams({ ...genParams, projectTemplateId: e.target.value })} className={inputStyles + " min-h-[44px] flex-1 md:min-h-9"}>
                             {templatesValue.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
                         </select>
-                        <button onClick={() => onDeleteTemplateAction?.(genParams.projectTemplateId)} className="text-red-500 hover:text-red-400 transition-colors px-2 min-h-[44px] min-w-[44px] flex items-center justify-center">✖</button>
+                        <button onClick={() => onDeleteTemplateAction?.(genParams.projectTemplateId)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md px-2 text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">✖</button>
                     </div>
                     <div className="flex gap-2 items-center sm:col-span-2">
-                        <button onClick={handleGenerate} disabled={isLoading} className="flex-1 min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md disabled:bg-gray-500 transition-colors text-sm">
+                        <button onClick={handleGenerate} disabled={isLoading} className="min-h-[44px] flex-1 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:bg-gray-500 md:min-h-9">
                             {isLoading ? 'Генерация...' : 'По шаблону'}
                         </button>
                         <button
@@ -1294,41 +1294,41 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                 setAiGenModalOpen(true);
                             }}
                             disabled={isLoading}
-                            className="min-h-[44px] min-w-[44px] bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-3 rounded transition-colors disabled:bg-gray-500"
+                            className="min-h-[44px] min-w-[44px] rounded-md bg-gray-600 px-3 py-2 font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:bg-gray-500 md:min-h-9 md:min-w-9"
                         >
                             AI
                         </button>
                         <button
                             onClick={handleAnalyzeEstimate}
                             disabled={isLoading}
-                            className="min-h-[44px] min-w-[44px] bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-3 rounded transition-colors disabled:bg-gray-500 text-sm"
+                            className="min-h-[44px] min-w-[44px] rounded-md bg-gray-600 px-3 py-2 text-sm font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:bg-gray-500 md:min-h-9 md:min-w-9"
                         >
                             🤖 AI-анализ
                         </button>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-12 gap-3 mt-6 items-stretch">
-                    <div className="p-3 bg-background/60 border border-border rounded-lg sm:col-span-2 md:col-span-3 min-h-[48px]">
+                <div className="mt-4 grid grid-cols-1 items-stretch gap-2 sm:grid-cols-2 md:grid-cols-12">
+                    <div className="rounded-lg border border-border bg-background/45 p-2 sm:col-span-2 md:col-span-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-semibold text-text-secondary text-xs">v{estimate.version} | {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                            <span className="text-xs font-semibold tabular-nums text-text-secondary">v{estimate.version} · {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             {getPreviousVersion() && (
-                                <button onClick={() => setShowComparison(true)} className="text-xs text-blue-400 hover:underline min-h-[44px]">Сравнить</button>
+                                <button onClick={() => setShowComparison(true)} className="min-h-[44px] rounded px-1 text-xs text-blue-400 hover:bg-white/5 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">Сравнить</button>
                             )}
                             {initialEstimateValue && (
-                                <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="text-xs text-green-400 hover:text-green-300 font-semibold min-h-[44px]">Шаблон</button>
+                                <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="min-h-[44px] rounded px-1 text-xs font-semibold text-green-400 hover:bg-white/5 hover:text-green-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">Шаблон</button>
                             )}
                         </div>
                     </div>
-                    <div className="p-3 bg-background/60 border border-border rounded-lg sm:col-span-1 md:col-span-2 min-h-[48px] flex items-center">
+                    <div className="flex items-center rounded-lg border border-border bg-background/45 p-2 sm:col-span-1 md:col-span-2">
                         <button
                             onClick={() => setBundlePickerOpen(true)}
-                            className="w-full min-h-[44px] p-1 bg-background border border-border rounded-md text-text-primary text-sm hover:border-primary transition"
+                            className="min-h-[44px] w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary transition hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                         >
                             Комплекты
                         </button>
                     </div>
-                    <div className="p-3 bg-background/60 border border-border rounded-lg sm:col-span-1 md:col-span-2 min-h-[48px] flex items-center">
+                    <div className="flex items-center rounded-lg border border-border bg-background/45 p-2 sm:col-span-1 md:col-span-2">
                         <select
                             onChange={(e) => {
                                 const val = e.target.value as EstimateCategory;
@@ -1337,7 +1337,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     e.target.value = '';
                                 }
                             }}
-                            className="w-full min-h-[44px] p-1 bg-background border border-border rounded-md text-text-primary text-sm h-full"
+                            className="min-h-[44px] w-full rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                             defaultValue=""
                         >
                             <option value="">+ Раздел...</option>
@@ -1346,25 +1346,25 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             ))}
                         </select>
                     </div>
-                    <div className="p-3 bg-background/60 border border-border rounded-lg flex items-center justify-between sm:col-span-2 md:col-span-5 min-h-[48px]">
+                    <div className="flex flex-col gap-2 rounded-lg border border-border bg-background/45 p-2 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between md:col-span-5">
                         <div className="flex flex-wrap gap-x-3 gap-y-1 items-center text-xs">
                             <span className="text-text-secondary whitespace-nowrap">Р: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="text-text-secondary whitespace-nowrap">М: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="text-text-secondary whitespace-nowrap">Д: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="text-sm font-bold text-primary whitespace-nowrap">ИТОГ: {estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
                         </div>
-                        <button onClick={handleSave} className="min-h-[44px] bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300 ml-3 whitespace-nowrap text-sm active:scale-95">
+                        <button onClick={handleSave} className="min-h-[44px] w-full whitespace-nowrap rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 active:scale-95 sm:ml-3 sm:w-auto md:min-h-9">
                             Сохранить
                         </button>
                     </div>
                 </div>
 
-                <div className="mt-3 flex flex-col gap-3 rounded-lg border border-border bg-background/40 p-3 md:flex-row md:items-center md:justify-between">
-                    <div className="flex flex-wrap items-center gap-3 text-xs">
+                <div className="mt-2 flex flex-col gap-2 rounded-lg border border-border bg-background/35 p-2 md:flex-row md:items-center md:justify-between">
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
                         <button
                             type="button"
                             onClick={() => setShowActuals(prev => !prev)}
-                            className={`min-h-[40px] rounded-md border px-3 py-2 text-sm font-semibold transition ${showActuals ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-primary hover:border-primary'}`}
+                            className={`min-h-[44px] rounded-md border px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 ${showActuals ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-primary hover:border-primary'}`}
                             title="Показать фактические количество, цену и отклонения"
                         >
                             Факт
@@ -1391,7 +1391,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     key={key}
                                     type="button"
                                     onClick={() => setActualFilter(key)}
-                                    className={`min-h-[36px] rounded-md border px-3 text-xs font-semibold transition ${actualFilter === key ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-secondary hover:text-text-primary'}`}
+                                    className={`min-h-[44px] rounded-md border px-3 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 ${actualFilter === key ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-secondary hover:text-text-primary'}`}
                                 >
                                     {label}
                                 </button>
@@ -1399,7 +1399,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             <button
                                 type="button"
                                 onClick={copyAllPlanToActual}
-                                className="min-h-[36px] rounded-md border border-border bg-background px-3 text-xs font-semibold text-text-primary transition hover:border-primary"
+                                className="min-h-[44px] rounded-md border border-border bg-background px-3 text-xs font-semibold text-text-primary transition hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                             >
                                 Заполнить факт планом
                             </button>
@@ -1428,14 +1428,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                         type="button"
                                         onClick={openQuickBundleSave}
                                         disabled={quickBundleLinkedItems.length === 0}
-                                        className="min-h-[44px] rounded-md bg-primary px-3 py-2 text-sm font-bold text-white transition hover:bg-primary-hover disabled:bg-gray-600 disabled:text-text-secondary"
+                                        className="min-h-[44px] rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:bg-gray-600 disabled:text-text-secondary md:min-h-9"
                                     >
                                         Сохранить компонент
                                     </button>
                                     <button
                                         type="button"
                                         onClick={resetQuickBundleDraft}
-                                        className="min-h-[44px] rounded-md border border-border px-3 py-2 text-sm font-semibold text-text-secondary transition hover:bg-background"
+                                        className="min-h-[44px] rounded-md border border-border px-3 py-2 text-sm font-semibold text-text-secondary transition hover:bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                                     >
                                         Очистить
                                     </button>
@@ -1445,7 +1445,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                 )}
 
-                <div className="space-y-3 sm:space-y-8 mt-4 sm:mt-6">
+                <div className="mt-4 space-y-3 sm:mt-5 sm:space-y-4">
                     {ESTIMATE_CATEGORIES.map((category, catIndex) => {
                         const items = groupedItems.get(category) || [];
                         if (items.length === 0 && !visibleCategories.includes(category)) return null;
@@ -1471,10 +1471,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     {visibleCategories.includes(category) && !isCollapsed && (
                                         <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
                                             {items.length > 0 && (
-                                                <button onClick={() => handleDuplicateSection(category)} className="text-blue-400 hover:text-blue-300 text-xs min-h-[44px] px-1" title="Дублировать">⧉</button>
+                                                <button onClick={() => handleDuplicateSection(category)} className="min-h-[44px] rounded px-1 text-xs text-blue-400 hover:bg-white/5 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9" title="Дублировать">⧉</button>
                                             )}
-                                            <button onClick={() => handleOpenPasteModal(category)} className="text-purple-400 hover:text-purple-300 text-xs min-h-[44px] px-1" title="Из другой сметы">📋</button>
-                                            <button onClick={() => removeVisibleCategory(category)} className="text-red-400 hover:text-red-300 text-xs min-h-[44px] px-1">✕</button>
+                                            <button onClick={() => handleOpenPasteModal(category)} className="min-h-[44px] rounded px-1 text-xs text-purple-400 hover:bg-white/5 hover:text-purple-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9" title="Из другой сметы">📋</button>
+                                            <button onClick={() => removeVisibleCategory(category)} className="min-h-[44px] rounded px-1 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">✕</button>
                                         </div>
                                     )}
                                 </button>
@@ -1654,7 +1654,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                     <td className="p-1 w-10 text-center">
                                                                         <button
                                                                             onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                                                                            className="relative text-text-secondary hover:text-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                                                                            className="relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
                                                                             title={item.note || 'Добавить примечание'}
                                                                         >
                                                                             📝
@@ -1691,7 +1691,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         </>
                                                                     )}
                                                                     <td className="p-1 w-32 text-right font-medium text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</td>
-                                                                    <td className="p-1 text-center"><button onClick={() => removeItem(item.id)} className="text-red-500 hover:text-red-400 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center">✖</button></td>
+                                                                    <td className="p-1 text-center"><button onClick={() => removeItem(item.id)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">✖</button></td>
                                                                 </tr>
                                                                 {openNotes[item.id] && (
                                                                     <tr>
@@ -1774,12 +1774,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                 onFocus={e => { scheduleSuggestions(item.id, (e.currentTarget as HTMLInputElement).value, filteredMaterials); }}
                                                                                 onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); tryApplyMaterialByName(item.id, (e.currentTarget as HTMLInputElement).value); } }}
                                                                                 placeholder="Поиск материала"
-                                                                                className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")}
+                                                                                className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}
                                                                             />
                                                                             {renderSuggestionsPortal(item.id, suggestions[item.id] as Material[] | undefined, (it) => selectMaterialSuggestion(item.id, it as Material))}
                                                                         </div>
                                                                     ) : (
-                                                                        <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} disabled={!!loadingPrices[item.id]} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")}>
+                                                                        <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} disabled={!!loadingPrices[item.id]} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}>
                                                                             <option value="">— Выберите материал —</option>
                                                                             {filteredMaterials.map(mat => <option key={mat.id} value={mat.name}>{mat.name}</option>)}
                                                                         </select>
@@ -1805,18 +1805,18 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                 onFocus={e => { scheduleSuggestions(item.id, (e.currentTarget as HTMLInputElement).value, filteredWorks); }}
                                                                                 onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); tryApplyWorkByName(item.id, (e.currentTarget as HTMLInputElement).value); } }}
                                                                                 placeholder="Поиск работы"
-                                                                                className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")}
+                                                                                className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}
                                                                             />
                                                                             {renderSuggestionsPortal(item.id, suggestions[item.id] as Work[] | undefined, (it) => selectWorkSuggestion(item.id, it as Work))}
                                                                         </div>
                                                                     ) : (
-                                                                        <select value={item.name} onChange={e => handleWorkSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")}>
+                                                                        <select value={item.name} onChange={e => handleWorkSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}>
                                                                             <option value="">— Выберите работу —</option>
                                                                             {filteredWorks.map(wrk => <option key={wrk.id} value={wrk.name}>{wrk.name}</option>)}
                                                                         </select>
                                                                     )
                                                                 ) : (
-                                                                    <input type="text" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Новая позиция" className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm")} />
+                                                                    <input type="text" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Новая позиция" className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")} />
                                                                 )}
                                                                 {validationResultValue?.invalidItemIds?.has(item.id) && getItemIssueMessages(item.id).length > 0 && (
                                                                     <div className="text-xs text-red-400">{getItemIssueMessages(item.id).join(' • ')}</div>
@@ -1824,15 +1824,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 <div className="grid grid-cols-3 gap-2">
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Кол-во</label>
-                                                                        <input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right")} />
+                                                                        <input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right md:min-h-9")} />
                                                                     </div>
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Цена</label>
-                                                                        <input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right")} />
+                                                                        <input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right md:min-h-9")} />
                                                                     </div>
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Ед.</label>
-                                                                        <select value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)} className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm">
+                                                                        <select value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)} className="w-full min-h-[44px] rounded-md border border-border bg-background p-2 text-sm text-text-primary md:min-h-9">
                                                                             <option value="м2">м2</option>
                                                                             <option value="м/п">м/п</option>
                                                                             <option value="шт">шт</option>
@@ -1852,15 +1852,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         <div className="grid grid-cols-3 gap-2">
                                                                             <div>
                                                                                 <label className="text-xs text-text-secondary block mb-1">Кол-во</label>
-                                                                                <input type="number" value={item.actual?.quantity ?? ''} onChange={e => updateActualItem(item.id, 'quantity', e.target.value)} className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right" />
+                                                                                <input type="number" value={item.actual?.quantity ?? ''} onChange={e => updateActualItem(item.id, 'quantity', e.target.value)} className="w-full min-h-[44px] rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9" />
                                                                             </div>
                                                                             <div>
                                                                                 <label className="text-xs text-text-secondary block mb-1">Цена</label>
-                                                                                <input type="number" value={item.actual?.price ?? ''} onChange={e => updateActualItem(item.id, 'price', e.target.value)} className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right" />
+                                                                                <input type="number" value={item.actual?.price ?? ''} onChange={e => updateActualItem(item.id, 'price', e.target.value)} className="w-full min-h-[44px] rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9" />
                                                                             </div>
                                                                             <div>
                                                                                 <label className="text-xs text-text-secondary block mb-1">Ед.</label>
-                                                                                <select value={item.actual?.unit || item.unit} onChange={e => updateActualItem(item.id, 'unit', e.target.value)} className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm">
+                                                                                <select value={item.actual?.unit || item.unit} onChange={e => updateActualItem(item.id, 'unit', e.target.value)} className="w-full min-h-[44px] rounded-md border border-border bg-background p-2 text-sm text-text-primary md:min-h-9">
                                                                                     <option value="м2">м2</option>
                                                                                     <option value="м/п">м/п</option>
                                                                                     <option value="шт">шт</option>
@@ -1874,10 +1874,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 <div className="flex items-center justify-between pt-1">
                                                                     <strong className="text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</strong>
                                                                     <div className="flex items-center gap-2">
-                                                                        <button onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-text-secondary hover:text-primary transition-colors rounded" title={item.note || 'Добавить примечание'}>
+                                                                        <button onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9" title={item.note || 'Добавить примечание'}>
                                                                             📝{item.note && <span className="absolute w-2 h-2 bg-red-500 rounded-full" />}
                                                                         </button>
-                                                                        <button onClick={() => removeItem(item.id)} className="min-h-[44px] min-w-[44px] flex items-center justify-center text-red-500 hover:text-red-400 transition-colors rounded">✖</button>
+                                                                        <button onClick={() => removeItem(item.id)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">✖</button>
                                                                     </div>
                                                                 </div>
                                                                 {openNotes[item.id] && (
@@ -1905,12 +1905,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     </div>
                                                 )}
                                                 <div className="p-2 bg-gray-900/30 border-t border-border rounded-b-md flex flex-wrap justify-end gap-2">
-                                                    <button onClick={() => addItem(category, subgroup)} className="min-h-[44px] text-xs sm:text-sm bg-gray-600 hover:bg-gray-500 active:bg-gray-400 text-text-primary font-bold py-1 px-3 rounded transition-colors">
+                                                    <button onClick={() => addItem(category, subgroup)} className="min-h-[44px] rounded bg-gray-600 px-3 py-1 text-xs font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 active:bg-gray-400 sm:text-sm md:min-h-9">
                                                         <span className="sm:hidden">+ Добавить</span>
                                                         <span className="hidden sm:inline">+ Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : subgroup === EstimateSubgroup.DELIVERY ? 'позицию (Доставка)' : 'позицию (Материалы)'}</span>
                                                     </button>
                                                     {showActuals && (
-                                                        <button onClick={() => addActualOnlyItem(category, subgroup)} className="min-h-[44px] text-xs sm:text-sm border border-primary/50 bg-primary/10 hover:bg-primary/20 text-primary font-bold py-1 px-3 rounded transition-colors">
+                                                        <button onClick={() => addActualOnlyItem(category, subgroup)} className="min-h-[44px] rounded border border-primary/50 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 sm:text-sm md:min-h-9">
                                                             + Новая по факту
                                                         </button>
                                                     )}
@@ -1925,17 +1925,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     })}
                 </div>
 
-                <div className="flex justify-end items-center mt-8 pt-6 border-t border-border">
-                    <div className="flex flex-col items-end mr-6">
+                <div className="mt-5 flex justify-end border-t border-border pt-4">
+                    <div className="flex flex-col items-end">
                         <div className="text-sm text-text-secondary">Работы: {subgroupTotals.works.toLocaleString('ru-RU')} ₽</div>
                         <div className="text-sm text-text-secondary">Материалы: {subgroupTotals.materials.toLocaleString('ru-RU')} ₽</div>
                         <div className="text-sm text-text-secondary">Доставка: {subgroupTotals.delivery.toLocaleString('ru-RU')} ₽</div>
-                        <div className="text-3xl font-bold text-text-primary mt-1">ОБЩИЙ ИТОГ: {estimate.total.toLocaleString('ru-RU')} ₽</div>
+                        <div className="mt-1 text-xl font-bold text-text-primary sm:text-2xl">ОБЩИЙ ИТОГ: {estimate.total.toLocaleString('ru-RU')} ₽</div>
                     </div>
                 </div>
 
-                <div className="flex justify-end mt-8">
-                    <button onClick={handleSave} className="bg-primary hover:bg-primary-hover text-white font-bold py-3 px-8 rounded-md shadow-md transition duration-300 text-lg">
+                <div className="mt-4 flex justify-end">
+                    <button onClick={handleSave} className="min-h-[44px] w-full rounded-md bg-primary px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-auto md:min-h-9">
                         Сохранить смету
                     </button>
                 </div>

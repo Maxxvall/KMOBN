@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { filterToLatestEstimateVersions, findEstimateVersionDuplicates, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
@@ -86,29 +86,79 @@ const VersionDropdown: React.FC<{
 }> = ({ versions, selectedId, onSelect, onDelete }) => {
     const [open, setOpen] = useState(false);
     const buttonRef = useRef<HTMLButtonElement | null>(null);
+    const popupRef = useRef<HTMLDivElement | null>(null);
+    const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
     const [rect, setRect] = useState<DOMRect | null>(null);
+    const listboxId = useId();
+
+    const closeDropdown = (restoreFocus = false) => {
+        setOpen(false);
+        if (restoreFocus) {
+            requestAnimationFrame(() => buttonRef.current?.focus());
+        }
+    };
 
     useEffect(() => {
+        if (!open) return;
+
         const handler = (e: MouseEvent) => {
             const target = e.target as Node | null;
-            if (!open) return;
             if (buttonRef.current && buttonRef.current.contains(target)) return;
-            // If click inside portal popup, ignore (popup has data-attr)
-            const popup = document.querySelector('[data-version-popup]');
-            if (popup && target && popup.contains(target)) return;
-            setOpen(false);
+            if (popupRef.current && target && popupRef.current.contains(target)) return;
+            closeDropdown();
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') closeDropdown(true);
         };
         document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
+        document.addEventListener('keydown', handleKeyDown);
+        return () => {
+            document.removeEventListener('mousedown', handler);
+            document.removeEventListener('keydown', handleKeyDown);
+        };
     }, [open]);
 
     useEffect(() => {
-        if (open && buttonRef.current) {
-            setRect(buttonRef.current.getBoundingClientRect());
-        }
+        if (!open) return;
+        const selectedIndex = Math.max(0, versions.findIndex(version => version.id === selectedId));
+        const frame = requestAnimationFrame(() => optionRefs.current[selectedIndex]?.focus());
+        return () => cancelAnimationFrame(frame);
+    }, [open, selectedId, versions]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const updateRect = () => {
+            if (buttonRef.current) setRect(buttonRef.current.getBoundingClientRect());
+        };
+
+        updateRect();
+        window.addEventListener('resize', updateRect);
+        window.addEventListener('scroll', updateRect, true);
+        return () => {
+            window.removeEventListener('resize', updateRect);
+            window.removeEventListener('scroll', updateRect, true);
+        };
     }, [open]);
 
     const selected = versions.find(v => v.id === selectedId) ?? versions[0];
+    const selectedLabel = selected
+        ? `v${selected.version} (${new Date(selected.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })})`
+        : 'Выбрать версию';
+    const popupWidth = Math.min(240, Math.max(0, window.innerWidth - 16));
+    const popupLeft = rect
+        ? Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - popupWidth - 8))
+        : 8;
+    const estimatedPopupHeight = Math.min(288, versions.length * 45 + 8);
+    const spaceBelow = rect ? window.innerHeight - rect.bottom - 8 : 0;
+    const spaceAbove = rect ? rect.top - 8 : 0;
+    const openAbove = Boolean(rect && spaceBelow < Math.min(estimatedPopupHeight, 180) && spaceAbove > spaceBelow);
+    const popupMaxHeight = Math.max(44, Math.min(288, openAbove ? spaceAbove : spaceBelow));
+    const popupTop = rect
+        ? openAbove
+            ? Math.max(8, rect.top - Math.min(estimatedPopupHeight, popupMaxHeight) - 6)
+            : rect.bottom + 6
+        : 8;
 
     return (
         <div className="inline-flex min-w-0 flex-1 sm:flex-none">
@@ -116,39 +166,57 @@ const VersionDropdown: React.FC<{
                 ref={buttonRef}
                 type="button"
                 onClick={() => setOpen(v => !v)}
-                className="flex min-h-10 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-left text-sm transition hover:border-text-secondary focus:outline-none focus:ring-2 focus:ring-primary/50 sm:min-h-9 sm:min-w-[168px]"
+                className="flex min-h-11 w-full min-w-0 items-center justify-between gap-2 rounded-lg border border-border bg-background/60 px-2.5 py-1.5 text-left text-sm transition hover:border-text-secondary hover:bg-white/[0.03] focus:outline-none focus:ring-2 focus:ring-primary/50 sm:w-[168px] md:min-h-9"
                 aria-haspopup="listbox"
                 aria-expanded={open}
+                aria-controls={open ? listboxId : undefined}
             >
-                <span className="truncate">
-                    {selected ? `v${selected.version} (${new Date(selected.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })})` : 'Выбрать версию'}
-                </span>
-                <span className="text-xs text-text-secondary">▾</span>
+                <span className="truncate" title={selected ? selectedLabel : undefined}>{selectedLabel}</span>
+                <span aria-hidden="true" className={`shrink-0 text-xs text-text-secondary transition-transform ${open ? 'rotate-180' : ''}`}>▾</span>
             </button>
 
             {open && rect && createPortal(
                 <div
+                    ref={popupRef}
                     data-version-popup
                     style={{
                         position: 'fixed',
-                        left: rect.left + 'px',
-                        top: rect.bottom + 'px',
-                        width: rect.width + 'px',
+                        left: popupLeft,
+                        top: popupTop,
+                        width: popupWidth,
+                        maxWidth: 'calc(100vw - 16px)',
                         zIndex: 9999,
                       }}
-                    className="bg-surface border border-border rounded-xl shadow-2xl overflow-hidden"
+                    className="overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
                 >
-                    <div role="listbox" className="max-h-72 overflow-auto">
-                        {versions.map(v => (
+                    <div id={listboxId} role="listbox" aria-label="Версии сметы" style={{ maxHeight: popupMaxHeight }} className="overflow-auto p-1">
+                        {versions.map((v, index) => (
                             <div
                                 key={v.id}
-                                className={`flex items-center justify-between gap-2 px-3 py-2 text-sm hover:bg-background/50 transition ${v.id === selectedId ? 'bg-background/40' : ''}`}
+                                role="presentation"
+                                className={`flex items-center gap-1 rounded-lg text-sm transition-colors hover:bg-background/50 ${v.id === selectedId ? 'bg-background/60' : ''}`}
                             >
                                 <button
+                                    ref={node => { optionRefs.current[index] = node; }}
                                     type="button"
-                                    className="flex-1 text-left truncate"
+                                    role="option"
+                                    aria-selected={v.id === selectedId}
+                                    className="min-h-11 min-w-0 flex-1 whitespace-nowrap rounded-lg px-2.5 text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/50 md:min-h-9"
+                                    onKeyDown={event => {
+                                        let nextIndex = index;
+                                        const isNavigationKey = ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key);
+                                        if (event.key === 'ArrowDown') nextIndex = (index + 1) % versions.length;
+                                        if (event.key === 'ArrowUp') nextIndex = (index - 1 + versions.length) % versions.length;
+                                        if (event.key === 'Home') nextIndex = 0;
+                                        if (event.key === 'End') nextIndex = versions.length - 1;
+                                        if (isNavigationKey) {
+                                            event.preventDefault();
+                                            optionRefs.current[nextIndex]?.focus();
+                                        }
+                                    }}
                                     onClick={() => {
                                         onSelect(v.id);
+                                        closeDropdown(true);
                                     }}
                                 >
                                     <span className="font-semibold">v{v.version}</span>{' '}
@@ -156,7 +224,7 @@ const VersionDropdown: React.FC<{
                                 </button>
                                 <button
                                     type="button"
-                                    className="text-text-secondary hover:text-red-400 transition-transform hover:scale-110"
+                                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-red-500/10 hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red-400/60 md:h-9 md:w-9"
                                     onClick={(e) => {
                                         e.stopPropagation();
                                         onDelete(v);
@@ -593,14 +661,14 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                             <div className="text-xs text-text-secondary mb-2">
                                 {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </div>
-                            <div className="mb-3 flex min-w-0 items-center justify-between gap-3">
+                            <div className="mb-3 flex min-w-0 flex-col items-stretch gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                                 <VersionDropdown
                                     versions={versionHistory}
                                     selectedId={selectedVersions[groupKey] || (versionHistory[0] && versionHistory[0].id) || estimate.id}
                                     onSelect={(versionId) => handleVersionChange(groupKey, versionId)}
                                     onDelete={(estimateVersion) => deleteVersionAction?.(estimateVersion)}
                                 />
-                                <span className="shrink-0 text-sm font-semibold text-text-primary">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</span>
+                                <span className="shrink-0 self-end text-sm font-semibold text-text-primary min-[420px]:self-auto">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</span>
                             </div>
                             <div className="flex gap-2">
                                 <button onClick={() => editAction?.(selectedEstimate)} className="min-h-11 flex-1 rounded-lg bg-primary text-sm font-semibold text-white transition hover:bg-primary-hover">
