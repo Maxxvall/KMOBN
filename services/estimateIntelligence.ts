@@ -50,10 +50,10 @@ const parseDateMs = (v: any): number => {
   return Number.isFinite(ms) ? ms : 0;
 };
 
-export function filterToLatestEstimateVersions(estimates: Estimate[]): Estimate[] {
+export function getLatestEstimateVersions(estimates: Estimate[]): Estimate[] {
   const latestByRoot = new Map<string, Estimate>();
   for (const e of (estimates || [])) {
-    if (!e || e.isArchived === true) continue;
+    if (!e) continue;
     // Unified grouping key: prefer estimateNumber, then parentId, then id
     const rootId = e.estimateNumber ? `num:${e.estimateNumber}` : (e.parentId || e.id);
     const prev = latestByRoot.get(rootId);
@@ -74,6 +74,10 @@ export function filterToLatestEstimateVersions(estimates: Estimate[]): Estimate[
     }
   }
   return Array.from(latestByRoot.values());
+}
+
+export function filterToLatestEstimateVersions(estimates: Estimate[]): Estimate[] {
+  return getLatestEstimateVersions(estimates).filter(estimate => !estimate.isArchived);
 }
 
 export function buildDependencyGraph(materials: Material[], works: Work[]): DependencyGraph {

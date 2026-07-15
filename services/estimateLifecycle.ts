@@ -108,5 +108,7 @@ export const applyEstimateSave = ({
     ];
 };
 
-export const setEstimateChainArchived = (estimates: Estimate[], estimateNumber: string, archived: boolean): Estimate[] =>
-    estimates.map(item => item.estimateNumber === estimateNumber ? { ...item, isArchived: archived } : item);
+export const setEstimateChainArchived = (estimates: Estimate[], estimateNumber: string, archived: boolean): Estimate[] => {
+    const chainKey = String(estimateNumber);
+    return estimates.map(item => String(item.estimateNumber) === chainKey ? { ...item, isArchived: archived } : item);
+};

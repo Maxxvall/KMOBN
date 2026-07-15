@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Estimate, EstimateCategory, EstimateStatus } from '../types';
 import {
   buildEstimateDuplicateDeletePlan,
+  filterToLatestEstimateVersions,
   findEstimateVersionDuplicates,
+  getLatestEstimateVersions,
   getEstimateContentFingerprint,
   type EstimateDuplicateDeleteRequest,
 } from './estimateIntelligence';
@@ -16,6 +18,23 @@ const makeEstimate = (overrides: Partial<Estimate> & { id: string; estimateNumbe
   buildingType: 'Каркасный дом',
   area: 100,
   ...overrides,
+});
+
+describe('latest estimate selectors', () => {
+  it('keeps the latest archived chain available for the archive view', () => {
+    const estimates = [
+      makeEstimate({ id: 'current-v1', estimateNumber: 'SM-CURRENT', version: 1 }),
+      makeEstimate({ id: 'current-v2', estimateNumber: 'SM-CURRENT', version: 2 }),
+      makeEstimate({ id: 'archive-v1', estimateNumber: 'SM-ARCHIVE', version: 1, isArchived: true }),
+      makeEstimate({ id: 'archive-v2', estimateNumber: 'SM-ARCHIVE', version: 2, isArchived: true }),
+    ];
+
+    expect(getLatestEstimateVersions(estimates).map(estimate => estimate.id).sort()).toEqual([
+      'archive-v2',
+      'current-v2',
+    ]);
+    expect(filterToLatestEstimateVersions(estimates).map(estimate => estimate.id)).toEqual(['current-v2']);
+  });
 });
 
 describe('findEstimateVersionDuplicates', () => {

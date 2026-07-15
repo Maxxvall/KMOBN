@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
-import { filterToLatestEstimateVersions, findEstimateVersionDuplicates, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
+import { findEstimateVersionDuplicates, getLatestEstimateVersions, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
 import { exportData, importData, validateImportData } from '../services/database';
 
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
@@ -270,7 +270,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [duplicateGroups, setDuplicateGroups] = useState<EstimateDuplicateGroup[]>([]);
     const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '';
     const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1);
-    const archiveCounts = useMemo(() => filterToLatestEstimateVersions(allEstimatesList).reduce((counts, estimate) => {
+    const archiveCounts = useMemo(() => getLatestEstimateVersions(allEstimatesList).reduce((counts, estimate) => {
         counts[estimate.isArchived ? 'archive' : 'current'] += 1;
         return counts;
     }, { current: 0, archive: 0 }), [allEstimatesList]);
@@ -392,7 +392,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
 
     const filteredEstimates = useMemo(() => {
         const source = archiveView === 'archive' ? allEstimatesList : estimateList;
-        const latestEstimates = filterToLatestEstimateVersions(source)
+        const latestEstimates = getLatestEstimateVersions(source)
             .filter(e => archiveView === 'archive' ? e.isArchived : !e.isArchived);
         return latestEstimates
             .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))

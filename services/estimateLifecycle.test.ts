@@ -130,4 +130,13 @@ describe('normalizeEstimateChains', () => {
         expect(archived.every(item => item.isArchived)).toBe(true);
         expect(restored.every(item => item.isArchived === false)).toBe(true);
     });
+
+    it('archives legacy versions whose estimate number has a different runtime type', () => {
+        const numericLegacy = estimate({ id: 'v1', version: 1, estimateNumber: 123 as unknown as string });
+        const stringCurrent = estimate({ id: 'v2', version: 2, estimateNumber: '123' });
+
+        const archived = setEstimateChainArchived([numericLegacy, stringCurrent], '123', true);
+
+        expect(archived.every(item => item.isArchived)).toBe(true);
+    });
 });

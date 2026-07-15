@@ -187,6 +187,24 @@ describe('database offline behavior', () => {
     ]);
   });
 
+  it('keeps an archived estimate after reopening the local cache', async () => {
+    const initial = estimate('estimate-archive');
+    const archived = { ...initial, isArchived: true };
+
+    await saveEstimates([initial]);
+    await saveEstimates([archived]);
+    closeIndexedDbCache();
+
+    expect(await loadEstimates()).toEqual([archived]);
+    expect(await offlineQueue.getForTable(USER_A, 'estimates')).toEqual([
+      expect.objectContaining({
+        recordId: archived.id,
+        operation: 'upsert',
+        data: archived,
+      }),
+    ]);
+  });
+
   it('adds a template local-first while offline', async () => {
     const template: ProjectTemplate = {
       id: 'template-1',
