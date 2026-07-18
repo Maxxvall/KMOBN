@@ -59,6 +59,21 @@ describe('optimizeCuttingPlan board packing', () => {
         expect(plan.boards.every(board => board.cuts.length === 1)).toBe(true);
     });
 
+    it('reports waste for every purchased board section', () => {
+        const plan = optimizeCuttingPlan([
+            boardItem({ length: 3000, quantity: 2 }),
+        ], settings({ boardStockLength: 6050, boardKerf: 4 }));
+
+        expect(plan.boardPurchase).toEqual([
+            expect.objectContaining({
+                section: '45х145',
+                quantity: 1,
+                wasteLength: 46,
+                wastePercentage: expect.closeTo(46 / 6050 * 100),
+            }),
+        ]);
+    });
+
     it('mixes construction stages on one board when stage separation is disabled', () => {
         const items = [
             boardItem({ id: 'rostverk', construction: 'Ростверк', stage: 'rostverk', length: 3000 }),

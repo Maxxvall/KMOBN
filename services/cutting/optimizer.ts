@@ -177,12 +177,16 @@ const createBoardPurchase = (boards: CuttingBoard[]): BoardPurchaseRow[] => {
         if (existing) {
             existing.quantity += 1;
             existing.volumeM3 += (crossSection * board.stockLength) / 1_000_000_000;
+            existing.wasteLength += board.wasteLength;
+            existing.wastePercentage = existing.wasteLength / (existing.quantity * existing.stockLength) * 100;
         } else {
             rows.set(key, {
                 section: board.section,
                 stockLength: board.stockLength,
                 quantity: 1,
                 volumeM3: (crossSection * board.stockLength) / 1_000_000_000,
+                wasteLength: board.wasteLength,
+                wastePercentage: board.wasteLength / board.stockLength * 100,
             });
         }
     }

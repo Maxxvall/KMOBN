@@ -128,6 +128,8 @@ export interface BoardPurchaseRow {
     stockLength: number;
     quantity: number;
     volumeM3: number;
+    wasteLength: number;
+    wastePercentage: number;
 }
 
 export interface PlacedSheetPart extends BoardCut {

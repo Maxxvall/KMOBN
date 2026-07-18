@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from '../pdfUtils';
 import { compareCuttingStages, getCuttingStageLabel } from './stageOrder';
-import { CuttingItem, CuttingPlan, CuttingSettings } from './types';
+import { CUTTING_STAGE_ORDER, CuttingItem, CuttingPlan, CuttingSettings, CuttingStageId } from './types';
 
 export interface CuttingPdfInput {
     fileName: string;
@@ -14,6 +14,32 @@ export interface CuttingPdfInput {
 type PdfWithTable = jsPDF & { lastAutoTable?: { finalY: number } };
 
 const safeFileName = (value: string): string => value.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]+/g, '_') || 'Раскрой';
+
+export const createCuttingPdfQueueRows = (items: CuttingItem[]): string[][] => [...items]
+    .sort((left, right) => compareCuttingStages(left.stage, right.stage)
+        || left.construction.localeCompare(right.construction, 'ru')
+        || left.length - right.length)
+    .map(item => [
+        item.construction,
+        item.section,
+        item.isSheet && item.width ? `${item.length}×${item.width}` : String(item.length),
+        String(item.quantity),
+    ]);
+
+export const createCuttingPdfStageGroups = (items: CuttingItem[]): Array<{
+    stage: CuttingStageId;
+    label: string;
+    totalQuantity: number;
+    rows: string[][];
+}> => CUTTING_STAGE_ORDER.map(stage => {
+    const stageItems = items.filter(item => item.stage === stage);
+    return {
+        stage,
+        label: getCuttingStageLabel(stage),
+        totalQuantity: stageItems.reduce((total, item) => total + item.quantity, 0),
+        rows: createCuttingPdfQueueRows(stageItems),
+    };
+}).filter(group => group.rows.length > 0);
 
 export const generateCuttingPdf = async ({ fileName, items, plan, settings }: CuttingPdfInput): Promise<void> => {
     const doc = new jsPDF({ unit: 'mm', format: 'a4' }) as PdfWithTable;
@@ -34,22 +60,28 @@ export const generateCuttingPdf = async ({ fileName, items, plan, settings }: Cu
     doc.setTextColor(75, 85, 99);
     doc.text(`Источник: ${fileName}`, margin, 23);
     doc.text(`Заготовка: ${settings.boardStockLength} мм · пропил: ${settings.boardKerf} мм · максимум детали: ${settings.maxBoardPartLength} мм`, margin, 28);
-    doc.text(`Режим: ${settings.separateStages ? 'не смешивать этапы' : 'максимальная экономия'}`, margin, 33);
 
     doc.setTextColor(17, 24, 39);
-    let y = 39;
+    let y = 34;
     if (plan.boardPurchase.length > 0) {
+        const totalQuantity = plan.boardPurchase.reduce((total, row) => total + row.quantity, 0);
+        const totalVolume = plan.boardPurchase.reduce((total, row) => total + row.volumeM3, 0);
+        const totalWaste = plan.boardPurchase.reduce((total, row) => total + row.wasteLength, 0);
+        const totalLength = plan.boardPurchase.reduce((total, row) => total + row.stockLength * row.quantity, 0);
         autoTable(doc, {
             startY: y,
-            head: [['Сечение', 'Длина заготовки', 'Количество', 'Объём, м³']],
+            head: [['Сечение', 'Длина заготовки', 'Количество', 'Объём, м³', 'Отход доски']],
             body: plan.boardPurchase.map(row => [
                 row.section,
                 `${row.stockLength} мм`,
                 String(row.quantity),
                 row.volumeM3.toFixed(3),
+                `${(row.wasteLength / 1000).toFixed(2)} м · ${row.wastePercentage.toFixed(1)}%`,
             ]),
+            foot: [['Итого', '-', `${totalQuantity} шт.`, `${totalVolume.toFixed(3)} м³`, `${(totalWaste / 1000).toFixed(2)} м · ${(totalLength ? totalWaste / totalLength * 100 : 0).toFixed(1)}%`]],
             styles: { font, fontSize: 8, cellPadding: 2 },
             headStyles: { fillColor: [46, 93, 65], font },
+            footStyles: { fillColor: [230, 235, 232], textColor: [17, 24, 39], fontStyle: 'bold', font },
             theme: 'grid',
         });
         y = (doc.lastAutoTable?.finalY ?? y) + 5;
@@ -77,40 +109,27 @@ export const generateCuttingPdf = async ({ fileName, items, plan, settings }: Cu
     }
     doc.setFont(font, 'bold');
     doc.setFontSize(12);
-    doc.text('Очередность по этапам', margin, y);
-    y += 3;
+    doc.text('Очередность по строительным блокам', margin, y);
+    y += 5;
 
-    const itemReferences = new Map<string, Set<string>>();
-    plan.boards.forEach(board => board.cuts.forEach(cut => {
-        const references = itemReferences.get(cut.itemId) ?? new Set<string>();
-        references.add(board.id);
-        itemReferences.set(cut.itemId, references);
-    }));
-    plan.sheets.forEach(sheet => sheet.parts.forEach(part => {
-        const references = itemReferences.get(part.itemId) ?? new Set<string>();
-        references.add(sheet.id);
-        itemReferences.set(part.itemId, references);
-    }));
-    const queueRows = [...items]
-        .sort((left, right) => compareCuttingStages(left.stage, right.stage)
-            || left.construction.localeCompare(right.construction, 'ru')
-            || left.length - right.length)
-        .map(item => [
-            getCuttingStageLabel(item.stage),
-            item.construction,
-            item.section,
-            item.isSheet && item.width ? `${item.length}×${item.width}` : String(item.length),
-            String(item.quantity),
-            [...(itemReferences.get(item.id) ?? [])].join(', ') || '—',
-        ]);
-    autoTable(doc, {
-        startY: y,
-        head: [['Этап', 'Наименование', 'Сечение/материал', 'Размер, мм', 'Кол-во', 'Доски/листы']],
-        body: queueRows,
-        styles: { font, fontSize: 7.5, cellPadding: 1.8 },
-        headStyles: { fillColor: [46, 93, 65], font },
-        theme: 'striped',
-    });
+    for (const group of createCuttingPdfStageGroups(items)) {
+        if (y > pageHeight - 28) {
+            doc.addPage();
+            y = 16;
+        }
+        doc.setFont(font, 'bold');
+        doc.setFontSize(10);
+        doc.text(`${group.label} · итого ${group.totalQuantity} шт.`, margin, y);
+        autoTable(doc, {
+            startY: y + 2,
+            head: [['Наименование', 'Сечение', 'Размер, мм', 'Количество']],
+            body: group.rows,
+            styles: { font, fontSize: 7.5, cellPadding: 1.8 },
+            headStyles: { fillColor: [46, 93, 65], font },
+            theme: 'striped',
+        });
+        y = (doc.lastAutoTable?.finalY ?? y) + 5;
+    }
 
     doc.addPage();
     doc.setFont(font, 'bold');

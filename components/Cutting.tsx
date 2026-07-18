@@ -19,9 +19,10 @@ import {
     CuttingSettings,
     CuttingStageId,
     DEFAULT_CUTTING_SETTINGS,
-    getSheetStockProfile,
 } from '../services/cutting/types';
-import PlywoodCutMap from './PlywoodCutMap';
+import SheetRoomPlanner from './SheetRoomPlanner';
+
+type CuttingSubgroup = 'boards' | 'sheets';
 
 type IconName = 'upload' | 'alert' | 'calculator' | 'file' | 'reset' | 'download';
 
@@ -99,15 +100,28 @@ const Cutting: React.FC = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [isReading, setIsReading] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [activeSubgroup, setActiveSubgroup] = useState<CuttingSubgroup>('boards');
 
     const clearPlan = useCallback(() => {
         setPlan(null);
         setCalculationError('');
     }, []);
 
+    const boardItems = useMemo(
+        () => importResult?.items.filter(item => !item.isSheet) ?? [],
+        [importResult],
+    );
+    const sheetItems = useMemo(
+        () => importResult?.items.filter(item => item.isSheet) ?? [],
+        [importResult],
+    );
+    const sheetMaterials = useMemo(
+        () => [...new Set(sheetItems.map(item => item.section))],
+        [sheetItems],
+    );
     const itemIssues = useMemo(
-        () => importResult ? validateCuttingItems(importResult.items, settings) : [],
-        [importResult, settings],
+        () => validateCuttingItems(boardItems, settings),
+        [boardItems, settings],
     );
     const importLevelIssues = useMemo(
         () => importResult?.issues.filter(issue => !issue.itemId) ?? [],
@@ -124,14 +138,8 @@ const Cutting: React.FC = () => {
         if (!Number.isFinite(settings.boardKerf) || settings.boardKerf < 0) errors.push('Пропил доски не может быть отрицательным.');
         if (!Number.isFinite(settings.usefulOffcutLength) || settings.usefulOffcutLength < 0) errors.push('Полезный остаток не может быть отрицательным.');
         if (settings.usefulOffcutLength >= settings.boardStockLength) errors.push('Полезный остаток должен быть короче заготовки.');
-        const sheetMaterials = new Set(importResult?.items.filter(item => item.isSheet).map(item => item.section) ?? []);
-        sheetMaterials.forEach(material => {
-            const profile = getSheetStockProfile(settings, material);
-            if (!Number.isFinite(profile.width) || profile.width <= 0 || !Number.isFinite(profile.height) || profile.height <= 0) errors.push(`${material}: укажите корректный формат листа.`);
-            if (!Number.isFinite(profile.kerf) || profile.kerf < 0) errors.push(`${material}: пропил листа не может быть отрицательным.`);
-        });
         return errors;
-    }, [importResult, settings]);
+    }, [settings]);
 
     useEffect(() => {
         if (!importResult?.items.length) return;
@@ -144,7 +152,7 @@ const Cutting: React.FC = () => {
     }, [importResult, settings]);
 
     const hasBlockingErrors = errorIssues.length > 0 || settingsErrors.length > 0;
-    const canCalculate = Boolean(importResult?.items.length) && !hasBlockingErrors && !isReading;
+    const canCalculate = boardItems.length > 0 && !hasBlockingErrors && !isReading;
 
     const reset = useCallback(() => {
         setImportResult(null);
@@ -169,15 +177,6 @@ const Cutting: React.FC = () => {
             const text = decodeCuttingFile(await file.arrayBuffer());
             const result = parseCuttingText(text, file.name, settings);
             const mappings = loadCuttingStageMappings();
-            const sheetProfiles = { ...settings.sheetProfiles };
-            result.items.filter(item => item.isSheet).forEach(item => {
-                if (sheetProfiles[item.section]) return;
-                const isOsb = /osb|осб|осп/i.test(item.section);
-                sheetProfiles[item.section] = isOsb
-                    ? { width: 1250, height: 2500, kerf: 5, allowRotation: true }
-                    : { width: 1525, height: 1525, kerf: 5, allowRotation: true };
-            });
-            setSettings(current => ({ ...current, sheetProfiles }));
             setImportResult({
                 ...result,
                 items: result.items.map(item => ({
@@ -199,10 +198,6 @@ const Cutting: React.FC = () => {
         clearPlan();
     }, [clearPlan]);
 
-    const updateItemWidth = (itemId: string, width: number | undefined) => {
-        updateItems(items => items.map(item => item.id === itemId ? { ...item, width } : item));
-    };
-
     const updateConstructionStage = (construction: string, stage: CuttingStageId) => {
         saveCuttingStageMapping(construction, stage);
         updateItems(items => items.map(item => item.construction === construction ? { ...item, stage } : item));
@@ -213,26 +208,11 @@ const Cutting: React.FC = () => {
         clearPlan();
     };
 
-    const updateSheetProfile = (
-        material: string,
-        key: 'width' | 'height' | 'kerf' | 'allowRotation',
-        value: number | boolean,
-    ) => {
-        setSettings(current => ({
-            ...current,
-            sheetProfiles: {
-                ...current.sheetProfiles,
-                [material]: { ...getSheetStockProfile(current, material), [key]: value },
-            },
-        }));
-        clearPlan();
-    };
-
     const calculate = () => {
         if (!importResult || !canCalculate) return;
         setCalculationError('');
         try {
-            const nextPlan = optimizeCuttingPlan(importResult.items, settings);
+            const nextPlan = optimizeCuttingPlan(boardItems, settings);
             setPlan(nextPlan);
             window.requestAnimationFrame(() => document.getElementById('cutting-result')?.focus());
         } catch (reason) {
@@ -246,7 +226,7 @@ const Cutting: React.FC = () => {
         setIsExporting(true);
         setCalculationError('');
         try {
-            await generateCuttingPdf({ fileName: importResult.fileName, items: importResult.items, plan, settings });
+            await generateCuttingPdf({ fileName: importResult.fileName, items: boardItems, plan, settings });
         } catch (reason) {
             setCalculationError(reason instanceof Error ? reason.message : 'Не удалось сформировать PDF.');
         } finally {
@@ -254,15 +234,12 @@ const Cutting: React.FC = () => {
         }
     };
 
-    const sheetItems = importResult?.items.filter(item => item.isSheet) ?? [];
-    const sheetMaterials = [...new Set(sheetItems.map(item => item.section))];
-    const missingSheetItems = sheetItems.filter(item => !item.width || item.width <= 0);
     const totalPieces = importResult?.items.reduce((total, item) => total + item.quantity, 0) ?? 0;
 
     const constructions = useMemo(() => {
         if (!importResult) return [];
         const groups = new Map<string, { construction: string; stage: CuttingStageId; rows: number; pieces: number }>();
-        for (const item of importResult.items) {
+        for (const item of boardItems) {
             const current = groups.get(item.construction);
             if (current) {
                 current.rows += 1;
@@ -275,7 +252,7 @@ const Cutting: React.FC = () => {
             CUTTING_STAGE_ORDER.indexOf(left.stage) - CUTTING_STAGE_ORDER.indexOf(right.stage)
             || left.construction.localeCompare(right.construction, 'ru')
         ));
-    }, [importResult]);
+    }, [boardItems, importResult]);
 
     const stageRows = useMemo(() => {
         if (!importResult || !plan) return new Map<CuttingStageId, Array<{
@@ -284,40 +261,22 @@ const Cutting: React.FC = () => {
             section: string;
             size: string;
             quantity: number;
-            references: string;
         }>>();
-
-        const boardRefs = new Map<string, Set<string>>();
-        for (const board of plan.boards) for (const cut of board.cuts) {
-            const refs = boardRefs.get(cut.itemId) ?? new Set<string>();
-            refs.add(board.id);
-            boardRefs.set(cut.itemId, refs);
-        }
-        const sheetRefs = new Map<string, Set<string>>();
-        for (const sheet of plan.sheets) for (const part of sheet.parts) {
-            const refs = sheetRefs.get(part.itemId) ?? new Set<string>();
-            refs.add(sheet.id);
-            sheetRefs.set(part.itemId, refs);
-        }
-
         const rows = new Map<CuttingStageId, Array<{
             key: string;
             construction: string;
             section: string;
             size: string;
             quantity: number;
-            references: string;
         }>>();
-        for (const item of importResult.items) {
+        for (const item of boardItems) {
             const stage = rows.get(item.stage) ?? [];
-            const refs = item.isSheet ? sheetRefs.get(item.id) : boardRefs.get(item.id);
             stage.push({
                 key: item.id,
                 construction: item.construction,
                 section: item.section || '—',
-                size: item.isSheet ? `${formatNumber(item.length)} × ${formatNumber(item.width ?? 0)}` : formatNumber(item.length),
+                size: formatNumber(item.length),
                 quantity: item.quantity,
-                references: refs ? [...refs].join(', ') : '—',
             });
             rows.set(item.stage, stage);
         }
@@ -327,7 +286,7 @@ const Cutting: React.FC = () => {
             || left.size.localeCompare(right.size, 'ru', { numeric: true })
         )));
         return rows;
-    }, [importResult, plan]);
+    }, [boardItems, importResult, plan]);
 
     return (
         <main className="mx-auto w-full max-w-[1500px] space-y-4 pb-8 text-text-primary">
@@ -393,7 +352,28 @@ const Cutting: React.FC = () => {
                 )}
             </Section>
 
-            {importResult && (
+            <div role="tablist" aria-label="Раздел раскроя" className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-background/45 p-1">
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeSubgroup === 'boards'}
+                    onClick={() => setActiveSubgroup('boards')}
+                    className={`min-h-11 rounded-lg px-3 text-sm font-semibold transition ${focusClass} ${activeSubgroup === 'boards' ? 'bg-primary text-white shadow' : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'}`}
+                >
+                    Пиломатериал
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    aria-selected={activeSubgroup === 'sheets'}
+                    onClick={() => setActiveSubgroup('sheets')}
+                    className={`min-h-11 rounded-lg px-3 text-sm font-semibold transition ${focusClass} ${activeSubgroup === 'sheets' ? 'bg-primary text-white shadow' : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'}`}
+                >
+                    OSB и фанера
+                </button>
+            </div>
+
+            {activeSubgroup === 'boards' && importResult && (
                 <>
                     {(issues.length > 0 || settingsErrors.length > 0) && (
                         <Section title="Проверка данных" description="Красные ошибки блокируют расчёт. Исправьте значения ниже или исходный файл.">
@@ -403,46 +383,6 @@ const Cutting: React.FC = () => {
                                 ))}
                                 {errorIssues.map(issue => <IssueRow key={issue.id} issue={issue} />)}
                                 {warningIssues.map(issue => <IssueRow key={issue.id} issue={issue} />)}
-                            </div>
-                        </Section>
-                    )}
-
-                    {sheetItems.length > 0 && (
-                        <Section
-                            title="Размеры листовых деталей"
-                            description={missingSheetItems.length ? `Заполните ширину у ${missingSheetItems.length} позиций. Длина уже взята из файла.` : 'Все размеры заполнены.'}
-                        >
-                            <div className="overflow-x-auto rounded-lg border border-border">
-                                <table className="w-full min-w-[680px] text-left text-sm">
-                                    <thead className="bg-background/70 text-xs text-text-secondary">
-                                        <tr><th className="px-3 py-2 font-medium">Строка</th><th className="px-3 py-2 font-medium">Наименование</th><th className="px-3 py-2 font-medium">Длина, мм</th><th className="px-3 py-2 font-medium">Ширина, мм</th><th className="px-3 py-2 font-medium">Кол-во</th></tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-border">
-                                        {sheetItems.map(item => {
-                                            const invalid = !item.width || item.width <= 0;
-                                            return (
-                                                <tr key={item.id} className={invalid ? 'bg-red-500/5' : 'bg-background/25'}>
-                                                    <td className="px-3 py-2 text-text-secondary">{item.sourceRow}</td>
-                                                    <td className="max-w-[320px] px-3 py-2 font-medium text-text-primary">{item.construction}</td>
-                                                    <td className="px-3 py-2 tabular-nums">{formatNumber(item.length)}</td>
-                                                    <td className="w-44 px-3 py-2">
-                                                        <input
-                                                            type="number"
-                                                            min="1"
-                                                            step="1"
-                                                            value={item.width ?? ''}
-                                                            aria-invalid={invalid}
-                                                            aria-label={`Ширина детали, строка ${item.sourceRow}`}
-                                                            onChange={event => updateItemWidth(item.id, event.target.value === '' ? undefined : event.target.valueAsNumber)}
-                                                            className={`${inputClass} ${invalid ? 'border-red-500/70 focus-visible:border-red-400 focus-visible:ring-red-500/30' : ''}`}
-                                                        />
-                                                    </td>
-                                                    <td className="px-3 py-2 tabular-nums">{formatNumber(item.quantity)}</td>
-                                                </tr>
-                                            );
-                                        })}
-                                    </tbody>
-                                </table>
                             </div>
                         </Section>
                     )}
@@ -476,31 +416,6 @@ const Cutting: React.FC = () => {
                             </label>
                         </div>
 
-                        {sheetItems.length > 0 && (
-                            <div className="mt-4 border-t border-border pt-4">
-                                <h3 className="mb-3 text-sm font-semibold text-text-primary">Форматы листовых материалов</h3>
-                                <div className="space-y-3">
-                                    {sheetMaterials.map(material => {
-                                        const profile = getSheetStockProfile(settings, material);
-                                        return (
-                                            <div key={material} className="rounded-lg border border-border bg-background/25 p-3">
-                                                <h4 className="mb-3 text-sm font-semibold text-text-primary">{material}</h4>
-                                                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                                                    <NumberField label="Ширина листа, мм" value={profile.width} min={1} step={1} onChange={value => updateSheetProfile(material, 'width', value)} />
-                                                    <NumberField label="Высота листа, мм" value={profile.height} min={1} step={1} onChange={value => updateSheetProfile(material, 'height', value)} />
-                                                    <NumberField label="Пропил листа, мм" value={profile.kerf} min={0} step={0.5} onChange={value => updateSheetProfile(material, 'kerf', value)} />
-                                                    <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-border bg-background px-3 py-2 transition hover:border-text-secondary">
-                                                        <input type="checkbox" checked={profile.allowRotation} onChange={event => updateSheetProfile(material, 'allowRotation', event.target.checked)} className="h-5 w-5 rounded border-border accent-primary" />
-                                                        <span><span className="block text-sm font-medium text-text-primary">Разрешить поворот</span><span className="block text-xs text-text-secondary">Поворачивать детали на 90°</span></span>
-                                                    </label>
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        )}
-
                         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
                             <button type="button" disabled={!canCalculate} onClick={calculate} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-white transition hover:bg-primary-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${focusClass}`}>
                                 <Icon name="calculator" /> Рассчитать раскрой
@@ -512,45 +427,45 @@ const Cutting: React.FC = () => {
                 </>
             )}
 
-            {plan && importResult && (
+            {activeSubgroup === 'sheets' && <SheetRoomPlanner detectedMaterials={sheetMaterials} />}
+
+            {activeSubgroup === 'boards' && plan && importResult && (
                 <section id="cutting-result" tabIndex={-1} aria-label="Результат раскроя" className="space-y-4 outline-none">
                     <div className="flex flex-col gap-3 rounded-xl border border-primary/40 bg-primary/10 p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-wider text-primary">Расчёт готов</p>
-                            <h2 className="mt-1 text-xl font-bold text-text-primary">{formatNumber(plan.boards.length)} досок · {formatNumber(plan.sheets.length)} листов</h2>
-                            <p className="mt-1 text-sm text-text-secondary">Отход доски {formatPercent(plan.totalBoardWastePercentage)}{plan.sheets.length ? ` · листов ${formatPercent(plan.totalSheetWastePercentage)}` : ''}</p>
+                            <h2 className="mt-1 text-xl font-bold text-text-primary">{formatNumber(plan.boards.length)} досок</h2>
+                            <p className="mt-1 text-sm text-text-secondary">Отход доски {formatPercent(plan.totalBoardWastePercentage)}</p>
                         </div>
                         <button type="button" disabled={isExporting} onClick={() => void exportPdf()} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-background/50 px-4 text-sm font-semibold text-text-primary transition hover:bg-background disabled:cursor-wait disabled:opacity-60 ${focusClass}`}>
                             <Icon name="download" /> {isExporting ? 'Формируем PDF…' : 'Скачать PDF'}
                         </button>
                     </div>
 
-                    <Section title="Ведомость закупки" description="Количество целых заготовок по сечению и листовому материалу.">
-                        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                            <PurchaseTable plan={plan} type="boards" />
-                            {plan.sheetPurchase.length > 0 && <PurchaseTable plan={plan} type="sheets" />}
-                        </div>
+                    <Section title="Ведомость закупки" description="Количество целых досок по каждому сечению.">
+                        <PurchaseTable plan={plan} type="boards" />
                     </Section>
 
-                    <Section title="Очередность по строительным блокам" description="Позиции идут снизу вверх по этапам строительства. Номера показывают, где искать деталь.">
+                    <Section title="Очередность по строительным блокам" description="Позиции идут снизу вверх по этапам строительства.">
                         <div className="space-y-3">
                             {CUTTING_STAGE_ORDER.map((stage, stageIndex) => {
                                 const rows = stageRows.get(stage) ?? [];
                                 if (!rows.length) return null;
                                 return (
-                                    <div key={stage} className="overflow-hidden rounded-lg border border-border bg-background/25">
-                                        <div className="flex items-center gap-3 border-b border-border bg-background/60 px-3 py-2">
+                                    <details key={stage} className="group overflow-hidden rounded-lg border border-border bg-background/25">
+                                        <summary className={`flex min-h-11 cursor-pointer list-none items-center gap-3 bg-background/60 px-3 py-2 transition hover:bg-background/80 [&::-webkit-details-marker]:hidden ${focusClass}`}>
                                             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-white">{stageIndex + 1}</span>
                                             <h3 className="font-semibold text-text-primary">{getCuttingStageLabel(stage)}</h3>
-                                            <span className="ml-auto text-xs text-text-secondary">{formatNumber(rows.reduce((total, row) => total + row.quantity, 0))} деталей</span>
-                                        </div>
+                                            <span className="ml-auto text-xs font-medium text-text-secondary">Итого: {formatNumber(rows.reduce((total, row) => total + row.quantity, 0))} шт.</span>
+                                            <span aria-hidden="true" className="text-text-secondary transition group-open:rotate-180">⌄</span>
+                                        </summary>
                                         <div className="overflow-x-auto">
-                                            <table className="w-full min-w-[760px] text-left text-sm">
-                                                <thead className="text-xs text-text-secondary"><tr><th className="px-3 py-2 font-medium">Наименование</th><th className="px-3 py-2 font-medium">Сечение</th><th className="px-3 py-2 font-medium">Размер, мм</th><th className="px-3 py-2 font-medium">Кол-во</th><th className="px-3 py-2 font-medium">Доски / листы</th></tr></thead>
-                                                <tbody className="divide-y divide-border">{rows.map(row => <tr key={row.key}><td className="px-3 py-2 font-medium text-text-primary">{row.construction}</td><td className="px-3 py-2 text-text-secondary">{row.section}</td><td className="px-3 py-2 tabular-nums">{row.size}</td><td className="px-3 py-2 tabular-nums">{row.quantity}</td><td className="max-w-[300px] px-3 py-2 text-text-secondary">{row.references}</td></tr>)}</tbody>
+                                            <table className="w-full min-w-[620px] text-left text-sm">
+                                                <thead className="text-xs text-text-secondary"><tr><th className="px-3 py-2 font-medium">Наименование</th><th className="px-3 py-2 font-medium">Сечение</th><th className="px-3 py-2 font-medium">Размер, мм</th><th className="px-3 py-2 font-medium">Кол-во</th></tr></thead>
+                                                <tbody className="divide-y divide-border">{rows.map(row => <tr key={row.key}><td className="px-3 py-2 font-medium text-text-primary">{row.construction}</td><td className="px-3 py-2 text-text-secondary">{row.section}</td><td className="px-3 py-2 tabular-nums">{row.size}</td><td className="px-3 py-2 tabular-nums">{row.quantity}</td></tr>)}</tbody>
                                             </table>
                                         </div>
-                                    </div>
+                                    </details>
                                 );
                             })}
                         </div>
@@ -580,17 +495,10 @@ const Cutting: React.FC = () => {
                         </Section>
                     )}
 
-                    {plan.sheets.length > 0 && (
-                        <Section title="Карты фанеры и OSB" description="Визуализация показана только для листового материала.">
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-                                {plan.sheets.map((sheet, index) => <PlywoodCutMap key={sheet.id} sheet={sheet} index={index} />)}
-                            </div>
-                        </Section>
-                    )}
                 </section>
             )}
 
-            {!importResult && (
+            {activeSubgroup === 'boards' && !importResult && (
                 <div className="rounded-xl border border-border bg-background/20 p-6 text-center text-sm text-text-secondary">
                     <Icon name="file" className="mx-auto h-7 w-7" />
                     <p className="mt-2">После загрузки здесь появятся проверка строк, этапы и настройки раскроя.</p>
@@ -627,21 +535,30 @@ const NumberField: React.FC<{
 
 const PurchaseTable: React.FC<{ plan: CuttingPlan; type: 'boards' | 'sheets' }> = ({ plan, type }) => {
     const isBoards = type === 'boards';
+    const totalBoardQuantity = plan.boardPurchase.reduce((total, row) => total + row.quantity, 0);
+    const totalBoardVolume = plan.boardPurchase.reduce((total, row) => total + row.volumeM3, 0);
+    const totalBoardWaste = plan.boardPurchase.reduce((total, row) => total + row.wasteLength, 0);
+    const totalBoardLength = plan.boardPurchase.reduce((total, row) => total + row.stockLength * row.quantity, 0);
     return (
         <div className="overflow-hidden rounded-lg border border-border">
             <h3 className="border-b border-border bg-background/60 px-3 py-2 text-sm font-semibold text-text-primary">{isBoards ? 'Пиломатериал' : 'Листовой материал'}</h3>
             <div className="overflow-x-auto">
-                <table className="w-full min-w-[460px] text-left text-sm">
+                <table className={`w-full text-left text-sm ${isBoards ? 'min-w-[680px]' : 'min-w-[460px]'}`}>
                     <thead className="text-xs text-text-secondary">
-                        {isBoards ? <tr><th className="px-3 py-2 font-medium">Сечение</th><th className="px-3 py-2 font-medium">Длина</th><th className="px-3 py-2 font-medium">Кол-во</th><th className="px-3 py-2 font-medium">Объём</th></tr> : <tr><th className="px-3 py-2 font-medium">Материал</th><th className="px-3 py-2 font-medium">Лист</th><th className="px-3 py-2 font-medium">Кол-во</th></tr>}
+                        {isBoards ? <tr><th className="px-3 py-2 font-medium">Сечение</th><th className="px-3 py-2 font-medium">Длина</th><th className="px-3 py-2 font-medium">Кол-во</th><th className="px-3 py-2 font-medium">Объём</th><th className="px-3 py-2 font-medium">Отход доски</th></tr> : <tr><th className="px-3 py-2 font-medium">Материал</th><th className="px-3 py-2 font-medium">Лист</th><th className="px-3 py-2 font-medium">Кол-во</th></tr>}
                     </thead>
                     <tbody className="divide-y divide-border">
                         {isBoards ? plan.boardPurchase.map(row => (
-                            <tr key={`${row.section}-${row.stockLength}`}><td className="px-3 py-2 font-medium">{row.section}</td><td className="px-3 py-2 tabular-nums">{formatNumber(row.stockLength)} мм</td><td className="px-3 py-2 tabular-nums">{row.quantity} шт.</td><td className="px-3 py-2 tabular-nums text-text-secondary">{formatNumber(row.volumeM3)} м³</td></tr>
+                            <tr key={`${row.section}-${row.stockLength}`}><td className="px-3 py-2 font-medium">{row.section}</td><td className="px-3 py-2 tabular-nums">{formatNumber(row.stockLength)} мм</td><td className="px-3 py-2 tabular-nums">{row.quantity} шт.</td><td className="px-3 py-2 tabular-nums text-text-secondary">{row.volumeM3.toFixed(3)} м³</td><td className="px-3 py-2 tabular-nums text-text-secondary">{formatNumber(row.wasteLength / 1000)} м · {formatPercent(row.wastePercentage)}</td></tr>
                         )) : plan.sheetPurchase.map(row => (
                             <tr key={`${row.material}-${row.thickness}-${row.sheetWidth}-${row.sheetHeight}`}><td className="px-3 py-2 font-medium">{row.material}{row.thickness ? ` · ${formatNumber(row.thickness)} мм` : ''}</td><td className="px-3 py-2 tabular-nums">{formatNumber(row.sheetWidth)} × {formatNumber(row.sheetHeight)}</td><td className="px-3 py-2 tabular-nums">{row.quantity} шт.</td></tr>
                         ))}
                     </tbody>
+                    {isBoards && (
+                        <tfoot className="border-t-2 border-border bg-background/60 font-semibold text-text-primary">
+                            <tr><td className="px-3 py-2">Итого</td><td className="px-3 py-2 text-text-secondary">—</td><td className="px-3 py-2 tabular-nums">{totalBoardQuantity} шт.</td><td className="px-3 py-2 tabular-nums">{totalBoardVolume.toFixed(3)} м³</td><td className="px-3 py-2 tabular-nums">{formatNumber(totalBoardWaste / 1000)} м · {formatPercent(totalBoardLength ? totalBoardWaste / totalBoardLength * 100 : 0)}</td></tr>
+                        </tfoot>
+                    )}
                 </table>
             </div>
         </div>

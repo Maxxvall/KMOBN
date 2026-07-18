@@ -117,6 +117,10 @@ const getSheetMaterialLabel = (construction: string, thickness?: number): string
     return construction.trim();
 };
 
+const getDefaultSheetPartWidth = (construction: string): number => (
+    /(?:osb|осб|осп)/i.test(construction) ? 1250 : 1525
+);
+
 export const validateCuttingItems = (
     items: CuttingItem[],
     settings: CuttingSettings = DEFAULT_CUTTING_SETTINGS,
@@ -262,7 +266,7 @@ export const parseCuttingText = (
             construction,
             section: isSheet ? getSheetMaterialLabel(construction, thickness) : section,
             length,
-            width: parseNumber(read(row, 'width')) ?? sheetSection.width,
+            width: parseNumber(read(row, 'width')) ?? sheetSection.width ?? (isSheet ? getDefaultSheetPartWidth(construction) : undefined),
             thickness,
             quantity,
             volumeM3: parseNumber(read(row, 'volume')),

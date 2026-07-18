@@ -58,7 +58,7 @@ describe('parseCuttingText', () => {
         ]);
     });
 
-    it('requires manual width for OSB and plywood parts without a width column', () => {
+    it('uses the fixed sheet width when OSB and plywood rows have only one size', () => {
         const text = [
             HEADERS,
             csvRow('OSB 12мм черновой пол', '', '1239', '1', '0'),
@@ -70,23 +70,18 @@ describe('parseCuttingText', () => {
         expect(result.items).toEqual([
             expect.objectContaining({
                 construction: 'OSB 12мм черновой пол',
-                width: undefined,
+                width: 1250,
                 thickness: 12,
                 isSheet: true,
             }),
             expect.objectContaining({
                 construction: 'Фанера 18мм',
-                width: undefined,
+                width: 1525,
                 thickness: 18,
                 isSheet: true,
             }),
         ]);
-        expect(result.issues).toHaveLength(2);
-        expect(result.issues.map(issue => issue.code)).toEqual([
-            'missing-sheet-width',
-            'missing-sheet-width',
-        ]);
-        expect(result.issues.every(issue => issue.severity === 'error')).toBe(true);
+        expect(result.issues).toEqual([]);
     });
 
     it('reports non-positive lengths and fractional quantities as invalid source values', () => {
@@ -121,11 +116,10 @@ describe('parseCuttingText', () => {
                 construction: 'ОСБ 12мм черновой пол',
                 isSheet: true,
                 thickness: 12,
+                width: 1250,
             }),
         ]);
-        expect(result.issues).toEqual([
-            expect.objectContaining({ sourceRow: 2, code: 'missing-sheet-width' }),
-        ]);
+        expect(result.issues).toEqual([]);
     });
 
     it.each(['18×1525', '1525×18'])('reads %s as 18 mm thickness and 1525 mm part width', section => {
