@@ -890,21 +890,6 @@ const App: React.FC = () => {
         });
     }, [offlineSync.quarantinedErrorCount, setSync]);
 
-    // Reset loadedFlags after sync so data is re-fetched from Supabase/cache
-    useEffect(() => {
-        if (offlineSync.syncedTables.length > 0) {
-            setLoadedFlags(prev => {
-                const next = { ...prev };
-                for (const table of offlineSync.syncedTables) {
-                    if (table in next) {
-                        (next as any)[table] = false;
-                    }
-                }
-                return next;
-            });
-        }
-    }, [offlineSync.syncedTables]);
-
     // A completed workspace refresh may update tables that had no local
     // outbox entries, so make the active view re-read its local snapshot too.
     useEffect(() => {
@@ -914,7 +899,6 @@ const App: React.FC = () => {
 
     const loadHistoryData = useCallback(async (showToast: boolean) => {
         if (loadedFlags.estimates && loadedFlags.templates) return;
-        setIsLoading(true);
         try {
             const [loadedEstimates, loadedTemplates] = await Promise.all([
                 loadedFlags.estimates ? Promise.resolve(estimates) : loadEstimates(),
@@ -2169,12 +2153,7 @@ const App: React.FC = () => {
                 >
                     <FocusLock returnFocus>
                         <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-md">
-                            <h3 className="text-xl font-semibold mb-3">Сохранить изменения</h3>
-                            <p className="text-sm text-text-secondary mb-5">
-                                {isEditorDraftLatestVersion
-                                    ? <>Сохранение обновит v{editorDraft?.version ?? 1} без создания копии. Новая версия будет создана только по отдельной кнопке.</>
-                                    : <>Открыта историческая v{editorDraft?.version ?? 1}. Чтобы сохранить её как отдельный снимок и не менять историю, создайте новую версию.</>}
-                            </p>
+                            <h3 className="text-xl font-semibold mb-5">Сохранить изменения</h3>
                             {editorDraft?.isArchived && (
                                 <label className="mb-4 flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-sm text-amber-100">
                                     <input type="checkbox" checked={restoreArchivedOnSave} onChange={event => setRestoreArchivedOnSave(event.target.checked)} className="h-4 w-4 accent-primary" />

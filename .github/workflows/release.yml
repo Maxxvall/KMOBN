@@ -38,8 +38,8 @@ jobs:
           prerelease: false
           generate_release_notes: true
           files: |
-            release/Каркас Мастер Setup ${{ steps.version.outputs.VERSION }}.exe
+            release/Setup.${{ steps.version.outputs.VERSION }}.exe
             release/latest.yml
-            release/Каркас Мастер Setup ${{ steps.version.outputs.VERSION }}.exe.blockmap
+            release/Setup.${{ steps.version.outputs.VERSION }}.exe.blockmap
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

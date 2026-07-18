@@ -39,11 +39,21 @@ test('persists an offline material across Electron restart and syncs push before
     await loginDialog.locator('input[autocomplete="current-password"]').fill('password');
     await loginDialog.getByRole('button', { name: 'Войти', exact: true }).click();
 
-    await expect(first.page.getByTestId('offline-readiness')).toContainText('Офлайн готово');
+    await expect(first.page.getByTestId('offline-readiness').first()).toContainText('Офлайн готово');
     const initiallyFetched = new Set(
       mock.logs.filter(log => log.method === 'GET' && log.table && OFFLINE_TABLES.includes(log.table as typeof OFFLINE_TABLES[number])).map(log => log.table),
     );
     expect(initiallyFetched).toEqual(new Set(OFFLINE_TABLES));
+
+    await first.page.getByRole('button', { name: 'Цены', exact: true }).first().click();
+    const backgroundSyncLogStart = mock.logs.length;
+    await first.page.getByPlaceholder('Наименование материала').fill('Материал из фоновой синхронизации');
+    await first.page.getByPlaceholder('Цена (₽)').fill('777');
+    await first.page.getByRole('button', { name: 'Добавить', exact: true }).click();
+    await expect(first.page.getByText('Материал из фоновой синхронизации', { exact: true }).first()).toBeVisible();
+    await expect.poll(() => mock.logs.slice(backgroundSyncLogStart).some(log => log.method === 'POST' && log.table === 'materials')).toBe(true);
+    await expect(first.page.getByTestId('offline-readiness').first()).toContainText('Офлайн готово');
+    expect(mock.logs.slice(backgroundSyncLogStart).some(log => log.method === 'GET' && log.table && OFFLINE_TABLES.includes(log.table as typeof OFFLINE_TABLES[number]))).toBe(false);
 
     await first.app.context().setOffline(true);
     await first.page.getByRole('button', { name: 'Цены', exact: true }).first().click();
@@ -75,14 +85,14 @@ test('persists an offline material across Electron restart and syncs push before
     await second.page.getByRole('button', { name: 'Цены', exact: true }).first().click();
     await expect(second.page.getByText('Материал из оффлайна', { exact: true }).first()).toBeVisible();
     await expect(second.page.getByTestId('sync-pending-count')).toContainText('1');
-    await expect(second.page.getByTestId('offline-readiness')).toContainText('Офлайн готово');
+    await expect(second.page.getByTestId('offline-readiness').first()).toContainText('Офлайн готово');
 
     const reconnectLogStart = mock.logs.length;
     await second.app.context().setOffline(false);
 
     await expect.poll(() => mock.logs.slice(reconnectLogStart).some(log => log.method === 'POST' && log.table === 'materials')).toBe(true);
     await expect(second.page.getByTestId('sync-pending-count')).toHaveCount(0);
-    await expect(second.page.getByTestId('offline-readiness')).toContainText('Офлайн готово');
+    await expect(second.page.getByTestId('offline-readiness').first()).toContainText('Офлайн готово');
     await expect(second.page.getByText(/Данные синхронизированы \(1\)/)).toBeVisible();
 
     const reconnectLogs = mock.logs.slice(reconnectLogStart);

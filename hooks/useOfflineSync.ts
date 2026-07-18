@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getOfflineCoverage, type CacheTableKey } from '../services/indexedDbCache';
 import { offlineQueue, type PendingChange } from '../services/offlineQueue';
+import { processOfflineQueue } from '../services/offlineSync';
 import { prepareOfflineWorkspace } from '../services/offlineWorkspace';
 import { healthMonitor, type ServiceStatus } from '../services/healthMonitor';
 
@@ -147,6 +148,24 @@ export const useOfflineSync = (userId: string | null) => {
     }
   }, [refreshPending, userId]);
 
+  const runPendingSync = useCallback(async () => {
+    if (syncingRef.current || !navigator.onLine || !userId || userId === 'anon') return;
+    syncingRef.current = true;
+    setSyncStatus('syncing');
+    setRetryAt(null);
+    try {
+      await processOfflineQueue(userId);
+      setSyncStatus('idle');
+      setWorkspaceStatus(missingTables.length === 0 ? 'ready' : 'partial');
+    } catch (error) {
+      console.error('Background offline sync failed:', error);
+      setSyncStatus('error');
+    } finally {
+      await refreshPending();
+      syncingRef.current = false;
+    }
+  }, [missingTables.length, refreshPending, userId]);
+
   const syncNow = useCallback(() => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     retryTimerRef.current = null;
@@ -182,19 +201,26 @@ export const useOfflineSync = (userId: string | null) => {
     }
     if (delay > 0) {
       setRetryAt(firstPending?.nextRetryAt ?? workspaceRetryAtRef.current);
+      const retryPendingOnly = Boolean(firstPending && preparedUserRef.current === userId);
       retryTimerRef.current = setTimeout(() => {
-        workspaceRetryAtRef.current = null;
-        preparedUserRef.current = null;
-        void runPreparation();
+        if (retryPendingOnly) {
+          void runPendingSync();
+        } else {
+          workspaceRetryAtRef.current = null;
+          preparedUserRef.current = null;
+          void runPreparation();
+        }
       }, delay);
       return () => {
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       };
     }
-    if (preparedUserRef.current !== userId || pendingChanges.length > 0) {
+    if (preparedUserRef.current === userId && pendingChanges.length > 0) {
+      void runPendingSync();
+    } else if (preparedUserRef.current !== userId || pendingChanges.length > 0) {
       void runPreparation();
     }
-  }, [isOnline, pendingChanges, runPreparation, userId]);
+  }, [isOnline, pendingChanges, runPendingSync, runPreparation, userId]);
 
   return {
     isOnline,
