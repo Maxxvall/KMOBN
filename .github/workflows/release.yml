@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -22,7 +25,7 @@ jobs:
         run: npm install --legacy-peer-deps
 
       - name: Build Electron
-        run: npm run build:electron:win
+        run: npm run build:electron:win -- --publish never
 
       - name: Get version
         id: version
