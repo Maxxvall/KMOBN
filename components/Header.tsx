@@ -14,7 +14,7 @@ interface HeaderProps {
     mobileStatus?: React.ReactNode;
 }
 
-type NavIconName = 'file-text' | 'house' | 'tag' | 'briefcase-business' | 'more-horizontal' | 'wrench';
+type NavIconName = 'file-text' | 'house' | 'tag' | 'briefcase-business' | 'more-horizontal' | 'wrench' | 'layers';
 
 const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 }) => {
     const commonProps = {
@@ -40,6 +40,8 @@ const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 
             return <svg {...commonProps}><rect width="20" height="14" x="2" y="6" rx="2" /><path d="M16 6V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2 13a18 18 0 0 0 20 0M12 12h.01" /></svg>;
         case 'wrench':
             return <svg {...commonProps}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.1-3.1a6 6 0 0 1-8.3 7.1l-7.9 7.9a1 1 0 0 1-3-3l7.9-7.9a6 6 0 0 1 7.1-8.3Z" /></svg>;
+        case 'layers':
+            return <svg {...commonProps}><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 17l9 5 9-5" /></svg>;
         case 'more-horizontal':
             return <svg {...commonProps}><circle cx="5" cy="12" r="1" fill="currentColor" /><circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="19" cy="12" r="1" fill="currentColor" /></svg>;
     }
@@ -64,6 +66,7 @@ const DRAWER_NAV_ITEMS = [
     { view: View.SALARY_CALCULATOR, label: 'Зарплаты', icon: 'tag' },
     { view: View.BUNDLES, label: 'Комплекты', icon: 'briefcase-business' },
     { view: View.ANALYTICS, label: 'Аналитика', icon: 'more-horizontal' },
+    { view: View.CUTTING, label: 'Раскрой', icon: 'layers' },
     { view: View.WIKI, label: 'Wiki', icon: 'file-text' },
 ] as const;
 

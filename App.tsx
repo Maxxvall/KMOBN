@@ -59,6 +59,7 @@ const Bundles = lazy(() => import('./components/Bundles'));
 const SalaryCalculator = lazy(() => import('./components/SalaryCalculator'));
 const HouseCalculator = lazy(() => import('./components/HouseCalculator'));
 const Analytics = lazy(() => import('./components/Analytics'));
+const Cutting = lazy(() => import('./components/Cutting'));
 const Subscriptions = lazy(() => import('./components/Subscriptions'));
 const Wiki = lazy(() => import('./components/Wiki'));
 
@@ -2140,6 +2141,9 @@ const App: React.FC = () => {
                                 estimates={visibleSubscriptionData.estimates}
                                 isLoading={isLoading}
                             />
+                        )}
+                        {view === View.CUTTING && (
+                            <Cutting />
                         )}
                         {view === View.WIKI && (
                             <Suspense fallback={<WikiSkeleton />}>

@@ -95,6 +95,7 @@ export enum View {
     HOUSE_CALCULATOR,
     ANALYTICS,
     SUBSCRIPTIONS,
+    CUTTING,
     WIKI,
 }
 
