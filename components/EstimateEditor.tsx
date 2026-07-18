@@ -1181,7 +1181,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }
         const finalEstimate = {
             ...estimate,
-            id: initialEstimate ? estimate.id : `sm-id-${Date.now()}`,
+            id: initialEstimateValue ? estimate.id : `sm-id-${Date.now()}`,
             estimateNumber: initialEstimateValue ? estimate.estimateNumber : generateEstimateNumber(allEstimatesValue.map(item => item.estimateNumber), new Date()),
             sortOrder: initialEstimateValue ? estimate.sortOrder : (estimate.sortOrder ?? Date.now()),
         };

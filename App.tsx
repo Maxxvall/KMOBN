@@ -275,6 +275,13 @@ const App: React.FC = () => {
         return null;
     }, [supabaseUser]);
     const [estimates, setEstimates] = useState<Estimate[]>([]);
+    const isEditorDraftLatestVersion = useMemo(() => {
+        if (!editorDraft) return true;
+        const chain = estimates.filter(item => String(item.estimateNumber) === String(editorDraft.estimateNumber));
+        if (chain.length === 0) return true;
+        const latest = chain.reduce((current, item) => item.version > current.version ? item : current);
+        return latest.id === editorDraft.id;
+    }, [editorDraft, estimates]);
     const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
     const [materials, setMaterials] = useState<Material[]>([]);
     const [works, setWorks] = useState<Work[]>([]);
@@ -2163,7 +2170,11 @@ const App: React.FC = () => {
                     <FocusLock returnFocus>
                         <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-md">
                             <h3 className="text-xl font-semibold mb-3">Сохранить изменения</h3>
-                            <p className="text-sm text-text-secondary mb-5">Выберите, хотите ли вы обновить текущую версию сметы или создать новую.</p>
+                            <p className="text-sm text-text-secondary mb-5">
+                                {isEditorDraftLatestVersion
+                                    ? <>Сохранение обновит v{editorDraft?.version ?? 1} без создания копии. Новая версия будет создана только по отдельной кнопке.</>
+                                    : <>Открыта историческая v{editorDraft?.version ?? 1}. Чтобы сохранить её как отдельный снимок и не менять историю, создайте новую версию.</>}
+                            </p>
                             {editorDraft?.isArchived && (
                                 <label className="mb-4 flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 text-sm text-amber-100">
                                     <input type="checkbox" checked={restoreArchivedOnSave} onChange={event => setRestoreArchivedOnSave(event.target.checked)} className="h-4 w-4 accent-primary" />
@@ -2171,17 +2182,21 @@ const App: React.FC = () => {
                                 </label>
                             )}
                             <div className="flex flex-col gap-3">
-                                <button
-                                    onClick={() => handleConfirmSave('overwrite')}
-                                    className="w-full bg-primary text-white py-2 rounded-md font-semibold"
-                                >
-                                    {editorDraft?.isArchived && restoreArchivedOnSave ? 'Сохранить и вернуть в текущие' : 'Сохранить в текущую версию'}
-                                </button>
+                                {isEditorDraftLatestVersion && (
+                                    <button
+                                        onClick={() => handleConfirmSave('overwrite')}
+                                        className="w-full bg-primary text-white py-2 rounded-md font-semibold"
+                                    >
+                                        {editorDraft?.isArchived && restoreArchivedOnSave ? 'Сохранить и вернуть в текущие' : `Сохранить изменения в v${editorDraft?.version ?? 1}`}
+                                    </button>
+                                )}
                                 <button
                                     onClick={() => handleConfirmSave('new')}
                                     className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-2 rounded-md font-semibold"
                                 >
-                                    {editorDraft?.isArchived && restoreArchivedOnSave ? 'Создать новую версию и вернуть' : 'Создать новую версию'}
+                                    {editorDraft?.isArchived && restoreArchivedOnSave
+                                        ? 'Создать новую версию и вернуть'
+                                        : isEditorDraftLatestVersion ? 'Создать новую версию' : `Создать новую версию на основе v${editorDraft?.version ?? 1}`}
                                 </button>
                                 <button
                                     onClick={() => setShowSaveOptions(false)}
