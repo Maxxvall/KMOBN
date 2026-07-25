@@ -1,8 +1,10 @@
 import type { jsPDF } from 'jspdf';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
+import LiberationBoldFontUrl from '../assets/LiberationSans-Bold.ttf?url';
 import logoUrl from '../logo/acetone-2025920-104546-498.png?url';
 
 const PDF_FONT_FILE = 'LiberationSans-Regular.ttf';
+const PDF_BOLD_FONT_FILE = 'LiberationSans-Bold.ttf';
 export const PDF_FONT_NAME = 'LiberationSans';
 
 const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
@@ -18,8 +20,10 @@ const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
 };
 
 let cachedFont: string | null = null;
+let cachedBoldFont: string | null = null;
 let cachedLogo: string | null = null;
 let fontLoadPromise: Promise<string | null> | null = null;
+let boldFontLoadPromise: Promise<string | null> | null = null;
 let logoLoadPromise: Promise<string | null> | null = null;
 
 const fetchResourceAsBase64 = async (url: string): Promise<string> => {
@@ -63,20 +67,22 @@ const loadCachedResource = (
     return request;
 };
 
+const loadRegularFont = () => loadCachedResource(
+    cachedFont,
+    fontLoadPromise,
+    LiberationFontUrl,
+    (value) => {
+        cachedFont = value;
+    },
+    (value) => {
+        fontLoadPromise = value;
+    },
+    'LiberationSans font',
+);
+
 export async function loadPdfResources(): Promise<{ fontBase64: string | null; logoBase64: string | null }> {
     const [fontBase64, logoBase64] = await Promise.all([
-        loadCachedResource(
-            cachedFont,
-            fontLoadPromise,
-            LiberationFontUrl,
-            (value) => {
-                cachedFont = value;
-            },
-            (value) => {
-                fontLoadPromise = value;
-            },
-            'LiberationSans font',
-        ),
+        loadRegularFont(),
         loadCachedResource(
             cachedLogo,
             logoLoadPromise,
@@ -94,7 +100,34 @@ export async function loadPdfResources(): Promise<{ fontBase64: string | null; l
     return { fontBase64, logoBase64 };
 }
 
-export function registerPdfFont(doc: jsPDF, fontBase64: string | null): void {
+export async function loadPremiumPdfResources(): Promise<{
+    fontBase64: string | null;
+    boldFontBase64: string | null;
+}> {
+    const [fontBase64, boldFontBase64] = await Promise.all([
+        loadRegularFont(),
+        loadCachedResource(
+            cachedBoldFont,
+            boldFontLoadPromise,
+            LiberationBoldFontUrl,
+            (value) => {
+                cachedBoldFont = value;
+            },
+            (value) => {
+                boldFontLoadPromise = value;
+            },
+            'LiberationSans Bold font',
+        ),
+    ]);
+
+    return { fontBase64, boldFontBase64 };
+}
+
+export function registerPdfFont(
+    doc: jsPDF,
+    fontBase64: string | null,
+    boldFontBase64: string | null = null,
+): void {
     if (!fontBase64) {
         return;
     }
@@ -102,7 +135,12 @@ export function registerPdfFont(doc: jsPDF, fontBase64: string | null): void {
     try {
         doc.addFileToVFS(PDF_FONT_FILE, fontBase64);
         doc.addFont(PDF_FONT_FILE, PDF_FONT_NAME, 'normal');
-        doc.addFont(PDF_FONT_FILE, PDF_FONT_NAME, 'bold');
+        if (boldFontBase64) {
+            doc.addFileToVFS(PDF_BOLD_FONT_FILE, boldFontBase64);
+            doc.addFont(PDF_BOLD_FONT_FILE, PDF_FONT_NAME, 'bold');
+        } else {
+            doc.addFont(PDF_FONT_FILE, PDF_FONT_NAME, 'bold');
+        }
         doc.setFont(PDF_FONT_NAME, 'normal');
     } catch (error) {
         console.error('Failed to setup LiberationSans font for PDF generation:', error);

@@ -1406,7 +1406,7 @@ const App: React.FC = () => {
         setShowPdfStyleModal(true);
     }, [goToView, recalculateEstimatePrices, currentEstimate, setCurrentEstimate, setEditorDirty, setEditorDraft, setEditorValidationResult, setEstimates, setPendingExportEstimate, setPendingView, setShowPdfStyleModal, setShowSaveOptions, setShowUnsavedModal]);
 
-    const handlePdfStyleSelect = useCallback((style: 'simple' | 'colored' | 'word-contract') => {
+    const handlePdfStyleSelect = useCallback(async (style: 'simple' | 'colored' | 'word-contract') => {
         if (!pendingExportEstimate) return;
 
         if (style === 'word-contract') {
@@ -1417,9 +1417,9 @@ const App: React.FC = () => {
         
         try {
             if (style === 'simple') {
-                generatePdf(pendingExportEstimate);
+                await generatePdf(pendingExportEstimate);
             } else {
-                generatePdfColored(pendingExportEstimate);
+                await generatePdfColored(pendingExportEstimate);
             }
         } catch (error) {
             console.error("PDF Generation Error:", error);
