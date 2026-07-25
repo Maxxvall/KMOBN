@@ -106,6 +106,9 @@ describe('premium PDF document', () => {
 
         expect(doc.getNumberOfPages()).toBeGreaterThan(2);
         Object.values(PREMIUM_PDF_LINKS).forEach(link => expect(rawPdf).toContain(link));
+        expect(PREMIUM_PDF_LINKS.max).toBe('https://web.max.ru/399106591');
+        expect(PREMIUM_PDF_LINKS).not.toHaveProperty('whatsapp');
+        expect(rawPdf).not.toContain('wa.me');
     });
 
     it('splits a pathological item name without hanging or clipping the remaining document', () => {

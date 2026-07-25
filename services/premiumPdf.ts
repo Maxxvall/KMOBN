@@ -42,7 +42,7 @@ export const PREMIUM_PDF_LINKS = {
     website: 'https://karkasmaster.ru',
     phone: 'tel:+79533337171',
     email: 'mailto:karkasmasterobn@gmail.com',
-    whatsapp: 'https://wa.me/79533337171',
+    max: 'https://web.max.ru/399106591',
     telegram: 'https://t.me/karkasmaster40',
     vk: 'https://vk.com/kmobn',
 } as const;
@@ -373,7 +373,7 @@ export const createPremiumEstimatePdf = (estimate: Estimate, assets: PremiumPdfA
         setFill(doc, COLORS.graphite);
         doc.rect(MARGIN, top, CONTENT_WIDTH, TABLE_HEADER_HEIGHT, 'F');
         setFill(doc, COLORS.red);
-        doc.rect(MARGIN, top, 2, TABLE_HEADER_HEIGHT, 'F');
+        doc.rect(MARGIN, top, 2.4, TABLE_HEADER_HEIGHT, 'F');
         setPdfFont('bold');
         doc.setFontSize(7.6);
         setText(doc, COLORS.white);
@@ -629,7 +629,7 @@ export const createPremiumEstimatePdf = (estimate: Estimate, assets: PremiumPdfA
         drawLinkBlock('Сайт', 'karkasmaster.ru', PREMIUM_PDF_LINKS.website, MARGIN, rowOne, colWidth - 4);
         drawLinkBlock('Телефон', '+7 (953) 333-71-71', PREMIUM_PDF_LINKS.phone, MARGIN + colWidth, rowOne, colWidth - 4);
         drawLinkBlock('Email', 'karkasmasterobn@gmail.com', PREMIUM_PDF_LINKS.email, MARGIN + colWidth * 2, rowOne, colWidth - 4);
-        drawLinkBlock('WhatsApp', 'Обсудить смету', PREMIUM_PDF_LINKS.whatsapp, MARGIN, rowTwo, colWidth - 4);
+        drawLinkBlock('MAX', 'Обсудить смету', PREMIUM_PDF_LINKS.max, MARGIN, rowTwo, colWidth - 4);
         drawLinkBlock('Telegram', '@karkasmaster40', PREMIUM_PDF_LINKS.telegram, MARGIN + colWidth, rowTwo, colWidth - 4);
         drawLinkBlock('ВКонтакте', 'vk.com/kmobn', PREMIUM_PDF_LINKS.vk, MARGIN + colWidth * 2, rowTwo, colWidth - 4);
 
@@ -639,8 +639,8 @@ export const createPremiumEstimatePdf = (estimate: Estimate, assets: PremiumPdfA
         setPdfFont('bold');
         doc.setFontSize(9.5);
         setText(doc, COLORS.white);
-        doc.text('ОБСУДИТЬ СМЕТУ В WHATSAPP', PAGE_WIDTH / 2, ctaY + 7, { align: 'center' });
-        linkArea(MARGIN, ctaY, CONTENT_WIDTH, 11, PREMIUM_PDF_LINKS.whatsapp);
+        doc.text('ОБСУДИТЬ СМЕТУ В MAX', PAGE_WIDTH / 2, ctaY + 7, { align: 'center' });
+        linkArea(MARGIN, ctaY, CONTENT_WIDTH, 11, PREMIUM_PDF_LINKS.max);
 
         setPdfFont('normal');
         doc.setFontSize(7.2);
