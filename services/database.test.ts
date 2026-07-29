@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Estimate } from '../types';
 import { EstimateStatus } from '../types';
-import { pickChangedRecordsByIds } from './database';
+import { mergeImportedEstimate, pickChangedRecordsByIds, prepareEstimatesForExport } from './database';
 
 const createEstimate = (id: string): Estimate => ({
   id,
@@ -32,5 +32,24 @@ describe('pickChangedRecordsByIds', () => {
     const result = pickChangedRecordsByIds(records, []);
 
     expect(result).toEqual([]);
+  });
+});
+
+describe('prepareEstimatesForExport', () => {
+  it('omits the internal explanation from backup data without mutating the estimate', () => {
+    const estimate = { ...createEstimate('internal'), explanation: 'дом под ключ' };
+
+    const [exported] = prepareEstimatesForExport([estimate]);
+
+    expect(exported).not.toHaveProperty('explanation');
+    expect(estimate.explanation).toBe('дом под ключ');
+  });
+
+  it('preserves an existing internal explanation when importing a sanitized backup', () => {
+    const existing = { ...createEstimate('internal'), explanation: 'дом под ключ' };
+    const [sanitized] = prepareEstimatesForExport([existing]);
+
+    expect(mergeImportedEstimate(sanitized, existing).explanation).toBe('дом под ключ');
+    expect(mergeImportedEstimate({ ...sanitized, explanation: '' }, existing).explanation).toBe('');
   });
 });

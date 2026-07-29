@@ -551,6 +551,19 @@ export const deleteSalaryCalculation = async (calculationId: string): Promise<vo
 
 export const SCHEMA_VERSION = 2;
 
+export const prepareEstimatesForExport = (estimates: Estimate[]): Estimate[] => estimates.map(estimate => {
+  const { explanation: _internalExplanation, ...exportableEstimate } = estimate;
+  void _internalExplanation;
+  return exportableEstimate;
+});
+
+export const mergeImportedEstimate = (incoming: Estimate, existing?: Estimate): Estimate => {
+  if (!existing || Object.prototype.hasOwnProperty.call(incoming, 'explanation')) return incoming;
+  return existing.explanation === undefined
+    ? incoming
+    : { ...incoming, explanation: existing.explanation };
+};
+
 export const exportData = async (): Promise<string> => {
   const [estimates, templates, materials, works, bundles, salaryCalculations] = await Promise.all([
     loadEstimates(),
@@ -563,7 +576,7 @@ export const exportData = async (): Promise<string> => {
 
   const data = {
     schemaVersion: SCHEMA_VERSION,
-    estimates,
+    estimates: prepareEstimatesForExport(estimates),
     templates,
     materials,
     works,
@@ -677,6 +690,10 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       if (existing.status !== incoming.status) return true;
       if (existing.area !== incoming.area) return true;
       if (existing.buildingType !== incoming.buildingType) return true;
+      if (
+        Object.prototype.hasOwnProperty.call(incoming, 'explanation')
+        && (existing.explanation ?? '') !== (incoming.explanation ?? '')
+      ) return true;
       if ((existing.items?.length ?? 0) !== (incoming.items?.length ?? 0)) return true;
       if (JSON.stringify(existing.items) !== JSON.stringify(incoming.items)) return true;
       return false;
@@ -764,8 +781,10 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
 
     const estimates = rawEstimates.map((e, index) => {
       const mappedId = estimateIdMap.get(e.id) as string;
+      const key = `${e.estimateNumber}::v${e.version ?? 0}`;
+      const merged = mergeImportedEstimate(e, existingEstimateByNumberVersion.get(key));
       return {
-        ...e,
+        ...merged,
         id: mappedId,
         parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
         items: Array.isArray(e.items) ? e.items : [],

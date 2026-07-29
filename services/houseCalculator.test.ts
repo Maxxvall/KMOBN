@@ -144,6 +144,9 @@ describe('houseCalculator history selection', () => {
     it('extracts area and turnkey package from client wishes', () => {
         expect(parseHouseDescription('Нужен дом под ключ 100 кв.м')).toEqual({ area: 100, package: 'turnkey' });
         expect(parseHouseDescription('Дом 120 м² под ключ со всей инженерией')).toEqual({ area: 120, package: 'turnkey-engineering' });
+        expect(parseHouseDescription('Премиум 140 м²')).toEqual({ area: 140, package: 'turnkey-engineering' });
+        expect(parseHouseDescription('Оптимальный дом')).toEqual({ package: 'rough-finish' });
+        expect(parseHouseDescription('Тёплый контур')).toEqual({ package: 'warm-shell' });
     });
 
     it('calculates economy, optimal, and premium variants in one pass', () => {
@@ -192,6 +195,31 @@ describe('houseCalculator reference and packages', () => {
 
         expect(chooseHouseReference([closer, natalia], 80)?.id).toBe('natalia');
         expect(calculateHouseEstimate(input({ estimates: [closer, natalia] })).evidence.referenceMatched).toBe(true);
+    });
+
+    it('prioritizes matching explanation keywords before area within the same status', () => {
+        const closer = estimate({ id: 'closer', estimateNumber: 'КМ-БЛИЖЕ', area: 80 });
+        const matching = estimate({
+            id: 'matching',
+            estimateNumber: 'КМ-ПРЕМИУМ',
+            area: 120,
+            explanation: 'Дом под ключ, премиум',
+        });
+
+        expect(chooseHouseReference([closer, matching], 80, 'turnkey-engineering')?.id).toBe('matching');
+    });
+
+    it('does not let a matching draft outrank an approved estimate', () => {
+        const approved = estimate({ id: 'approved', estimateNumber: 'КМ-СОГЛАСОВАНА', area: 120 });
+        const draft = estimate({
+            id: 'draft',
+            estimateNumber: 'КМ-ЧЕРНОВИК',
+            status: EstimateStatus.DRAFT,
+            area: 80,
+            explanation: 'Тёплый контур',
+        });
+
+        expect(chooseHouseReference([draft, approved], 80, 'warm-shell')?.id).toBe('approved');
     });
 
     it('preserves source totals when target and source areas are equal', () => {

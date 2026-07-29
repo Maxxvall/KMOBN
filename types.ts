@@ -71,6 +71,7 @@ export interface Estimate {
     isArchived?: boolean;
     buildingType: string;
     area: number;
+    explanation?: string;
     needsPriceUpdate?: boolean;
     selectedSections?: EstimateCategory[];
     sortOrder?: number;
@@ -84,6 +85,8 @@ export enum EstimateStatus {
     SENT = 'Отправлена',
     APPROVED = 'Согласована',
 }
+
+export const ESTIMATE_EXPLANATION_MAX_LENGTH = 1200;
 
 export enum View {
     HISTORY,

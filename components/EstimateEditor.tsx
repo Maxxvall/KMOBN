@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle } from '../types';
-import { ESTIMATE_CATEGORIES } from '../types';
+import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
 import { generateEstimateWithAI } from '../services/geminiService';
 import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
@@ -84,6 +84,7 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
     hash = hashText(hash, value.status);
     hash = hashText(hash, value.buildingType);
     hash = hashNumber(hash, value.area || 0);
+    hash = hashText(hash, value.explanation || '');
     hash = hashNumber(hash, value.total || 0);
     hash = hashBoolean(hash, Boolean(value.needsPriceUpdate));
 
@@ -210,6 +211,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         total: 0,
         buildingType: '',
         area: 0,
+        explanation: '',
         needsPriceUpdate: false,
     }), []);
     const baselineEstimate = useMemo(() => initialEstimateValue ?? createEmptyEstimate(), [initialEstimateValue, createEmptyEstimate]);
@@ -1297,6 +1299,21 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="0" className={inputStyles + " min-h-[44px] min-w-0 tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
                     </label>
                 </div>
+
+                <label className="mb-3 block min-w-0">
+                    <span className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[11px] font-medium text-text-secondary">
+                        <span>Пояснение для расчёта дома</span>
+                        <span className="font-normal">Внутреннее поле — не выводится в документах</span>
+                    </span>
+                    <textarea
+                        value={estimate.explanation || ''}
+                        onChange={e => setEstimate({ ...estimate, explanation: e.target.value })}
+                        maxLength={ESTIMATE_EXPLANATION_MAX_LENGTH}
+                        placeholder="Например: дом под ключ, тёплый контур, оптимальный или премиум"
+                        rows={2}
+                        className={inputStyles + " min-h-[72px] min-w-0 resize-y py-2 leading-5 focus:outline-none focus:ring-2 focus:ring-primary/50"}
+                    />
+                </label>
 
                 <div className="mb-3 grid grid-cols-6 items-end gap-2 xl:grid-cols-[minmax(260px,1fr)_minmax(140px,220px)_72px_minmax(140px,180px)]">
                     <div className="col-span-6 min-w-0 xl:col-auto">

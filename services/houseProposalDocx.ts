@@ -11,6 +11,7 @@ import {
     ShadingType,
     Table,
     TableCell,
+    TableLayoutType,
     TableRow,
     TextRun,
     VerticalAlign,
@@ -29,82 +30,221 @@ export interface HouseProposalDocxInput {
     variants: HouseVariantResult[];
 }
 
-const NAVY = '1E293B';
-const RED = 'DC2626';
-const MUTED = '64748B';
-const LIGHT = 'F1F5F9';
-const WHITE = 'FFFFFF';
-const GREEN = '166534';
-const BORDER = 'CBD5E1';
-const CONTENT_WIDTH = 9360;
-const cellMargins = { top: 110, bottom: 110, left: 140, right: 140 };
+const COLORS = {
+    graphite: '101318',
+    graphiteSoft: '171B21',
+    red: 'EF4136',
+    paper: 'F4F1E9',
+    white: 'FFFFFF',
+    row: 'FBFAF7',
+    line: 'D8D2C7',
+    text: '171A1F',
+    muted: '697078',
+    paleRed: 'FCEBE8',
+    positive: '176B4D',
+} as const;
+
+const FONT = 'Arial';
+const CONTENT_WIDTH = 10086;
+const TABLE_INDENT = 120;
+const CELL_MARGINS = { top: 110, bottom: 110, left: 120, right: 120 };
+
 const money = (value: number) => `${Math.round(value).toLocaleString('ru-RU')} ₽`;
 
-const borders = {
-    top: { style: BorderStyle.SINGLE, size: 1, color: BORDER },
-    bottom: { style: BorderStyle.SINGLE, size: 1, color: BORDER },
-    left: { style: BorderStyle.SINGLE, size: 1, color: BORDER },
-    right: { style: BorderStyle.SINGLE, size: 1, color: BORDER },
-    insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: BORDER },
-    insideVertical: { style: BorderStyle.SINGLE, size: 1, color: BORDER },
+type RunOptions = {
+    bold?: boolean;
+    color?: string;
+    size?: number;
+    italics?: boolean;
+    break?: number;
 };
 
-const text = (value: string, options: { bold?: boolean; color?: string; size?: number } = {}) => new TextRun({
+const text = (value: string, options: RunOptions = {}) => new TextRun({
     text: value,
     bold: options.bold,
-    color: options.color || NAVY,
-    size: options.size || 22,
-    font: 'Calibri',
+    color: options.color || COLORS.text,
+    size: options.size || 20,
+    italics: options.italics,
+    break: options.break,
+    font: FONT,
+});
+
+const gridBorders = {
+    top: { style: BorderStyle.SINGLE, size: 6, color: COLORS.line },
+    bottom: { style: BorderStyle.SINGLE, size: 6, color: COLORS.line },
+    left: { style: BorderStyle.SINGLE, size: 6, color: COLORS.line },
+    right: { style: BorderStyle.SINGLE, size: 6, color: COLORS.line },
+    insideHorizontal: { style: BorderStyle.SINGLE, size: 6, color: COLORS.line },
+    insideVertical: { style: BorderStyle.SINGLE, size: 6, color: COLORS.line },
+};
+
+const richCell = (
+    width: number,
+    children: Paragraph[],
+    options: { fill?: string } = {},
+) => new TableCell({
+    width: { size: width, type: WidthType.DXA },
+    margins: CELL_MARGINS,
+    verticalAlign: VerticalAlign.CENTER,
+    shading: options.fill ? { type: ShadingType.CLEAR, fill: options.fill, color: 'auto' } : undefined,
+    children,
 });
 
 const cell = (
     value: string,
     width: number,
-    options: { bold?: boolean; fill?: string; color?: string; align?: typeof AlignmentType[keyof typeof AlignmentType] } = {},
-) => new TableCell({
-    width: { size: width, type: WidthType.DXA },
-    margins: cellMargins,
-    verticalAlign: VerticalAlign.CENTER,
-    shading: options.fill ? { type: ShadingType.CLEAR, fill: options.fill, color: 'auto' } : undefined,
-    children: [new Paragraph({
-        alignment: options.align || AlignmentType.LEFT,
-        spacing: { before: 0, after: 0, line: 280 },
-        children: [text(value, { bold: options.bold, color: options.color })],
+    options: {
+        bold?: boolean;
+        fill?: string;
+        color?: string;
+        align?: typeof AlignmentType[keyof typeof AlignmentType];
+        size?: number;
+    } = {},
+) => richCell(width, [new Paragraph({
+    alignment: options.align || AlignmentType.LEFT,
+    spacing: { before: 0, after: 0, line: 260 },
+    keepLines: true,
+    children: [text(value, {
+        bold: options.bold,
+        color: options.color,
+        size: options.size,
     })],
+})], { fill: options.fill });
+
+const table = (
+    columnWidths: number[],
+    rows: TableRow[],
+) => new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    indent: { size: TABLE_INDENT, type: WidthType.DXA },
+    layout: TableLayoutType.FIXED,
+    columnWidths,
+    borders: gridBorders,
+    rows,
 });
 
 const heading = (value: string) => new Paragraph({
     heading: HeadingLevel.HEADING_1,
     keepNext: true,
-    spacing: { before: 320, after: 160 },
-    children: [text(value, { bold: true, color: NAVY, size: 32 })],
+    keepLines: true,
+    spacing: { before: 300, after: 120 },
+    children: [text(value, { bold: true, color: COLORS.graphite, size: 28 })],
 });
 
-const comparisonTable = (input: HouseProposalDocxInput) => new Table({
-    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
-    columnWidths: [1800, 2760, 2200, 2600],
-    borders,
-    rows: [
+const masthead = (input: HouseProposalDocxInput) => new Paragraph({
+    shading: { type: ShadingType.CLEAR, fill: COLORS.graphite, color: 'auto' },
+    border: { top: { style: BorderStyle.SINGLE, size: 28, color: COLORS.red } },
+    indent: { left: 320, right: 320 },
+    spacing: { before: 200, after: 340, line: 340 },
+    children: [
+        text('КАРКАС', { bold: true, color: COLORS.white, size: 22 }),
+        text(' МАСТЕР', { bold: true, color: COLORS.red, size: 22 }),
+        text('КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ', { bold: true, color: COLORS.red, size: 15, break: 1 }),
+        text(`КАРКАСНЫЙ ДОМ ${input.area} М²`, { bold: true, color: COLORS.white, size: 40, break: 1 }),
+        text('Три варианта комплектации на основе актуальных смет и справочников компании', {
+            color: COLORS.white,
+            size: 19,
+            break: 1,
+        }),
+    ],
+});
+
+const parameterTable = (input: HouseProposalDocxInput, selected: HouseVariantResult) => {
+    const widths = [1500, 3543, 1500, 3543];
+    const parameterCell = (label: string) => cell(label.toUpperCase(), 1500, {
+        bold: true,
+        fill: COLORS.row,
+        color: COLORS.red,
+        size: 15,
+    });
+    return table(widths, [
+        new TableRow({ cantSplit: true, children: [parameterCell('Площадь'), cell(`${input.area} м²`, 3543, { bold: true }), parameterCell('Этажность'), cell(`${input.floors}`, 3543, { bold: true })] }),
+        new TableRow({ cantSplit: true, children: [parameterCell('Окна'), cell(`${input.windows}`, 3543), parameterCell('Двери'), cell(`${input.doors}`, 3543)] }),
+        new TableRow({ cantSplit: true, children: [parameterCell('Крыша'), cell(input.roof, 3543), parameterCell('Выбран вариант'), cell(selected.label, 3543, { bold: true, color: COLORS.red })] }),
+    ]);
+};
+
+const comparisonTable = (input: HouseProposalDocxInput) => {
+    const widths = [1700, 3100, 2300, 2986];
+    const header = (
+        value: string,
+        width: number,
+        align: typeof AlignmentType[keyof typeof AlignmentType] = AlignmentType.LEFT,
+    ) => cell(value.toUpperCase(), width, {
+        bold: true,
+        fill: COLORS.graphite,
+        color: COLORS.white,
+        align,
+        size: 15,
+    });
+    return table(widths, [
         new TableRow({
             tableHeader: true,
+            cantSplit: true,
             children: [
-                cell('Вариант', 1800, { bold: true, fill: NAVY, color: WHITE }),
-                cell('Готовность', 2760, { bold: true, fill: NAVY, color: WHITE }),
-                cell('Стоимость', 2200, { bold: true, fill: NAVY, color: WHITE, align: AlignmentType.RIGHT }),
-                cell('Предварительный диапазон', 2600, { bold: true, fill: NAVY, color: WHITE, align: AlignmentType.RIGHT }),
+                header('Вариант', 1700),
+                header('Готовность', 3100),
+                header('Стоимость', 2300, AlignmentType.RIGHT),
+                header('Предварительный диапазон', 2986, AlignmentType.RIGHT),
             ],
         }),
         ...input.variants.map(variant => {
             const selected = variant.tier === input.selectedTier;
-            return new TableRow({ children: [
-                cell(`${selected ? 'Выбрано: ' : ''}${variant.label}`, 1800, { bold: selected, fill: selected ? 'FEE2E2' : WHITE, color: selected ? RED : NAVY }),
-                cell(variant.description, 2760, { fill: selected ? 'FEE2E2' : WHITE }),
-                cell(money(variant.result.base), 2200, { bold: true, fill: selected ? 'FEE2E2' : WHITE, align: AlignmentType.RIGHT }),
-                cell(`${money(variant.result.low)} - ${money(variant.result.high)}`, 2600, { fill: selected ? 'FEE2E2' : WHITE, align: AlignmentType.RIGHT }),
+            const fill = selected ? COLORS.paleRed : COLORS.row;
+            return new TableRow({ cantSplit: true, children: [
+                cell(`${selected ? 'ВЫБРАНО · ' : ''}${variant.label}`, 1700, { bold: true, fill, color: selected ? COLORS.red : COLORS.text, size: 18 }),
+                cell(variant.description, 3100, { fill }),
+                cell(money(variant.result.base), 2300, { bold: true, fill, align: AlignmentType.RIGHT }),
+                cell(`${money(variant.result.low)} – ${money(variant.result.high)}`, 2986, { fill, align: AlignmentType.RIGHT, size: 18 }),
             ] });
         }),
-    ],
-});
+    ]);
+};
+
+const selectedSummaryBlocks = (selected: HouseVariantResult): Paragraph[] => {
+    return [
+        new Paragraph({
+            shading: { type: ShadingType.CLEAR, fill: COLORS.graphiteSoft, color: 'auto' },
+            indent: { left: 260, right: 260 },
+            spacing: { before: 120, after: 0, line: 300 },
+            keepLines: true,
+            children: [
+                text('ПРЕДВАРИТЕЛЬНАЯ СТОИМОСТЬ', { bold: true, color: COLORS.red, size: 15 }),
+                text(money(selected.result.base), { bold: true, color: COLORS.white, size: 34, break: 1 }),
+            ],
+        }),
+        new Paragraph({
+            shading: { type: ShadingType.CLEAR, fill: COLORS.row, color: 'auto' },
+            border: { bottom: { style: BorderStyle.SINGLE, size: 16, color: COLORS.red } },
+            indent: { left: 260, right: 260 },
+            spacing: { before: 0, after: 160, line: 290 },
+            keepLines: true,
+            children: [
+                text(`Рабочий диапазон: ${money(selected.result.low)} – ${money(selected.result.high)}`, { color: COLORS.text, size: 17 }),
+            ],
+        }),
+    ];
+};
+
+const twoColumnMoneyTable = (
+    headerLabel: string,
+    rows: Array<[string, number]>,
+    negativeIsGreen = false,
+) => table([6500, 3586], [
+    new TableRow({ tableHeader: true, cantSplit: true, children: [
+        cell(headerLabel.toUpperCase(), 6500, { bold: true, fill: COLORS.graphite, color: COLORS.white, size: 15 }),
+        cell('СТОИМОСТЬ', 3586, { bold: true, fill: COLORS.graphite, color: COLORS.white, align: AlignmentType.RIGHT, size: 15 }),
+    ] }),
+    ...rows.map(([label, value]) => new TableRow({ cantSplit: true, children: [
+        cell(label, 6500, { fill: COLORS.row }),
+        cell(money(value), 3586, {
+            bold: true,
+            fill: COLORS.row,
+            color: negativeIsGreen && value < 0 ? COLORS.positive : COLORS.text,
+            align: AlignmentType.RIGHT,
+        }),
+    ] })),
+]);
 
 export async function buildHouseProposalDocx(input: HouseProposalDocxInput): Promise<Blob> {
     const selected = input.variants.find(variant => variant.tier === input.selectedTier) || input.variants[0];
@@ -127,75 +267,85 @@ export async function buildHouseProposalDocx(input: HouseProposalDocxInput): Pro
         creator: 'Каркас Мастер',
         title: `Коммерческое предложение - каркасный дом ${input.area} м²`,
         description: 'Предварительное коммерческое предложение по строительству каркасного дома',
+        background: { color: COLORS.paper },
         styles: {
-            default: { document: { run: { font: 'Calibri', size: 22, color: NAVY }, paragraph: { spacing: { after: 160, line: 300 } } } },
-            paragraphStyles: [
-                { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { font: 'Calibri', size: 32, bold: true, color: NAVY }, paragraph: { spacing: { before: 320, after: 160 }, keepNext: true } },
-            ],
+            default: {
+                document: {
+                    run: { font: FONT, size: 20, color: COLORS.text },
+                    paragraph: { spacing: { after: 120, line: 280 } },
+                },
+            },
+            paragraphStyles: [{
+                id: 'Heading1',
+                name: 'Heading 1',
+                basedOn: 'Normal',
+                next: 'Normal',
+                quickFormat: true,
+                run: { font: FONT, size: 28, bold: true, color: COLORS.graphite },
+                paragraph: { spacing: { before: 300, after: 120 }, keepNext: true, keepLines: true },
+            }],
         },
         sections: [{
             properties: {
                 page: {
-                    size: { width: 12240, height: 15840 },
-                    margin: { top: 1440, right: 1440, bottom: 1440, left: 1440, header: 708, footer: 708 },
+                    size: { width: 11906, height: 16838 },
+                    margin: { top: 850, right: 850, bottom: 850, left: 850, header: 360, footer: 360 },
                 },
             },
             headers: { default: new Header({ children: [new Paragraph({
                 alignment: AlignmentType.RIGHT,
                 spacing: { after: 0 },
-                children: [text('КАРКАС МАСТЕР  |  ПРЕДВАРИТЕЛЬНОЕ ПРЕДЛОЖЕНИЕ', { bold: true, color: MUTED, size: 17 })],
+                children: [
+                    text('КАРКАС ', { bold: true, color: COLORS.graphite, size: 14 }),
+                    text('МАСТЕР', { bold: true, color: COLORS.red, size: 14 }),
+                    text('  ·  ПРЕДВАРИТЕЛЬНОЕ ПРЕДЛОЖЕНИЕ', { bold: true, color: COLORS.muted, size: 14 }),
+                ],
             })] }) },
             footers: { default: new Footer({ children: [new Paragraph({
                 alignment: AlignmentType.RIGHT,
-                children: [text('Страница ', { color: MUTED, size: 18 }), new TextRun({ children: [PageNumber.CURRENT], color: MUTED, size: 18, font: 'Calibri' })],
+                border: { top: { style: BorderStyle.SINGLE, size: 5, color: COLORS.line } },
+                spacing: { before: 80, after: 0 },
+                children: [
+                    text('КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ  ·  СТРАНИЦА ', { color: COLORS.muted, size: 14 }),
+                    new TextRun({ children: [PageNumber.CURRENT], color: COLORS.muted, size: 14, font: FONT }),
+                    text(' / ', { color: COLORS.muted, size: 14 }),
+                    new TextRun({ children: [PageNumber.TOTAL_PAGES], color: COLORS.muted, size: 14, font: FONT }),
+                ],
             })] }) },
             children: [
-                new Paragraph({ spacing: { after: 60 }, children: [text('КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ', { bold: true, color: RED, size: 19 })] }),
-                new Paragraph({ spacing: { after: 100 }, children: [text(`Каркасный дом ${input.area} м²`, { bold: true, color: NAVY, size: 52 })] }),
-                new Paragraph({ spacing: { after: 360 }, children: [text('Три варианта комплектации на основе актуальных смет и справочников компании', { color: MUTED, size: 26 })] }),
-                new Table({
-                    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
-                    columnWidths: [1800, 2880, 1800, 2880],
-                    borders,
-                    rows: [
-                        new TableRow({ children: [cell('Площадь', 1800, { bold: true, fill: LIGHT }), cell(`${input.area} м²`, 2880), cell('Этажность', 1800, { bold: true, fill: LIGHT }), cell(`${input.floors}`, 2880)] }),
-                        new TableRow({ children: [cell('Окна', 1800, { bold: true, fill: LIGHT }), cell(`${input.windows}`, 2880), cell('Двери', 1800, { bold: true, fill: LIGHT }), cell(`${input.doors}`, 2880)] }),
-                        new TableRow({ children: [cell('Крыша', 1800, { bold: true, fill: LIGHT }), cell(input.roof, 2880), cell('Выбран вариант', 1800, { bold: true, fill: LIGHT }), cell(selected.label, 2880, { bold: true, color: RED })] }),
-                    ],
-                }),
+                masthead(input),
+                parameterTable(input, selected),
                 heading('Сравнение вариантов'),
                 comparisonTable(input),
                 heading(`Выбранный вариант: ${selected.label}`),
-                new Table({
-                    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
-                    columnWidths: [6000, 3360],
-                    borders,
-                    rows: [
-                        new TableRow({ children: [cell('Предварительная стоимость', 6000, { bold: true, fill: 'ECFDF5', color: GREEN }), cell(money(selected.result.base), 3360, { bold: true, fill: 'ECFDF5', color: GREEN, align: AlignmentType.RIGHT })] }),
-                        new TableRow({ children: [cell('Рабочий диапазон', 6000), cell(`${money(selected.result.low)} - ${money(selected.result.high)}`, 3360, { align: AlignmentType.RIGHT })] }),
-                    ],
-                }),
+                ...selectedSummaryBlocks(selected),
                 heading('Этапы и разделы строительства'),
-                new Table({
-                    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
-                    columnWidths: [6200, 3160],
-                    borders,
-                    rows: [
-                        new TableRow({ tableHeader: true, children: [cell('Раздел', 6200, { bold: true, fill: NAVY, color: WHITE }), cell('Стоимость', 3160, { bold: true, fill: NAVY, color: WHITE, align: AlignmentType.RIGHT })] }),
-                        ...selected.result.sections.map(section => new TableRow({ children: [cell(String(section.category), 6200), cell(money(section.total), 3160, { align: AlignmentType.RIGHT })] })),
-                    ],
-                }),
+                twoColumnMoneyTable('Раздел', selected.result.sections.map(section => [String(section.category), section.total])),
                 heading('За что производится оплата'),
-                new Table({
-                    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
-                    columnWidths: [6200, 3160],
-                    borders,
-                    rows: financialRows.map(([label, value]) => new TableRow({ children: [cell(label, 6200), cell(money(value), 3160, { align: AlignmentType.RIGHT, color: value < 0 ? GREEN : NAVY })] })),
-                }),
-                ...(input.clientDescription ? [heading('Пожелания клиента'), new Paragraph({ children: [text(input.clientDescription)] })] : []),
+                twoColumnMoneyTable('Статья', financialRows, true),
+                ...(input.clientDescription ? [
+                    heading('Пожелания клиента'),
+                    new Paragraph({
+                        shading: { type: ShadingType.CLEAR, fill: COLORS.row, color: 'auto' },
+                        border: { left: { style: BorderStyle.SINGLE, size: 18, color: COLORS.red } },
+                        indent: { left: 220, right: 180 },
+                        spacing: { before: 100, after: 160, line: 290 },
+                        children: [text(input.clientDescription, { color: COLORS.text, size: 20 })],
+                    }),
+                ] : []),
                 heading('Важные условия'),
-                new Paragraph({ children: [text('Расчёт является предварительным и подготовлен на основании исторических смет пользователя. Финальная стоимость фиксируется после уточнения проекта, геологии участка, логистики, состава инженерии и выбранных материалов.', { color: MUTED })] }),
-                ...selected.result.warnings.slice(0, 5).map(warning => new Paragraph({ spacing: { after: 100 }, children: [text(`Важно: ${warning}`, { color: RED })] })),
+                new Paragraph({
+                    spacing: { after: 140, line: 290 },
+                    children: [text('Расчёт является предварительным и подготовлен на основании исторических смет пользователя. Финальная стоимость фиксируется после уточнения проекта, геологии участка, логистики, состава инженерии и выбранных материалов.', { color: COLORS.muted })],
+                }),
+                ...selected.result.warnings.slice(0, 5).map(warning => new Paragraph({
+                    shading: { type: ShadingType.CLEAR, fill: COLORS.paleRed, color: 'auto' },
+                    border: { left: { style: BorderStyle.SINGLE, size: 14, color: COLORS.red } },
+                    indent: { left: 180, right: 120 },
+                    spacing: { before: 60, after: 60, line: 270 },
+                    keepLines: true,
+                    children: [text(`Важно: ${warning}`, { color: COLORS.graphite, size: 18 })],
+                })),
             ],
         }],
     });

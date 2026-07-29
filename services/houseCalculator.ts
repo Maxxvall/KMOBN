@@ -111,6 +111,7 @@ const REFERENCE_CLIENT = 'наталья дубровка';
 const REFERENCE_BUILDING = 'одноэтажный дачный дом';
 
 const normalize = (value: string): string => value.toLocaleLowerCase('ru-RU')
+    .replace(/ё/g, 'е')
     .replace(/[_\-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -125,11 +126,12 @@ const dateOf = (estimate: Estimate): number => {
 
 const isFrameHouse = (estimate: Estimate): boolean => {
     const buildingType = normalize(estimate.buildingType);
+    const descriptor = normalize(`${estimate.buildingType} ${estimate.explanation || ''}`);
     const excluded = ['баня', 'террас', 'пристрой', 'пост охраны', 'крыша', 'изолятор', 'обшив'];
     if (excluded.some(word => buildingType.includes(word))) return false;
-    if (!buildingType.includes('дом') && !buildingType.includes('коттедж')) return false;
+    if (!descriptor.includes('дом') && !descriptor.includes('коттедж')) return false;
 
-    const sourceText = normalize(`${estimate.buildingType} ${(estimate.items || []).map(item => item.name).join(' ')}`);
+    const sourceText = normalize(`${descriptor} ${(estimate.items || []).map(item => item.name).join(' ')}`);
     if (['кирпич', 'газобет', 'пеноблок', 'бетонный дом', 'брус', 'бревн'].some(word => sourceText.includes(word))) return false;
     // Компания работает только с каркасными домами. Поэтому любой объект типа
     // «дом/коттедж» допустим, пока в самой смете явно не указана другая технология.
@@ -178,8 +180,10 @@ export function parseHouseDescription(description: string): ParsedHouseDescripti
     const parsedArea = areaMatch ? Number(areaMatch[1].replace(',', '.')) : undefined;
     const area = parsedArea && parsedArea >= 20 && parsedArea <= 500 ? parsedArea : undefined;
     let packageValue: HousePackage | undefined;
-    if (text.includes('под ключ') && (text.includes('инженер') || text.includes('коммуникац'))) packageValue = 'turnkey-engineering';
+    if (text.includes('премиум')) packageValue = 'turnkey-engineering';
+    else if (text.includes('под ключ') && (text.includes('инженер') || text.includes('коммуникац'))) packageValue = 'turnkey-engineering';
     else if (text.includes('под ключ')) packageValue = 'turnkey';
+    else if (text.includes('оптималь')) packageValue = 'rough-finish';
     else if (text.includes('чернов') || text.includes('предчистов')) packageValue = 'rough-finish';
     else if (text.includes('тепл') && text.includes('контур')) packageValue = 'warm-shell';
     else if (text.includes('коробк')) packageValue = 'box';
@@ -195,12 +199,40 @@ const isReference = (estimate: Estimate): boolean => {
         && Math.abs(estimate.area - 79) <= 1;
 };
 
-export function chooseHouseReference(estimates: Estimate[], targetArea: number): Estimate | undefined {
-    const explicit = estimates.find(isReference);
-    if (explicit) return explicit;
+const explanationMatchesPackage = (estimate: Estimate, targetPackage?: HousePackage): boolean => {
+    if (!targetPackage) return false;
+    const text = normalize(estimate.explanation || '');
+    if (!text) return false;
+    if (targetPackage === 'box' || targetPackage === 'warm-shell') {
+        return text.includes('тепл') && text.includes('контур');
+    }
+    if (targetPackage === 'rough-finish') return text.includes('оптималь');
+    if (targetPackage === 'turnkey' || targetPackage === 'turnkey-engineering') {
+        return text.includes('под ключ') || text.includes('премиум');
+    }
+    return false;
+};
+
+const statusPriority: Record<EstimateStatus, number> = {
+    [EstimateStatus.APPROVED]: 0,
+    [EstimateStatus.SENT]: 1,
+    [EstimateStatus.DRAFT]: 2,
+};
+
+export function chooseHouseReference(
+    estimates: Estimate[],
+    targetArea: number,
+    targetPackage?: HousePackage,
+): Estimate | undefined {
     const approved = estimates.filter(item => item.status === EstimateStatus.APPROVED);
     const pool = approved.length ? approved : estimates;
-    return [...pool].sort((a, b) => Math.abs(a.area - targetArea) - Math.abs(b.area - targetArea))[0];
+    return [...pool].sort((left, right) => (
+        statusPriority[left.status] - statusPriority[right.status]
+        || Number(!explanationMatchesPackage(left, targetPackage)) - Number(!explanationMatchesPackage(right, targetPackage))
+        || Number(!isReference(left)) - Number(!isReference(right))
+        || Math.abs(left.area - targetArea) - Math.abs(right.area - targetArea)
+        || dateOf(right) - dateOf(left)
+    ))[0];
 }
 
 type ItemKind = 'structure' | 'roof' | 'warm-shell' | 'addition' | 'rough-finish' | 'finish' | 'engineering' | 'logistics' | 'equipment';
@@ -344,16 +376,18 @@ const scopeKindLabel: Record<ItemKind, string> = {
 
 const sourceHasKind = (source: Estimate, kind: ItemKind): boolean => source.items.some(item => itemKind(item) === kind);
 
-const chooseScopeSource = (sources: Estimate[], primary: Estimate, kind: ItemKind, targetArea: number): Estimate | undefined => {
-    const statusWeight: Record<EstimateStatus, number> = {
-        [EstimateStatus.APPROVED]: 0,
-        [EstimateStatus.SENT]: 1,
-        [EstimateStatus.DRAFT]: 2,
-    };
+const chooseScopeSource = (
+    sources: Estimate[],
+    primary: Estimate,
+    kind: ItemKind,
+    targetArea: number,
+    targetPackage: HousePackage,
+): Estimate | undefined => {
     return sources
         .filter(source => source.id !== primary.id && sourceHasKind(source, kind))
         .sort((left, right) => (
-            statusWeight[left.status] - statusWeight[right.status]
+            statusPriority[left.status] - statusPriority[right.status]
+            || Number(!explanationMatchesPackage(left, targetPackage)) - Number(!explanationMatchesPackage(right, targetPackage))
             || Math.abs(left.area - targetArea) - Math.abs(right.area - targetArea)
         ))[0];
 };
@@ -364,7 +398,7 @@ const scalePackageScope = (primary: Estimate, history: Estimate[], input: HouseC
 
     for (const kind of scopeKindsByPackage[input.package]) {
         if (sourceHasKind(primary, kind)) continue;
-        const source = chooseScopeSource(history, primary, kind, input.area);
+        const source = chooseScopeSource(history, primary, kind, input.area, input.package);
         if (!source) continue;
         const scopeItems = scaleReferenceItems(source, input)
             .filter(item => itemKind(item) === kind)
@@ -416,7 +450,7 @@ export function createAiHouseEstimateResult(
     aiWarnings: string[] = [],
 ): HouseCalculatorResult {
     validateRates(input.rates);
-    const source = chooseHouseReference(sources, input.area) || sources[0];
+    const source = chooseHouseReference(sources, input.area, input.package) || sources[0];
     if (!source) throw new Error('AI не нашёл согласованных смет текущего года для проверки цен.');
     const pricedItems = items.filter(item => Number.isFinite(item.total) && item.total > 0);
     if (!pricedItems.length) throw new Error('AI не смог подобрать позиции с подтверждёнными ценами из базы.');
@@ -442,7 +476,9 @@ export function createAiHouseEstimateResult(
             sentCount,
             draftCount: 0,
             referenceMatched: isReference(source),
-            sourceReason: 'AI разобрал пожелания и собрал предварительный расчёт по согласованным сметам и справочникам текущего пользователя.',
+            sourceReason: explanationMatchesPackage(source, input.package)
+                ? 'AI выбрал допустимую смету с подходящими ключевыми словами во внутреннем пояснении.'
+                : 'AI разобрал пожелания и собрал предварительный расчёт по согласованным сметам и справочникам текущего пользователя.',
         },
         sections,
         items: pricedItems,
@@ -461,7 +497,7 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     const eligible = selectEligibleHouseHistory(input.estimates, input.now);
     const broaderApproved = eligible.length ? [] : selectHouseHistoryForAi(input.estimates);
     const history = eligible.length ? eligible : broaderApproved;
-    const source = chooseHouseReference(history, input.area);
+    const source = chooseHouseReference(history, input.area, input.package);
     if (!source) throw new Error(`В личной базе загружено ${input.estimates.length} смет, но нет согласованных смет с позициями для расчёта дома.`);
 
     const { items, supplements } = scalePackageScope(source, history, input);
@@ -492,7 +528,9 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
             warnings.push(`В эталонной смете нет подтверждённых данных для объекта «${addition.type}»: его стоимость не включена.`);
         }
     }
-    if (!isReference(source)) warnings.push('Эталон «Наталья_Дубровка, 79 м²» не найден; выбран ближайший подтверждённый аналог.');
+    if (!isReference(source) && !explanationMatchesPackage(source, input.package)) {
+        warnings.push('Эталон «Наталья_Дубровка, 79 м²» не найден; выбран ближайший подтверждённый аналог.');
+    }
 
     const financials = financialBreakdown(items, input.rates);
     const sections = [...new Set(items.map(item => item.category))].map(category => {
@@ -512,7 +550,11 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
         evidence: {
             eligibleEstimateCount: history.length, approvedCount, sentCount, draftCount,
             referenceMatched: isReference(source),
-            sourceReason: isReference(source) ? 'Явный подтверждённый эталон Наталья_Дубровка, 79 м².' : 'Ближайшая по площади подтверждённая смета.',
+            sourceReason: explanationMatchesPackage(source, input.package)
+                ? 'Допустимая смета с подходящими ключевыми словами во внутреннем пояснении.'
+                : isReference(source)
+                    ? 'Явный подтверждённый эталон Наталья_Дубровка, 79 м².'
+                    : 'Ближайшая по площади подтверждённая смета.',
         },
         sections, items, warnings, sourceEstimate: source, rates: { ...input.rates }, financials,
     };

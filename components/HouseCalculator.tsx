@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Estimate, EstimateCategory, EstimateItem, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
+import { ESTIMATE_EXPLANATION_MAX_LENGTH, Estimate, EstimateCategory, EstimateItem, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
 import {
     calculateHouseEstimate,
     calculateHouseVariants,
@@ -49,6 +49,9 @@ const additions: { type: AdditionType; label: string }[] = [
 ];
 
 const money = (value: number) => `${(Object.is(Math.round(value), -0) ? 0 : Math.round(value)).toLocaleString('ru-RU')} ₽`;
+const internalExplanation = (estimate: Estimate) => estimate.explanation
+    ?.trim()
+    .slice(0, ESTIMATE_EXPLANATION_MAX_LENGTH) || 'не указано';
 const inputClass = 'min-h-[44px] w-full rounded-lg border border-border bg-background px-3 text-text-primary outline-none transition focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30';
 const buttonFocus = 'outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background';
 
@@ -161,11 +164,13 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                 ? 'premium' : parsed.package === 'box' || parsed.package === 'warm-shell' ? 'economy' : 'optimal';
             const effectiveArea = parsed.area || area;
             const effectiveInput = { ...calculationInput, area: effectiveArea };
+            let estimatesUsed = effectiveInput.estimates;
             let calculation: ReturnType<typeof applyVariants>;
             try {
                 calculation = applyVariants(effectiveInput, requestedTier);
             } catch {
                 const refreshedEstimates = await onRefreshEstimates();
+                estimatesUsed = refreshedEstimates;
                 calculation = applyVariants({ ...effectiveInput, estimates: refreshedEstimates }, requestedTier);
             }
             if (parsed.area) setArea(parsed.area);
@@ -173,8 +178,8 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             if (clientDescription.trim()) {
                 setIsAiLoading(true);
                 const reviewed = calculation.selected.result;
-                const historicalSummary = selectEligibleHouseHistory(effectiveInput.estimates)
-                    .map(estimate => `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}.`)
+                const historicalSummary = selectEligibleHouseHistory(estimatesUsed)
+                    .map(estimate => `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}; внутреннее пояснение: ${internalExplanation(estimate)}.`)
                     .join('\n') || 'Подходящие сметы выбраны резервным алгоритмом.';
                 const deterministicSummary = [
                     `Каркасный дом: ${effectiveArea} м², ${floors} эт.`,
@@ -209,7 +214,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             const historicalSummary = selectEligibleHouseHistory(refreshedEstimates)
                 .map(estimate => {
                     const categories = [...new Set(estimate.items.map(item => item.category))].join(', ');
-                    return `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}; разделы: ${categories || 'не указаны'}.`;
+                    return `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}; разделы: ${categories || 'не указаны'}; внутреннее пояснение: ${internalExplanation(estimate)}.`;
                 })
                 .join('\n') || 'Подходящих смет не найдено.';
             const summary = [
@@ -317,6 +322,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             total: result.base,
             buildingType: 'Каркасный дом',
             area,
+            explanation: clientDescription.trim().slice(0, ESTIMATE_EXPLANATION_MAX_LENGTH),
             crewToolPlan: houseToolPlanning?.plan,
             needsPriceUpdate: false,
             sortOrder: timestamp,
@@ -389,7 +395,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                     <fieldset>
                         <legend className="mb-2 text-lg font-bold">4. Пожелания клиента</legend>
                         <label className="block text-sm text-text-secondary" htmlFor="house-client-description">Опишите дом и пожелания — AI сверит их с вашими сметами и подготовит итоговый вывод.</label>
-                        <textarea id="house-client-description" value={clientDescription} onChange={event => setClientDescription(event.target.value)} maxLength={1200} rows={4} placeholder="Например: нужен тёплый дом для круглогодичного проживания, важны большие окна и терраса." className={`${inputClass} mt-2 resize-y py-3`} />
+                        <textarea id="house-client-description" value={clientDescription} onChange={event => setClientDescription(event.target.value)} maxLength={ESTIMATE_EXPLANATION_MAX_LENGTH} rows={4} placeholder="Например: нужен тёплый дом для круглогодичного проживания, важны большие окна и терраса." className={`${inputClass} mt-2 resize-y py-3`} />
                     </fieldset>
 
                     <details className="border-y border-border py-1">
