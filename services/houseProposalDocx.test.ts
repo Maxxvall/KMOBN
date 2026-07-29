@@ -40,6 +40,16 @@ const readZipEntry = (archive: Buffer, entryName: string): string => {
     throw new Error(`ZIP entry not found: ${entryName}`);
 };
 
+const paragraphXmlContaining = (documentXml: string, text: string): string => {
+    const paragraphs: string[] = documentXml.match(/<w:p(?:\s[^>]*)?>[\s\S]*?<\/w:p>/g) ?? [];
+    const paragraph = paragraphs
+        .find(candidate => candidate.includes(text));
+    if (!paragraph) throw new Error(`Paragraph not found: ${text}`);
+    return paragraph;
+};
+
+const countOccurrences = (value: string, fragment: string): number => value.split(fragment).length - 1;
+
 const variant = (tier: HouseTier, label: string, base: number): HouseVariantResult => ({
     tier,
     label,
@@ -130,6 +140,10 @@ describe('house proposal DOCX', () => {
 
         const documentXml = readZipEntry(Buffer.from(await blob.arrayBuffer()), 'word/document.xml');
         const documentText = documentXml.toLocaleLowerCase('ru-RU');
+        const preliminaryText = 'расчёт является предварительным. окончательная стоимость будет указана после выбора проекта и согласования дополнительных деталей.';
+        const mastheadXml = paragraphXmlContaining(documentXml, 'КАРКАСНЫЙ ДОМ 128 М²');
+        const priceXml = paragraphXmlContaining(documentXml, 'ПРЕДВАРИТЕЛЬНАЯ СТОИМОСТЬ');
+        const rangeXml = paragraphXmlContaining(documentXml, 'Рабочий диапазон');
         expect(documentText).toContain('каркасный дом 128 м²');
         expect(documentText).toContain('сравнение вариантов');
         expect(documentText).toContain('выбранный вариант: премиум');
@@ -138,12 +152,26 @@ describe('house proposal DOCX', () => {
         expect(documentText).toContain('этапы и разделы строительства');
         expect(documentText).toContain('за что производится оплата');
         expect(documentText).toContain('пожелания клиента');
-        expect(documentText).toContain('важные условия');
+        expect(documentText).toContain('предварительный расчёт');
+        expect(countOccurrences(documentText, preliminaryText)).toBe(1);
         expect(documentXml).toContain('EF4136');
         expect(documentXml).toContain('101318');
+        expect(documentXml).toContain('<w:tblW w:type="dxa" w:w="10086"/><w:tblInd w:type="dxa" w:w="120"/>');
+        expect(mastheadXml).toContain('<w:ind w:left="120"/>');
+        expect(mastheadXml).toContain('w:space="14"');
+        expect(priceXml).toContain('<w:ind w:left="120"/>');
+        expect(priceXml).toContain('w:space="12"');
+        expect(rangeXml).toContain('<w:ind w:left="120"/>');
+        expect(rangeXml).toContain('w:space="12"');
         expect(documentXml).not.toContain(INTERNAL_EXPLANATION_SENTINEL);
         expect(documentText).not.toContain('уровень уверенности');
         expect(documentText).not.toContain('связаться с каркас мастер');
+        expect(documentText).not.toContain('важные условия');
+        expect(documentText).not.toContain('важно:');
+        expect(documentText).not.toContain('расчёт требует проверки перед отправкой клиенту.');
+        expect(documentText).not.toContain('состав инженерии уточняется после согласования проекта.');
+        expect(documentText).not.toContain('тип объекта не распознан автоматически');
+        expect(documentText).not.toContain('в подтверждённых сметах нет позиций');
 
         if (process.env.WRITE_HOUSE_PROPOSAL_SAMPLE === '1') {
             const outputDir = path.resolve('tmp/house-proposal');

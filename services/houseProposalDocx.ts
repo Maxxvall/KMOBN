@@ -127,15 +127,21 @@ const heading = (value: string) => new Paragraph({
     heading: HeadingLevel.HEADING_1,
     keepNext: true,
     keepLines: true,
-    spacing: { before: 300, after: 120 },
+    indent: { left: TABLE_INDENT },
+    spacing: { before: 340, after: 180 },
     children: [text(value, { bold: true, color: COLORS.graphite, size: 28 })],
 });
 
 const masthead = (input: HouseProposalDocxInput) => new Paragraph({
     shading: { type: ShadingType.CLEAR, fill: COLORS.graphite, color: 'auto' },
-    border: { top: { style: BorderStyle.SINGLE, size: 28, color: COLORS.red } },
-    indent: { left: 320, right: 320 },
-    spacing: { before: 200, after: 340, line: 340 },
+    border: {
+        top: { style: BorderStyle.SINGLE, size: 28, color: COLORS.red, space: 14 },
+        bottom: { style: BorderStyle.SINGLE, size: 4, color: COLORS.graphite, space: 14 },
+        left: { style: BorderStyle.SINGLE, size: 4, color: COLORS.graphite, space: 14 },
+        right: { style: BorderStyle.SINGLE, size: 4, color: COLORS.graphite, space: 14 },
+    },
+    indent: { left: TABLE_INDENT },
+    spacing: { before: 200, after: 360, line: 380 },
     children: [
         text('КАРКАС', { bold: true, color: COLORS.white, size: 22 }),
         text(' МАСТЕР', { bold: true, color: COLORS.red, size: 22 }),
@@ -205,8 +211,14 @@ const selectedSummaryBlocks = (selected: HouseVariantResult): Paragraph[] => {
     return [
         new Paragraph({
             shading: { type: ShadingType.CLEAR, fill: COLORS.graphiteSoft, color: 'auto' },
-            indent: { left: 260, right: 260 },
-            spacing: { before: 120, after: 0, line: 300 },
+            border: {
+                top: { style: BorderStyle.SINGLE, size: 4, color: COLORS.graphiteSoft, space: 12 },
+                bottom: { style: BorderStyle.SINGLE, size: 4, color: COLORS.graphiteSoft, space: 12 },
+                left: { style: BorderStyle.SINGLE, size: 4, color: COLORS.graphiteSoft, space: 12 },
+                right: { style: BorderStyle.SINGLE, size: 4, color: COLORS.graphiteSoft, space: 12 },
+            },
+            indent: { left: TABLE_INDENT },
+            spacing: { before: 100, after: 0, line: 320 },
             keepLines: true,
             children: [
                 text('ПРЕДВАРИТЕЛЬНАЯ СТОИМОСТЬ', { bold: true, color: COLORS.red, size: 15 }),
@@ -215,9 +227,14 @@ const selectedSummaryBlocks = (selected: HouseVariantResult): Paragraph[] => {
         }),
         new Paragraph({
             shading: { type: ShadingType.CLEAR, fill: COLORS.row, color: 'auto' },
-            border: { bottom: { style: BorderStyle.SINGLE, size: 16, color: COLORS.red } },
-            indent: { left: 260, right: 260 },
-            spacing: { before: 0, after: 160, line: 290 },
+            border: {
+                top: { style: BorderStyle.SINGLE, size: 4, color: COLORS.line, space: 10 },
+                bottom: { style: BorderStyle.SINGLE, size: 16, color: COLORS.red, space: 10 },
+                left: { style: BorderStyle.SINGLE, size: 4, color: COLORS.line, space: 12 },
+                right: { style: BorderStyle.SINGLE, size: 4, color: COLORS.line, space: 12 },
+            },
+            indent: { left: TABLE_INDENT },
+            spacing: { before: 0, after: 180, line: 300 },
             keepLines: true,
             children: [
                 text(`Рабочий диапазон: ${money(selected.result.low)} – ${money(selected.result.high)}`, { color: COLORS.text, size: 17 }),
@@ -333,19 +350,19 @@ export async function buildHouseProposalDocx(input: HouseProposalDocxInput): Pro
                         children: [text(input.clientDescription, { color: COLORS.text, size: 20 })],
                     }),
                 ] : []),
-                heading('Важные условия'),
+                heading('Предварительный расчёт'),
                 new Paragraph({
-                    spacing: { after: 140, line: 290 },
-                    children: [text('Расчёт является предварительным и подготовлен на основании исторических смет пользователя. Финальная стоимость фиксируется после уточнения проекта, геологии участка, логистики, состава инженерии и выбранных материалов.', { color: COLORS.muted })],
+                    shading: { type: ShadingType.CLEAR, fill: COLORS.row, color: 'auto' },
+                    border: {
+                        top: { style: BorderStyle.SINGLE, size: 4, color: COLORS.row, space: 10 },
+                        bottom: { style: BorderStyle.SINGLE, size: 4, color: COLORS.row, space: 10 },
+                        left: { style: BorderStyle.SINGLE, size: 16, color: COLORS.red, space: 12 },
+                        right: { style: BorderStyle.SINGLE, size: 4, color: COLORS.row, space: 10 },
+                    },
+                    indent: { left: TABLE_INDENT },
+                    spacing: { after: 180, line: 300 },
+                    children: [text('Расчёт является предварительным. Окончательная стоимость будет указана после выбора проекта и согласования дополнительных деталей.', { color: COLORS.text })],
                 }),
-                ...selected.result.warnings.slice(0, 5).map(warning => new Paragraph({
-                    shading: { type: ShadingType.CLEAR, fill: COLORS.paleRed, color: 'auto' },
-                    border: { left: { style: BorderStyle.SINGLE, size: 14, color: COLORS.red } },
-                    indent: { left: 180, right: 120 },
-                    spacing: { before: 60, after: 60, line: 270 },
-                    keepLines: true,
-                    children: [text(`Важно: ${warning}`, { color: COLORS.graphite, size: 18 })],
-                })),
             ],
         }],
     });

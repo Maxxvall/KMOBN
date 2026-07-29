@@ -97,7 +97,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const [isAiLoading, setIsAiLoading] = useState(false);
     const [variants, setVariants] = useState<HouseVariantResult[]>([]);
     const [selectedTier, setSelectedTier] = useState<HouseTier>('optimal');
-    const [isProposalLoading, setIsProposalLoading] = useState(false);
+    const [proposalExport, setProposalExport] = useState<'pdf' | 'word' | null>(null);
     const [proposalError, setProposalError] = useState('');
     const houseToolPlanning = useMemo(() => result ? buildCrewToolPlan({
         estimateItems: result.items,
@@ -243,26 +243,42 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         setProposalError('');
     };
 
-    const exportProposal = async () => {
+    const proposalInput = () => ({
+        area,
+        floors,
+        windows,
+        doors: externalDoors + interiorDoors,
+        roof: roofOptions.find(option => option.value === roofShape)?.label || roofShape,
+        clientDescription: clientDescription.trim(),
+        selectedTier,
+        variants,
+    });
+
+    const exportProposalPdf = async () => {
         if (!variants.length) return;
-        setIsProposalLoading(true);
+        setProposalExport('pdf');
+        setProposalError('');
+        try {
+            const { downloadHouseProposalPdf } = await import('../services/houseProposalPdf');
+            await downloadHouseProposalPdf(proposalInput());
+        } catch (reason) {
+            setProposalError(reason instanceof Error ? reason.message : 'Не удалось сформировать PDF-файл.');
+        } finally {
+            setProposalExport(null);
+        }
+    };
+
+    const exportProposalWord = async () => {
+        if (!variants.length) return;
+        setProposalExport('word');
         setProposalError('');
         try {
             const { downloadHouseProposalDocx } = await import('../services/houseProposalDocx');
-            await downloadHouseProposalDocx({
-                area,
-                floors,
-                windows,
-                doors: externalDoors + interiorDoors,
-                roof: roofOptions.find(option => option.value === roofShape)?.label || roofShape,
-                clientDescription: clientDescription.trim(),
-                selectedTier,
-                variants,
-            });
+            await downloadHouseProposalDocx(proposalInput());
         } catch (reason) {
             setProposalError(reason instanceof Error ? reason.message : 'Не удалось сформировать Word-документ.');
         } finally {
-            setIsProposalLoading(false);
+            setProposalExport(null);
         }
     };
 
@@ -442,7 +458,8 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                                         </button>;
                                     })}
                                 </div>
-                                <button type="button" onClick={() => void exportProposal()} disabled={isProposalLoading} className={`mt-4 min-h-[46px] w-full rounded-lg bg-white px-4 font-bold text-gray-950 transition hover:bg-gray-200 disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>{isProposalLoading ? 'Формируем Word…' : 'Скачать коммерческое предложение Word'}</button>
+                                <button type="button" onClick={() => void exportProposalPdf()} disabled={proposalExport !== null} className={`mt-4 min-h-[46px] w-full rounded-lg bg-white px-4 font-bold text-gray-950 transition hover:bg-gray-200 disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>{proposalExport === 'pdf' ? 'Формируем PDF…' : 'Скачать коммерческое предложение PDF'}</button>
+                                <button type="button" onClick={() => void exportProposalWord()} disabled={proposalExport !== null} className={`mt-2 min-h-[44px] w-full rounded-lg border border-border px-4 text-sm font-semibold text-text-secondary transition hover:border-gray-500 hover:text-text-primary disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>{proposalExport === 'word' ? 'Формируем Word…' : 'Скачать Word-версию'}</button>
                                 {proposalError && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">{proposalError}</p>}
                             </div>}
                             <div className="p-5 sm:p-6">
