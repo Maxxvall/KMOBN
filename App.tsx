@@ -50,6 +50,7 @@ import { createPayment } from './services/paymentService';
 import { setupAppUsageTracking } from './services/appUsage';
 import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './services/offlineIdentity';
 import { buildCatalogDuplicateDeletePlan, type CatalogDuplicateDecision } from './services/duplicateManagement';
+import { recalculateEstimateWorkPrices } from './services/estimatePricing';
 
 const EstimateHistory = lazy(() => import('./components/EstimateHistory'));
 const EstimateEditor = lazy(() => import('./components/EstimateEditor'));
@@ -1227,29 +1228,10 @@ const App: React.FC = () => {
         goToView(View.EDITOR);
     }, [goToView, setCurrentEstimate, setEditorDraft, setEditorDirty, setEditorValidationResult, setPendingView, setShowSaveOptions, setShowUnsavedModal]);
 
-    const recalculateEstimatePrices = useCallback((estimate: Estimate): Estimate => {
-        const materialsMap = new Map(materials.map(material => [material.name, material.price]));
-        const worksMap = new Map(works.map(work => [work.name, work.price]));
-
-        const updatedItems = estimate.items.map(item => {
-            let newPrice = item.price;
-            if (item.subgroup === EstimateSubgroup.MATERIALS) {
-                const nextPrice = materialsMap.get(item.name);
-                if (typeof nextPrice === 'number') {
-                    newPrice = nextPrice;
-                }
-            } else if (item.subgroup === EstimateSubgroup.WORKS) {
-                const nextPrice = worksMap.get(item.name);
-                if (typeof nextPrice === 'number') {
-                    newPrice = nextPrice;
-                }
-            }
-            return { ...item, price: newPrice, total: item.quantity * newPrice };
-        });
-
-        const newTotal = updatedItems.reduce((sum, item) => sum + item.total, 0);
-        return { ...estimate, items: updatedItems, total: newTotal, needsPriceUpdate: false };
-    }, [materials, works]);
+    const recalculateWorkPrices = useCallback(
+        (estimate: Estimate): Estimate => recalculateEstimateWorkPrices(estimate, works),
+        [works],
+    );
 
     const consumeDeleteLimit = useCallback(() => {
         if (!subscription || !supabaseUser) return;
@@ -1298,7 +1280,7 @@ const App: React.FC = () => {
         subscriptionLimits,
         subscriptionLoading,
         goToView,
-        recalculateEstimatePrices,
+        recalculateWorkPrices,
         consumeDeleteLimit,
         setEstimates,
         setTemplates,
@@ -1376,7 +1358,7 @@ const App: React.FC = () => {
     const handleGeneratePdf = useCallback((estimate: Estimate) => {
         let exportEstimate = estimate;
         if (estimate.status === EstimateStatus.DRAFT && estimate.needsPriceUpdate) {
-            exportEstimate = recalculateEstimatePrices(estimate);
+            exportEstimate = recalculateWorkPrices(estimate);
             setEstimates(prev => prev.map(item => item.id === estimate.id ? exportEstimate : item));
             if (currentEstimate?.id === estimate.id) {
                 setCurrentEstimate(exportEstimate);
@@ -1404,7 +1386,7 @@ const App: React.FC = () => {
 
         setPendingExportEstimate(toClientEstimate(exportEstimate));
         setShowPdfStyleModal(true);
-    }, [goToView, recalculateEstimatePrices, currentEstimate, setCurrentEstimate, setEditorDirty, setEditorDraft, setEditorValidationResult, setEstimates, setPendingExportEstimate, setPendingView, setShowPdfStyleModal, setShowSaveOptions, setShowUnsavedModal]);
+    }, [goToView, recalculateWorkPrices, currentEstimate, setCurrentEstimate, setEditorDirty, setEditorDraft, setEditorValidationResult, setEstimates, setPendingExportEstimate, setPendingView, setShowPdfStyleModal, setShowSaveOptions, setShowUnsavedModal]);
 
     const handlePdfStyleSelect = useCallback(async (style: 'simple' | 'colored' | 'word-contract') => {
         if (!pendingExportEstimate) return;
@@ -1566,7 +1548,12 @@ const App: React.FC = () => {
         const material = materials.find(m => m.id === materialId);
         if (!material) return;
 
-        const updatedMaterial = { ...material, price: newPrice, isManualPrice: true };
+        const updatedMaterial = {
+            ...material,
+            price: newPrice,
+            isManualPrice: true,
+            lastUpdated: new Date().toISOString(),
+        };
         try {
             await updateMaterial(updatedMaterial);
             setMaterials(prev => prev.map(m => m.id === materialId ? updatedMaterial : m));

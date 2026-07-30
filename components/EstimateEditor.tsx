@@ -26,6 +26,7 @@ import {
     copyPlanToActual,
     shouldShowActualRow,
 } from '../services/estimateActuals';
+import { applyCatalogMaterialPrice, checkMaterialPrice, type MaterialPriceCheck } from '../services/estimatePricing';
 
 interface EstimateEditorProps {
     initialEstimate?: Estimate | null;
@@ -54,6 +55,56 @@ type NonUrgentTaskHandle =
     | { kind: 'timeout'; id: number };
 
 const MAX_RENDERED_SUBITEMS = 50;
+
+const MaterialPriceSyncButton: React.FC<{
+    check: MaterialPriceCheck;
+    mobile?: boolean;
+    onApply: () => void;
+}> = ({ check, mobile = false, onApply }) => {
+    const canApply = check.status === 'current' || check.status === 'outdated';
+    const title = check.status === 'current'
+        ? `Цена актуальна: ${check.catalogPrice.toLocaleString('ru-RU')} ₽`
+        : check.status === 'outdated'
+            ? `Обновить цену до ${check.catalogPrice.toLocaleString('ru-RU')} ₽`
+            : check.status === 'ambiguous'
+                ? 'Найдено несколько материалов с таким названием'
+                : 'Материал не найден в справочнике цен';
+    const statusClass = check.status === 'current'
+        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
+        : check.status === 'outdated'
+            ? 'border-amber-500/50 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
+            : 'cursor-help border-border bg-background text-text-secondary opacity-60';
+
+    return (
+        <button
+            type="button"
+            onClick={() => canApply ? onApply() : window.alert(title)}
+            aria-disabled={!canApply}
+            title={title}
+            aria-label={title}
+            className={`flex shrink-0 items-center justify-center rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-primary/60 focus:ring-offset-1 focus:ring-offset-background ${mobile ? 'min-h-[44px] min-w-[44px]' : 'h-8 w-8'} ${statusClass}`}
+        >
+            {check.status === 'current' ? (
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m5 12 4 4L19 6" />
+                </svg>
+            ) : check.status === 'outdated' ? (
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 12a9 9 0 0 0-15-6.7L3 8" />
+                    <path d="M3 3v5h5" />
+                    <path d="M3 12a9 9 0 0 0 15 6.7L21 16" />
+                    <path d="M16 16h5v5" />
+                </svg>
+            ) : (
+                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M9.1 9a3 3 0 1 1 5.2 2c-.9.6-1.3 1.1-1.3 2" />
+                    <path d="M12 17h.01" />
+                </svg>
+            )}
+        </button>
+    );
+};
 
 const isAbortError = (error: unknown): boolean => {
     return error instanceof DOMException
@@ -96,6 +147,7 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
         hash = hashNumber(hash, item.total || 0);
         hash = hashText(hash, item.category);
         hash = hashText(hash, item.subgroup || EstimateSubgroup.WORKS);
+        hash = hashText(hash, item.catalogMaterialId || '');
         hash = hashBoolean(hash, Boolean(item.isActualOnly));
         hash = hashText(hash, item.actual?.unit || '');
         hash = hashNumber(hash, item.actual?.quantity ?? 0);
@@ -533,7 +585,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         updatedItem.total = (updatedItem.quantity || 0) * (updatedItem.price || 0);
                     } else {
                         updatedItem[field] = String(value);
-                        if (field === 'name') delete updatedItem.catalogWorkId;
+                        if (field === 'name') {
+                            delete updatedItem.catalogWorkId;
+                            delete updatedItem.catalogMaterialId;
+                        }
                     }
                     return updatedItem as EstimateItem;
                 }
@@ -638,7 +693,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             const aiSuggested = suggestions[itemId]?.find(suggestion => suggestion.name === materialName);
             if (aiSuggested && typeof aiSuggested.price === 'number') {
                 console.info('[EstimateEditor] applying AI-suggested material', { itemId, name: materialName, price: aiSuggested.price });
-                updateItemFields(itemId, { name: materialName, price: aiSuggested.price, unit: 'шт' });
+                updateItemFields(itemId, { name: materialName, price: aiSuggested.price, unit: 'шт', catalogMaterialId: undefined, catalogWorkId: undefined });
                 setShowSuggestions(prev => ({ ...prev, [itemId]: false }));
                 setSuggestions(prev => ({ ...prev, [itemId]: [] }));
                 return;
@@ -651,7 +706,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         const price = material.price;
 
         console.info('[EstimateEditor] applying price to item', { itemId, name: material.name, price, unit: 'шт' });
-        updateItemFields(itemId, { name: material.name, price, unit: 'шт' }); // Assume unit шт
+        updateItemFields(itemId, { name: material.name, price, unit: 'шт', catalogMaterialId: material.id, catalogWorkId: undefined }); // Assume unit шт
+    };
+
+    const syncMaterialPrice = (itemId: string) => {
+        setEstimate(prev => applyCatalogMaterialPrice(prev, itemId, materialsValue).estimate);
     };
 
     // Try to apply material by exact name (used on blur / Enter) so user can type freely
@@ -675,12 +734,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             // Allow AI suggestions that are not in the catalog
             const aiSuggested = suggestions[itemId]?.find(suggestion => suggestion.name === workName);
             if (aiSuggested && typeof aiSuggested.price === 'number') {
-                updateItemFields(itemId, { name: workName, price: aiSuggested.price, unit: 'шт', catalogWorkId: undefined });
+                updateItemFields(itemId, { name: workName, price: aiSuggested.price, unit: 'шт', catalogWorkId: undefined, catalogMaterialId: undefined });
             }
             return;
         }
 
-        updateItemFields(itemId, { name: work.name, price: work.price, unit: 'шт', catalogWorkId: work.id }); // Assume unit шт
+        updateItemFields(itemId, { name: work.name, price: work.price, unit: 'шт', catalogWorkId: work.id, catalogMaterialId: undefined }); // Assume unit шт
     };
 
 
@@ -1587,6 +1646,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                                 const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
+                                                                const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
+                                                                    ? checkMaterialPrice(item, materialsValue)
+                                                                    : null;
                                                                 const isQuickBundleWorkRow = quickBundleWork?.id === item.id;
                                                                 const isQuickBundleLinked = quickBundleItemIds.has(item.id);
                                                                 const isQuickBundleMaterialTarget = Boolean(quickBundleWork && item.category === quickBundleWork.category && itemSubgroup === EstimateSubgroup.MATERIALS && item.name.trim());
@@ -1729,7 +1791,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         </select>
                                                                     </td>
                                                                     <td className="p-1 w-32"><input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', inputStyles + " text-right text-sm")} /></td>
-                                                                    <td className="p-1 w-32"><input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', inputStyles + " text-right text-sm")} /></td>
+                                                                    <td className="p-1 w-32">
+                                                                        <div className="flex items-center gap-1">
+                                                                            <input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', inputStyles + " min-w-0 flex-1 text-right text-sm")} />
+                                                                            {materialPriceCheck && (
+                                                                                <MaterialPriceSyncButton check={materialPriceCheck} onApply={() => syncMaterialPrice(item.id)} />
+                                                                            )}
+                                                                        </div>
+                                                                    </td>
                                                                     {showActuals && (
                                                                         <>
                                                                             <td className="p-1 w-24">
@@ -1780,6 +1849,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
                                                         const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                         const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
+                                                        const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
+                                                            ? checkMaterialPrice(item, materialsValue)
+                                                            : null;
                                                         const isQuickBundleWorkRow = quickBundleWork?.id === item.id;
                                                         const isQuickBundleLinked = quickBundleItemIds.has(item.id);
                                                         const isQuickBundleMaterialTarget = Boolean(quickBundleWork && item.category === quickBundleWork.category && itemSubgroup === EstimateSubgroup.MATERIALS && item.name.trim());
@@ -1886,7 +1958,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                     </div>
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Цена</label>
-                                                                        <input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right md:min-h-9")} />
+                                                                        <div className="flex items-center gap-1">
+                                                                            <input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', "min-h-[44px] min-w-0 flex-1 rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9")} />
+                                                                            {materialPriceCheck && (
+                                                                                <MaterialPriceSyncButton mobile check={materialPriceCheck} onApply={() => syncMaterialPrice(item.id)} />
+                                                                            )}
+                                                                        </div>
                                                                     </div>
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Ед.</label>

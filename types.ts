@@ -24,6 +24,7 @@ export interface EstimateItem {
     actual?: EstimateItemActual;
     isActualOnly?: boolean;
     catalogWorkId?: string;
+    catalogMaterialId?: string;
 }
 
 export type ToolQuantityMode = 'crew' | 'person';

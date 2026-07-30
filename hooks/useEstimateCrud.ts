@@ -15,7 +15,7 @@ type UseEstimateCrudParams = {
   subscriptionLoading: boolean;
   goToView: (view: View) => void;
   openAccessModal?: (title: string, description: string) => void;
-  recalculateEstimatePrices: (estimate: Estimate) => Estimate;
+  recalculateWorkPrices: (estimate: Estimate) => Estimate;
   consumeDeleteLimit: () => void;
   setEstimates: React.Dispatch<React.SetStateAction<Estimate[]>>;
   setTemplates: React.Dispatch<React.SetStateAction<ProjectTemplate[]>>;
@@ -37,7 +37,7 @@ export const useEstimateCrud = ({
   subscriptionLoading,
   goToView,
   openAccessModal,
-  recalculateEstimatePrices,
+  recalculateWorkPrices,
   consumeDeleteLimit,
   setEstimates,
   setTemplates,
@@ -86,7 +86,7 @@ export const useEstimateCrud = ({
   const handleEdit = useCallback((estimate: Estimate) => {
     let nextEstimate = estimate;
     if (estimate.status === EstimateStatus.DRAFT && estimate.needsPriceUpdate) {
-      nextEstimate = recalculateEstimatePrices(estimate);
+      nextEstimate = recalculateWorkPrices(estimate);
       setEstimates(prev => prev.map(item => item.id === estimate.id ? nextEstimate : item));
     }
     setCurrentEstimate(nextEstimate);
@@ -98,7 +98,7 @@ export const useEstimateCrud = ({
     setShowUnsavedModal(false);
     goToView(View.EDITOR);
   }, [
-    recalculateEstimatePrices,
+    recalculateWorkPrices,
     setEstimates,
     setCurrentEstimate,
     setEditorValidationResult,
