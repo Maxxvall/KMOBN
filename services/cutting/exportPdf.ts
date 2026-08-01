@@ -1,6 +1,11 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from '../pdfUtils';
+import { loadPremiumPdfResources, PDF_FONT_NAME, registerPdfFont } from '../pdfUtils';
+import {
+    createPremiumPdfBrand,
+    PREMIUM_PDF_COLORS,
+    PREMIUM_PDF_PAGE,
+} from '../premiumPdfBrand';
 import { compareCuttingStages, getCuttingStageLabel } from './stageOrder';
 import { CUTTING_STAGE_ORDER, CuttingItem, CuttingPlan, CuttingSettings, CuttingStageId } from './types';
 
@@ -45,145 +50,187 @@ export const createCuttingPdfStageGroups = (items: CuttingItem[]): Array<{
 }).filter(group => group.rows.length > 0);
 
 export const generateCuttingPdf = async ({ fileName, items, plan, settings }: CuttingPdfInput): Promise<void> => {
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' }) as PdfWithTable;
-    const { fontBase64 } = await loadPdfResources();
+    const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+        compress: true,
+        putOnlyUsedFonts: true,
+    }) as PdfWithTable;
+    const { fontBase64, boldFontBase64 } = await loadPremiumPdfResources();
     if (!fontBase64) throw new Error('Не удалось загрузить кириллический шрифт для PDF.');
-    registerPdfFont(doc, fontBase64);
+    registerPdfFont(doc, fontBase64, boldFontBase64);
     if (!doc.getFontList()[PDF_FONT_NAME]) throw new Error('Не удалось зарегистрировать кириллический шрифт для PDF.');
     const font = PDF_FONT_NAME;
-    const margin = 12;
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
+    const brand = createPremiumPdfBrand(doc, font);
+    const colors = PREMIUM_PDF_COLORS;
+    const page = PREMIUM_PDF_PAGE;
+    const sourceLabel = fileName.length > 34 ? `${fileName.slice(0, 31)}...` : fileName;
+    const continuationMeta = `Карта раскроя · ${sourceLabel}`;
+    const totalQuantity = plan.boardPurchase.reduce((total, row) => total + row.quantity, 0);
+    const totalVolume = plan.boardPurchase.reduce((total, row) => total + row.volumeM3, 0);
+    const totalWaste = plan.boardPurchase.reduce((total, row) => total + row.wasteLength, 0);
+    const totalLength = plan.boardPurchase.reduce((total, row) => total + row.stockLength * row.quantity, 0);
+    const totalWastePercentage = totalLength ? totalWaste / totalLength * 100 : 0;
 
+    doc.setProperties({
+        title: `Карта раскроя - ${fileName}`,
+        subject: 'Оптимизированный раскрой пиломатериала',
+        author: 'Каркас Мастер',
+        creator: 'Каркас Мастер',
+        keywords: 'раскрой, пиломатериал, производство, Каркас Мастер',
+    });
+
+    const tableBase = (continuationTop = 39) => ({
+        styles: {
+            font,
+            fontSize: 7.7,
+            cellPadding: 2.1,
+            textColor: colors.text,
+            lineColor: colors.line,
+            lineWidth: 0.2,
+            valign: 'middle' as const,
+            overflow: 'linebreak' as const,
+        },
+        headStyles: { fillColor: colors.graphite, textColor: colors.white, font, fontStyle: 'bold' as const },
+        alternateRowStyles: { fillColor: colors.row },
+        margin: { left: page.margin, right: page.margin, top: continuationTop, bottom: 21 },
+        theme: 'grid' as const,
+        willDrawPage: (data: { pageNumber: number }) => {
+            if (data.pageNumber > 1) brand.drawContinuationHeader(continuationMeta);
+        },
+    });
+
+    let y = brand.drawFirstPageHeader({
+        eyebrow: 'Производственный документ',
+        title: 'Карта раскроя',
+        rightTop: 'ОПТИМИЗИРОВАНО',
+        rightBottom: sourceLabel,
+    });
+
+    const summaryHeight = 38;
+    const leftWidth = 108;
+    const gap = 6;
+    const rightX = page.margin + leftWidth + gap;
+    const rightWidth = page.contentWidth - leftWidth - gap;
     doc.setFont(font, 'bold');
-    doc.setFontSize(18);
-    doc.text('Карта оптимизированного раскроя', margin, 16);
+    doc.setFontSize(6.8);
+    doc.setTextColor(...colors.red);
+    doc.text('ИСХОДНЫЕ ДАННЫЕ', page.margin, y + 4);
+    doc.setFontSize(10);
+    doc.setTextColor(...colors.text);
+    doc.text(sourceLabel, page.margin, y + 10, { maxWidth: leftWidth - 2 });
     doc.setFont(font, 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(75, 85, 99);
-    doc.text(`Источник: ${fileName}`, margin, 23);
-    doc.text(`Заготовка: ${settings.boardStockLength} мм · пропил: ${settings.boardKerf} мм · максимум детали: ${settings.maxBoardPartLength} мм`, margin, 28);
+    doc.setFontSize(8.2);
+    doc.setTextColor(...colors.muted);
+    doc.text(`Заготовка ${formatCuttingPdfMillimeters(settings.boardStockLength)} мм · пропил ${formatCuttingPdfMillimeters(settings.boardKerf)} мм`, page.margin, y + 17);
+    doc.text(`Максимум детали ${formatCuttingPdfMillimeters(settings.maxBoardPartLength)} мм · полезный остаток от ${formatCuttingPdfMillimeters(settings.usefulOffcutLength)} мм`, page.margin, y + 22);
+    doc.text(settings.separateStages ? 'Режим: отдельные доски по строительным блокам' : 'Режим: максимальная экономия материала', page.margin, y + 27);
 
-    doc.setTextColor(17, 24, 39);
-    let y = 34;
-    if (plan.boardPurchase.length > 0) {
-        const totalQuantity = plan.boardPurchase.reduce((total, row) => total + row.quantity, 0);
-        const totalVolume = plan.boardPurchase.reduce((total, row) => total + row.volumeM3, 0);
-        const totalWaste = plan.boardPurchase.reduce((total, row) => total + row.wasteLength, 0);
-        const totalLength = plan.boardPurchase.reduce((total, row) => total + row.stockLength * row.quantity, 0);
-        autoTable(doc, {
-            startY: y,
-            head: [['Сечение', 'Длина заготовки', 'Количество', 'Объём, м³', 'Отход доски']],
-            body: plan.boardPurchase.map(row => [
-                row.section,
-                `${row.stockLength} мм`,
-                String(row.quantity),
-                row.volumeM3.toFixed(3),
-                `${(row.wasteLength / 1000).toFixed(2)} м · ${row.wastePercentage.toFixed(1)}%`,
-            ]),
-            foot: [['Итого', '-', `${totalQuantity} шт.`, `${totalVolume.toFixed(3)} м³`, `${(totalWaste / 1000).toFixed(2)} м · ${(totalLength ? totalWaste / totalLength * 100 : 0).toFixed(1)}%`]],
-            styles: { font, fontSize: 8, cellPadding: 2 },
-            headStyles: { fillColor: [46, 93, 65], font },
-            footStyles: { fillColor: [230, 235, 232], textColor: [17, 24, 39], fontStyle: 'bold', font },
-            theme: 'grid',
-        });
-        y = (doc.lastAutoTable?.finalY ?? y) + 5;
-    }
-    if (plan.sheetPurchase.length > 0) {
-        autoTable(doc, {
-            startY: y,
-            head: [['Листовой материал', 'Формат листа', 'Количество']],
-            body: plan.sheetPurchase.map(row => [
-                row.material,
-                `${row.sheetWidth}×${row.sheetHeight} мм`,
-                String(row.quantity),
-            ]),
-            styles: { font, fontSize: 8, cellPadding: 2 },
-            headStyles: { fillColor: [46, 93, 65], font },
-            theme: 'grid',
-        });
-        y = (doc.lastAutoTable?.finalY ?? y) + 5;
-    }
-
-    y += 3;
-    if (y > pageHeight - 25) {
-        doc.addPage();
-        y = 16;
-    }
+    doc.setFillColor(...colors.graphiteSoft);
+    doc.roundedRect(rightX, y, rightWidth, summaryHeight, 4, 4, 'F');
     doc.setFont(font, 'bold');
-    doc.setFontSize(12);
-    doc.text('Очередность по строительным блокам', margin, y);
-    y += 5;
+    doc.setFontSize(6.8);
+    doc.setTextColor(...colors.red);
+    doc.text('ВЕДОМОСТЬ ЗАКУПКИ', rightX + 6, y + 8);
+    doc.setFontSize(19);
+    doc.setTextColor(...colors.white);
+    doc.text(`${totalQuantity} шт.`, rightX + 6, y + 20);
+    doc.setFont(font, 'normal');
+    doc.setFontSize(7.4);
+    doc.text(`Объём ${totalVolume.toFixed(3)} м³`, rightX + 6, y + 27);
+    doc.text(`Отход ${formatCuttingPdfMillimeters(totalWaste / 1000)} м · ${formatCuttingPdfMillimeters(totalWastePercentage)}%`, rightX + 6, y + 32);
+    y += summaryHeight + 8;
 
-    for (const group of createCuttingPdfStageGroups(items)) {
-        if (y > pageHeight - 28) {
-            doc.addPage();
-            y = 16;
-        }
-        doc.setFont(font, 'bold');
-        doc.setFontSize(10);
-        doc.text(`${group.label} · итого ${group.totalQuantity} шт.`, margin, y);
-        autoTable(doc, {
-            startY: y + 2,
-            head: [['Наименование', 'Сечение', 'Размер, мм', 'Количество']],
-            body: group.rows,
-            styles: { font, fontSize: 7.5, cellPadding: 1.8 },
-            headStyles: { fillColor: [46, 93, 65], font },
-            theme: 'striped',
-        });
-        y = (doc.lastAutoTable?.finalY ?? y) + 5;
-    }
+    y = brand.drawSectionBanner('Ведомость закупки', y, 'Количество целых досок, объём закупки и отход по каждому сечению.');
+    autoTable(doc, {
+        startY: y,
+        head: [['Сечение', 'Заготовка', 'Количество', 'Объём, м³', 'Отход']],
+        body: plan.boardPurchase.map(row => [
+            row.section,
+            `${formatCuttingPdfMillimeters(row.stockLength)} мм`,
+            `${row.quantity} шт.`,
+            row.volumeM3.toFixed(3),
+            `${formatCuttingPdfMillimeters(row.wasteLength / 1000)} м · ${formatCuttingPdfMillimeters(row.wastePercentage)}%`,
+        ]),
+        foot: [['ИТОГО', '-', `${totalQuantity} шт.`, totalVolume.toFixed(3), `${formatCuttingPdfMillimeters(totalWaste / 1000)} м · ${formatCuttingPdfMillimeters(totalWastePercentage)}%`]],
+        footStyles: { fillColor: colors.paleRed, textColor: colors.text, font, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 34 }, 1: { cellWidth: 32 }, 2: { cellWidth: 29 }, 3: { cellWidth: 33 }, 4: { cellWidth: 54 } },
+        ...tableBase(),
+    });
 
     doc.addPage();
-    doc.setFont(font, 'bold');
-    doc.setFontSize(14);
-    doc.text('Компактные карты досок', margin, 16);
+    y = brand.drawContinuationHeader(continuationMeta);
+    y = brand.drawSectionBanner('Компактные карты досок', y, 'Одинаковые схемы объединены. Сначала выполняется карта резов, затем сверяется назначение деталей.');
     autoTable(doc, {
-        startY: 21,
-        head: [['Доски', 'Сечение', 'Резы', 'Остаток']],
+        startY: y,
+        head: [['Доски', 'Сечение', 'Карта резов', 'Остаток']],
         body: plan.patterns.map(pattern => [
             pattern.boardIds.join(', '),
             pattern.section,
-            pattern.cuts.map(cut => `${cut.length} ${cut.construction}`).join(' + '),
+            pattern.cuts.map(cut => `${formatCuttingPdfMillimeters(cut.length)} ${cut.construction}`).join(' + '),
             `${formatCuttingPdfMillimeters(pattern.wasteLength)} мм`,
         ]),
-        styles: { font, fontSize: 7.5, cellPadding: 2, valign: 'middle' },
-        headStyles: { fillColor: [46, 93, 65], font },
-        columnStyles: { 0: { cellWidth: 27 }, 1: { cellWidth: 22 }, 3: { cellWidth: 21 } },
-        theme: 'grid',
+        columnStyles: { 0: { cellWidth: 28 }, 1: { cellWidth: 24 }, 2: { cellWidth: 108 }, 3: { cellWidth: 22 } },
+        ...tableBase(39),
     });
+    y = (doc.lastAutoTable?.finalY ?? y) + 8;
 
-    for (const sheet of plan.sheets) {
+    if (y > page.contentBottom - 26) {
         doc.addPage();
-        doc.setFont(font, 'bold');
-        doc.setFontSize(13);
-        doc.text(`${sheet.id} · ${sheet.material} · ${sheet.width}×${sheet.height} мм`, margin, 16);
-        doc.setFont(font, 'normal');
-        doc.setFontSize(9);
-        doc.text(`Отход: ${sheet.wastePercentage.toFixed(1)}%`, pageWidth - margin, 16, { align: 'right' });
-
-        const maxDrawWidth = 170;
-        const maxDrawHeight = 245;
-        const scale = Math.min(maxDrawWidth / sheet.width, maxDrawHeight / sheet.height);
-        const drawWidth = sheet.width * scale;
-        const drawHeight = sheet.height * scale;
-        const originX = (pageWidth - drawWidth) / 2;
-        const originY = 25;
-        doc.setDrawColor(55, 65, 81);
-        doc.setLineWidth(0.6);
-        doc.rect(originX, originY, drawWidth, drawHeight);
-        sheet.parts.forEach((part, index) => {
-            doc.setFillColor(index % 2 === 0 ? 219 : 209, index % 2 === 0 ? 234 : 250, index % 2 === 0 ? 254 : 229);
-            const x = originX + part.x * scale;
-            const partY = originY + part.y * scale;
-            const width = part.width * scale;
-            const height = part.height * scale;
-            doc.rect(x, partY, width, height, 'FD');
-            doc.setFont(font, 'normal');
-            doc.setFontSize(6.5);
-            doc.text(`${part.width}×${part.height}`, x + 1, partY + 3, { maxWidth: Math.max(2, width - 2) });
-        });
+        y = brand.drawContinuationHeader(continuationMeta);
     }
+    y = brand.drawSectionBanner('Очередность по строительным блокам', y, 'Позиции отсортированы снизу вверх по этапам строительства.');
+    const manuallyStartedContinuationPages = new Set<number>();
+
+    for (const group of createCuttingPdfStageGroups(items)) {
+        if (y > page.contentBottom - 26) {
+            doc.addPage();
+            manuallyStartedContinuationPages.add(doc.getNumberOfPages());
+            y = brand.drawContinuationHeader(continuationMeta);
+            y = brand.drawSectionBanner('Очередность по строительным блокам', y, 'Продолжение производственной ведомости.');
+        }
+        doc.setFillColor(...colors.paleRed);
+        doc.rect(page.margin, y, page.contentWidth, 8, 'F');
+        doc.setFillColor(...colors.red);
+        doc.rect(page.margin, y, 2.4, 8, 'F');
+        doc.setFont(font, 'bold');
+        doc.setFontSize(8.3);
+        doc.setTextColor(...colors.red);
+        doc.text(group.label, page.margin + 5, y + 5.3);
+        doc.setTextColor(...colors.text);
+        doc.text(`ИТОГО ${group.totalQuantity} ШТ.`, page.width - page.margin - 4, y + 5.3, { align: 'right' });
+        const groupTop = y + 8;
+        autoTable(doc, {
+            startY: groupTop,
+            head: [['Наименование', 'Сечение', 'Размер, мм', 'Количество']],
+            body: group.rows,
+            columnStyles: { 0: { cellWidth: 92 }, 1: { cellWidth: 31 }, 2: { cellWidth: 31 }, 3: { cellWidth: 28 } },
+            ...tableBase(47),
+            willDrawPage: (data: { pageNumber: number }) => {
+                if (data.pageNumber <= 1) return;
+                let continuationY = brand.drawContinuationHeader(continuationMeta);
+                continuationY = brand.drawSectionBanner('Очередность по строительным блокам', continuationY, 'Продолжение производственной ведомости.');
+                doc.setFillColor(...colors.paleRed);
+                doc.rect(page.margin, continuationY, page.contentWidth, 8, 'F');
+                doc.setFillColor(...colors.red);
+                doc.rect(page.margin, continuationY, 2.4, 8, 'F');
+                doc.setFont(font, 'bold');
+                doc.setFontSize(8.3);
+                doc.setTextColor(...colors.red);
+                doc.text(`${group.label} · ПРОДОЛЖЕНИЕ`, page.margin + 5, continuationY + 5.3);
+            },
+        });
+        y = (doc.lastAutoTable?.finalY ?? groupTop) + 5;
+    }
+
+    const finalPage = doc.getCurrentPageInfo().pageNumber;
+    manuallyStartedContinuationPages.forEach(pageNumber => {
+        doc.setPage(pageNumber);
+        brand.overlayContinuationHeader(continuationMeta);
+    });
+    doc.setPage(finalPage);
+    brand.addFooters('Карта раскроя');
 
     doc.save(`Раскрой_${safeFileName(fileName)}.pdf`);
 };

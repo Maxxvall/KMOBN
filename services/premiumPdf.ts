@@ -7,8 +7,11 @@ import {
     ESTIMATE_CATEGORIES,
 } from '../types';
 import { PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
-
-type Rgb = [number, number, number];
+import {
+    PREMIUM_PDF_COLORS as COLORS,
+    PREMIUM_PDF_LINKS,
+    PremiumPdfRgb as Rgb,
+} from './premiumPdfBrand';
 
 export interface PremiumPdfAssets {
     fontBase64: string | null;
@@ -38,27 +41,7 @@ export interface PremiumEstimateModel {
     total: number;
 }
 
-export const PREMIUM_PDF_LINKS = {
-    website: 'https://karkasmaster.ru',
-    phone: 'tel:+79533337171',
-    email: 'mailto:karkasmasterobn@gmail.com',
-    max: 'https://web.max.ru/399106591',
-    telegram: 'https://t.me/karkasmaster40',
-    vk: 'https://vk.com/kmobn',
-} as const;
-
-const COLORS = {
-    graphite: [16, 19, 24] as Rgb,
-    graphiteSoft: [23, 27, 33] as Rgb,
-    red: [239, 65, 54] as Rgb,
-    paper: [244, 241, 233] as Rgb,
-    white: [255, 255, 255] as Rgb,
-    row: [251, 250, 247] as Rgb,
-    line: [216, 210, 199] as Rgb,
-    text: [23, 26, 31] as Rgb,
-    muted: [105, 112, 120] as Rgb,
-    paleRed: [252, 235, 232] as Rgb,
-} as const;
+export { PREMIUM_PDF_LINKS } from './premiumPdfBrand';
 
 const PAGE_WIDTH = 210;
 const PAGE_HEIGHT = 297;
