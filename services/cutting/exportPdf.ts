@@ -14,6 +14,9 @@ export interface CuttingPdfInput {
 type PdfWithTable = jsPDF & { lastAutoTable?: { finalY: number } };
 
 const safeFileName = (value: string): string => value.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]+/g, '_') || 'Раскрой';
+const pdfNumberFormatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+
+export const formatCuttingPdfMillimeters = (value: number): string => pdfNumberFormatter.format(value);
 
 export const createCuttingPdfQueueRows = (items: CuttingItem[]): string[][] => [...items]
     .sort((left, right) => compareCuttingStages(left.stage, right.stage)
@@ -142,7 +145,7 @@ export const generateCuttingPdf = async ({ fileName, items, plan, settings }: Cu
             pattern.boardIds.join(', '),
             pattern.section,
             pattern.cuts.map(cut => `${cut.length} ${cut.construction}`).join(' + '),
-            `${pattern.wasteLength} мм`,
+            `${formatCuttingPdfMillimeters(pattern.wasteLength)} мм`,
         ]),
         styles: { font, fontSize: 7.5, cellPadding: 2, valign: 'middle' },
         headStyles: { fillColor: [46, 93, 65], font },

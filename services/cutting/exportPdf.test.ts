@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createCuttingPdfQueueRows, createCuttingPdfStageGroups } from './exportPdf';
+import { createCuttingPdfQueueRows, createCuttingPdfStageGroups, formatCuttingPdfMillimeters } from './exportPdf';
 import { CuttingItem } from './types';
 
 const item = (overrides: Partial<CuttingItem>): CuttingItem => ({
@@ -15,6 +15,12 @@ const item = (overrides: Partial<CuttingItem>): CuttingItem => ({
 });
 
 describe('createCuttingPdfQueueRows', () => {
+    it('rounds floating-point board leftovers to at most two decimal places', () => {
+        expect(formatCuttingPdfMillimeters(58.800000000118)).toBe('58,8');
+        expect(formatCuttingPdfMillimeters(58.876)).toBe('58,88');
+        expect(formatCuttingPdfMillimeters(59)).toBe('59');
+    });
+
     it('keeps stage ordering but omits stage and internal board references from columns', () => {
         const rows = createCuttingPdfQueueRows([
             item({ id: 'wall', construction: 'Стойка стены', stage: 'walls' }),
