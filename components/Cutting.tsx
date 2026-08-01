@@ -87,7 +87,8 @@ const Cutting: React.FC = () => {
         fileName: initialDraft.fileName,
         items: initialDraft.items,
         issues: [],
-        skippedRows: 0,
+        skippedRows: initialDraft.skippedRows ?? 0,
+        skippedDetails: initialDraft.skippedDetails ?? [],
     } : null);
     const [settings, setSettings] = useState<CuttingSettings>(() => ({
         ...DEFAULT_CUTTING_SETTINGS,
@@ -100,6 +101,7 @@ const Cutting: React.FC = () => {
     const [isDragging, setIsDragging] = useState(false);
     const [isReading, setIsReading] = useState(false);
     const [isExporting, setIsExporting] = useState(false);
+    const [showSkippedRows, setShowSkippedRows] = useState(false);
     const [activeSubgroup, setActiveSubgroup] = useState<CuttingSubgroup>('boards');
 
     const clearPlan = useCallback(() => {
@@ -147,6 +149,8 @@ const Cutting: React.FC = () => {
             fileName: importResult.fileName,
             items: importResult.items,
             settings,
+            skippedRows: importResult.skippedRows,
+            skippedDetails: importResult.skippedDetails,
             updatedAt: new Date().toISOString(),
         });
     }, [importResult, settings]);
@@ -158,6 +162,7 @@ const Cutting: React.FC = () => {
         setImportResult(null);
         setSettings(DEFAULT_CUTTING_SETTINGS);
         setFileError('');
+        setShowSkippedRows(false);
         clearCuttingDraft();
         clearPlan();
         if (inputRef.current) inputRef.current.value = '';
@@ -172,6 +177,7 @@ const Cutting: React.FC = () => {
 
         setIsReading(true);
         setFileError('');
+        setShowSkippedRows(false);
         clearPlan();
         try {
             const text = decodeCuttingFile(await file.arrayBuffer());
@@ -335,20 +341,64 @@ const Cutting: React.FC = () => {
                 {fileError && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"><Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />{fileError}</div>}
 
                 {importResult && (
-                    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Итог импорта">
-                        {[
-                            ['Файл', importResult.fileName],
-                            ['Позиций', formatNumber(importResult.items.length)],
-                            ['Деталей', formatNumber(totalPieces)],
-                            ['Пропущено', formatNumber(importResult.skippedRows)],
-                            ['Ошибок', formatNumber(errorIssues.length)],
-                        ].map(([label, value]) => (
-                            <div key={label} className="min-w-0 rounded-lg border border-border bg-background/40 px-3 py-2">
-                                <div className="text-xs text-text-secondary">{label}</div>
-                                <div className={`mt-0.5 truncate text-sm font-semibold ${label === 'Ошибок' && errorIssues.length ? 'text-red-300' : 'text-text-primary'}`} title={String(value)}>{value}</div>
+                    <>
+                        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Итог импорта">
+                            {[
+                                ['Файл', importResult.fileName],
+                                ['Позиций', formatNumber(importResult.items.length)],
+                                ['Деталей', formatNumber(totalPieces)],
+                                ['Ошибок', formatNumber(errorIssues.length)],
+                            ].map(([label, value]) => (
+                                <div key={label} className="min-w-0 rounded-lg border border-border bg-background/40 px-3 py-2">
+                                    <div className="text-xs text-text-secondary">{label}</div>
+                                    <div className={`mt-0.5 truncate text-sm font-semibold ${label === 'Ошибок' && errorIssues.length ? 'text-red-300' : 'text-text-primary'}`} title={String(value)}>{value}</div>
+                                </div>
+                            ))}
+                            <button
+                                type="button"
+                                onClick={() => setShowSkippedRows(current => !current)}
+                                aria-expanded={showSkippedRows}
+                                aria-controls="cutting-skipped-rows"
+                                disabled={importResult.skippedRows === 0}
+                                className={`min-w-0 rounded-lg border px-3 py-2 text-left transition ${focusClass} ${importResult.skippedRows > 0 ? 'border-amber-400/50 bg-amber-400/10 hover:bg-amber-400/15' : 'cursor-default border-border bg-background/40'}`}
+                            >
+                                <div className={`text-xs ${importResult.skippedRows > 0 ? 'text-amber-300' : 'text-text-secondary'}`}>Пропущено</div>
+                                <div className={`mt-0.5 flex items-center justify-between gap-2 text-sm font-semibold ${importResult.skippedRows > 0 ? 'text-amber-200' : 'text-text-primary'}`}>
+                                    <span>{formatNumber(importResult.skippedRows)}</span>
+                                    {importResult.skippedRows > 0 && <span aria-hidden="true" className={`text-xs transition-transform ${showSkippedRows ? 'rotate-180' : ''}`}>▼</span>}
+                                </div>
+                            </button>
+                        </div>
+
+                        {showSkippedRows && importResult.skippedRows > 0 && (
+                            <div id="cutting-skipped-rows" className="mt-3 overflow-hidden rounded-xl border border-amber-400/40 bg-amber-400/[0.07]">
+                                <div className="flex items-start gap-3 border-b border-amber-400/25 px-3 py-3 sm:px-4">
+                                    <Icon name="alert" className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+                                    <div>
+                                        <h3 className="text-sm font-semibold text-amber-100">Эти строки не попали в расчёт</h3>
+                                        <p className="mt-1 text-xs leading-5 text-text-secondary">Исправьте указанные значения в исходном файле и загрузите его заново.</p>
+                                    </div>
+                                </div>
+                                <div className="max-h-80 divide-y divide-border/70 overflow-y-auto">
+                                    {importResult.skippedDetails.map(row => (
+                                        <article key={row.id} className="px-3 py-3 sm:px-4">
+                                            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+                                                <div className="text-sm font-semibold text-text-primary">Строка {row.sourceRow}</div>
+                                                <div className="text-xs leading-5 text-amber-200 sm:max-w-[70%] sm:text-right">{row.reason}</div>
+                                            </div>
+                                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                                {row.fields.map(field => (
+                                                    <span key={`${field.label}-${field.value}`} className="max-w-full rounded-md border border-border bg-background/55 px-2 py-1 text-xs text-text-secondary">
+                                                        <span className="text-text-primary">{field.label}:</span> {field.value}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </article>
+                                    ))}
+                                </div>
                             </div>
-                        ))}
-                    </div>
+                        )}
+                    </>
                 )}
             </Section>
 

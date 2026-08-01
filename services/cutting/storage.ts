@@ -1,4 +1,4 @@
-import { CuttingItem, CuttingSettings, CuttingStageId } from './types';
+import { CuttingItem, CuttingSettings, CuttingSkippedRow, CuttingStageId } from './types';
 
 const STORAGE_KEY = 'kmobn:cutting-draft:v1';
 const STAGE_MAPPINGS_KEY = 'kmobn:cutting-stage-mappings:v1';
@@ -7,6 +7,8 @@ export interface CuttingDraft {
     fileName: string;
     items: CuttingItem[];
     settings: CuttingSettings;
+    skippedRows?: number;
+    skippedDetails?: CuttingSkippedRow[];
     updatedAt: string;
 }
 

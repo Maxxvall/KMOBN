@@ -4,6 +4,7 @@ import {
     CuttingImportResult,
     CuttingItem,
     CuttingSettings,
+    CuttingSkippedRow,
     DEFAULT_CUTTING_SETTINGS,
     getSheetStockProfile,
 } from './types';
@@ -184,7 +185,7 @@ export const parseCuttingText = (
     settings: CuttingSettings = DEFAULT_CUTTING_SETTINGS,
 ): CuttingImportResult => {
     const rows = parseDelimitedText(text.replace(/^\uFEFF/, ''));
-    if (rows.length === 0) return { fileName, items: [], issues: [], skippedRows: 0 };
+    if (rows.length === 0) return { fileName, items: [], issues: [], skippedRows: 0, skippedDetails: [] };
 
     const headerRowIndex = rows.findIndex(row => {
         const values = row.map(normalizeHeader);
@@ -196,6 +197,12 @@ export const parseCuttingText = (
             fileName,
             items: [],
             skippedRows: rows.length,
+            skippedDetails: rows.map((row, index) => ({
+                id: `cut-row-${index + 1}-missing-headers`,
+                sourceRow: index + 1,
+                reason: 'Строка не распознана: в файле не найдены обязательные колонки «Наименование» и «Длина».',
+                fields: [{ label: 'Данные строки', value: row.join(' | ') }],
+            })),
             issues: [{
                 id: 'missing-headers',
                 sourceRow: 1,
@@ -209,6 +216,7 @@ export const parseCuttingText = (
     const indexes = findHeaderIndexes(rows[headerRowIndex]);
     const items: CuttingItem[] = [];
     const parseIssues: CuttingImportIssue[] = [];
+    const skippedDetails: CuttingSkippedRow[] = [];
     let skippedRows = 0;
     const read = (row: string[], key: HeaderKey): string => {
         const index = indexes[key];
@@ -221,8 +229,30 @@ export const parseCuttingText = (
         const section = read(row, 'section');
         const lengthRaw = read(row, 'length');
         const countRaw = read(row, 'count');
-        if (!construction) {
+        const skippedFields = [
+            { label: 'Наименование', value: construction },
+            { label: 'Сечение', value: section },
+            { label: 'Длина', value: lengthRaw },
+            { label: 'Ширина', value: read(row, 'width') },
+            { label: 'Количество', value: countRaw },
+            { label: 'Объём', value: read(row, 'volume') },
+        ].filter(field => field.value);
+        const addSkippedRow = (reason: string) => {
             skippedRows += 1;
+            skippedDetails.push({
+                id: `cut-row-${sourceRow}-skipped`,
+                sourceRow,
+                reason,
+                fields: skippedFields.length > 0
+                    ? skippedFields
+                    : [{ label: 'Данные строки', value: row.join(' | ') || 'Пустая строка' }],
+            });
+        };
+        if (!construction) {
+            const reason = section || lengthRaw || countRaw
+                ? 'Не указано наименование детали.'
+                : 'Не заполнены обязательные данные детали.';
+            addSkippedRow(reason);
             if (section || lengthRaw || countRaw) {
                 parseIssues.push({
                     id: `cut-row-${sourceRow}-missing-name`,
@@ -236,17 +266,17 @@ export const parseCuttingText = (
         }
 
         if (!section && !lengthRaw && !countRaw) {
-            skippedRows += 1;
+            addSkippedRow('Не указаны сечение, длина и количество.');
             return;
         }
         const length = parseNumber(lengthRaw);
         const quantity = parseNumber(countRaw);
         if (!length || length <= 0 || !quantity || quantity <= 0 || !Number.isInteger(quantity)) {
-            skippedRows += 1;
             const reasons = [
                 (!length || length <= 0) ? 'длина должна быть положительным числом' : '',
                 (!quantity || quantity <= 0 || !Number.isInteger(quantity)) ? 'количество должно быть положительным целым числом' : '',
             ].filter(Boolean).join('; ');
+            addSkippedRow(`${construction}: ${reasons}.`);
             parseIssues.push({
                 id: `cut-row-${sourceRow}-invalid`,
                 sourceRow,
@@ -275,7 +305,7 @@ export const parseCuttingText = (
         });
     });
 
-    return { fileName, items, issues: [...parseIssues, ...validateCuttingItems(items, settings)], skippedRows };
+    return { fileName, items, issues: [...parseIssues, ...validateCuttingItems(items, settings)], skippedRows, skippedDetails };
 };
 
 export const decodeCuttingFile = (buffer: ArrayBuffer): string => {

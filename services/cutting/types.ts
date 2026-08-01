@@ -45,11 +45,24 @@ export interface CuttingImportIssue {
     message: string;
 }
 
+export interface CuttingSkippedField {
+    label: string;
+    value: string;
+}
+
+export interface CuttingSkippedRow {
+    id: string;
+    sourceRow: number;
+    reason: string;
+    fields: CuttingSkippedField[];
+}
+
 export interface CuttingImportResult {
     fileName: string;
     items: CuttingItem[];
     issues: CuttingImportIssue[];
     skippedRows: number;
+    skippedDetails: CuttingSkippedRow[];
 }
 
 export interface CuttingSettings {
