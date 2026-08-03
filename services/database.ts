@@ -662,7 +662,8 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     const hasMaterialChanged = (existing: Material, incoming: Material): boolean => {
       return existing.price !== incoming.price ||
         (existing.link ?? '') !== (incoming.link ?? '') ||
-        existing.category !== incoming.category;
+        existing.category !== incoming.category ||
+        JSON.stringify(existing.boardSpec ?? null) !== JSON.stringify(incoming.boardSpec ?? null);
     };
 
     const hasWorkChanged = (existing: Work, incoming: Work): boolean => {
@@ -806,6 +807,7 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
           price: m.price ?? existing.price,
           link: m.link ?? existing.link,
           category: m.category ?? existing.category,
+          boardSpec: m.boardSpec ?? existing.boardSpec,
           lastUpdated: m.lastUpdated ?? existing.lastUpdated,
         };
       }

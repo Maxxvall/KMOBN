@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle } from '../types';
+import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle } from '../types';
 import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
 import { generateEstimateWithAI } from '../services/geminiService';
 import type { EstimateValidationResult } from '../services/estimateValidation';
@@ -11,6 +11,7 @@ import AIMissingItemsModal from './AIMissingItemsModal';
 import AIGenerationModal from './AIGenerationModal';
 import BundlePickerModal from './BundlePickerModal';
 import PasteFromEstimateModal from './PasteFromEstimateModal';
+import BoardMaterialSwitchModal from './BoardMaterialSwitchModal';
 import { aiAutocomplete, analyzeMissingItems, applySmartPackagingRules, sanitizeQuantities } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
@@ -27,6 +28,7 @@ import {
     shouldShowActualRow,
 } from '../services/estimateActuals';
 import { applyCatalogMaterialPrice, checkMaterialPrice, type MaterialPriceCheck } from '../services/estimatePricing';
+import { applyBoardMaterialSwitch, getEstimateBoardState, planBoardMaterialSwitch } from '../services/boardMaterialSwitch';
 
 interface EstimateEditorProps {
     initialEstimate?: Estimate | null;
@@ -299,6 +301,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [quickBundleNotice, setQuickBundleNotice] = useState<string | null>(null);
     const [pasteModalOpen, setPasteModalOpen] = useState(false);
     const [pasteTargetCategory, setPasteTargetCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
+    const [boardSwitchTarget, setBoardSwitchTarget] = useState<BoardMoisture | null>(null);
+    const [boardSwitchNotice, setBoardSwitchNotice] = useState<string | null>(null);
     const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
     const [showActuals, setShowActuals] = useState(false);
     const [actualFilter, setActualFilter] = useState<ActualFilter>('all');
@@ -407,6 +411,42 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const filteredMaterialsByCategory = useMemo(() => groupCatalogByCategory(materialsValue), [materialsValue]);
 
     const filteredWorksByCategory = useMemo(() => groupCatalogByCategory(worksValue), [worksValue]);
+
+    const boardInventoryState = useMemo(
+        () => getEstimateBoardState(estimate, materialsValue),
+        [estimate, materialsValue],
+    );
+
+    const boardSwitchPlan = useMemo(
+        () => boardSwitchTarget ? planBoardMaterialSwitch(estimate, materialsValue, boardSwitchTarget) : null,
+        [boardSwitchTarget, estimate, materialsValue],
+    );
+
+    useEffect(() => {
+        if (!boardSwitchNotice) return;
+        const timer = window.setTimeout(() => setBoardSwitchNotice(null), 5000);
+        return () => window.clearTimeout(timer);
+    }, [boardSwitchNotice]);
+
+    const handleApplyBoardSwitch = useCallback((selection: {
+        selectedItemIds: Set<string>;
+        targetMaterialIdsByItemId: Record<string, string>;
+    }) => {
+        if (!boardSwitchPlan) return;
+        const selectedIds = new Set([
+            ...selection.selectedItemIds,
+            ...Object.keys(selection.targetMaterialIdsByItemId),
+        ]);
+        const nextEstimate = applyBoardMaterialSwitch(estimate, boardSwitchPlan, {
+            selectedItemIds: selectedIds,
+            targetMaterialIdsByItemId: selection.targetMaterialIdsByItemId,
+            materials: materialsValue,
+        });
+        if (nextEstimate === estimate) return;
+        setEstimate(nextEstimate);
+        setBoardSwitchTarget(null);
+        setBoardSwitchNotice(`Заменено позиций: ${selectedIds.size}. Смета пересчитана.`);
+    }, [boardSwitchPlan, estimate, materialsValue]);
 
     const scheduleSuggestions = (itemId: string, query: string, pool: (Material | Work)[]) => {
         clearDebounce(itemId);
@@ -1442,13 +1482,38 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="min-h-[44px] rounded px-1.5 text-xs font-semibold text-green-400 transition-colors hover:bg-white/5 hover:text-green-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">В шаблон</button>
                         )}
                     </div>
-                    <div className="grid min-w-0 grid-cols-3 gap-2">
+                    <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
                         <button
                             onClick={() => setBundlePickerOpen(true)}
                             className="min-h-[44px] min-w-0 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary transition hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                         >
                             Комплекты
                         </button>
+                        <div
+                            role="group"
+                            aria-label="Выбрать тип доски во всей смете"
+                            className="grid min-h-[44px] grid-cols-[auto_1fr_1fr] items-stretch overflow-hidden rounded-md border border-border bg-background md:min-h-9"
+                            title={boardInventoryState === 'none' ? 'Сначала укажите параметры досок в разделе «Цены»' : 'Массовая замена доски во всей смете'}
+                        >
+                            <span className="flex items-center px-2 text-[11px] font-semibold text-text-secondary">Доска</span>
+                            {(['dry-planed', 'natural-moisture'] as BoardMoisture[]).map(moisture => {
+                                const label = moisture === 'dry-planed' ? 'СС' : 'ЕВ';
+                                const isCurrent = boardInventoryState === moisture;
+                                const disabled = boardInventoryState === 'none' || isCurrent || Boolean(initialEstimateValue?.isArchived);
+                                return (
+                                    <button
+                                        key={moisture}
+                                        type="button"
+                                        onClick={() => setBoardSwitchTarget(moisture)}
+                                        disabled={disabled}
+                                        aria-pressed={isCurrent}
+                                        className={`min-w-[44px] border-l border-border px-2 text-xs font-bold transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/60 ${isCurrent ? 'bg-primary text-white' : 'text-text-primary hover:bg-white/5'} disabled:cursor-not-allowed disabled:opacity-50`}
+                                    >
+                                        {label}
+                                    </button>
+                                );
+                            })}
+                        </div>
                         <select
                             onChange={(e) => {
                                 const val = e.target.value as EstimateCategory;
@@ -1487,6 +1552,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </button>
                     </div>
                 </div>
+
+                {boardSwitchNotice && (
+                    <div role="status" className="mt-3 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
+                        {boardSwitchNotice}
+                    </div>
+                )}
 
                 {showActuals && (
                     <div className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-2 lg:flex-row lg:items-center lg:justify-between">
@@ -2123,6 +2194,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     });
                 }}
                 addedToCatalogNames={aiAddedToCatalogNames}
+            />
+
+            <BoardMaterialSwitchModal
+                isOpen={boardSwitchTarget !== null}
+                plan={boardSwitchPlan}
+                estimate={estimate}
+                materials={materialsValue}
+                onClose={() => setBoardSwitchTarget(null)}
+                onApply={handleApplyBoardSwitch}
+                onAddMaterial={catalogContext?.onAddMaterial}
+                onUpdateMaterial={catalogContext?.onUpdateMaterial}
             />
 
             <AIGenerationModal

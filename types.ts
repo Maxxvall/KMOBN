@@ -187,6 +187,16 @@ export type MaterialSearchSource =
     | 'VSEINSTRUMENTI'
     | 'GRANDLINE';
 
+export type BoardMoisture = 'dry-planed' | 'natural-moisture';
+
+export interface BoardSpec {
+    moisture: BoardMoisture;
+    widthMm: number;
+    thicknessMm: number;
+    lengthMm: number;
+    pairGroupId?: string;
+}
+
 export interface Material {
     id: string;
     name: string;
@@ -195,6 +205,7 @@ export interface Material {
     category: EstimateCategory;
     isManualPrice?: boolean;
     link?: string;
+    boardSpec?: BoardSpec;
     sortOrder?: number;
     created_at?: string | null;
     updated_at?: string | null;

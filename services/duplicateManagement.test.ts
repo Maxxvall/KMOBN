@@ -53,6 +53,30 @@ describe('selectPreferredCatalogDuplicate', () => {
   });
 });
 
+describe('getCatalogDuplicateFingerprint', () => {
+  it('changes when boardSpec changes', () => {
+    const dry = makeMaterial('board', {
+      boardSpec: {
+        moisture: 'dry-planed',
+        widthMm: 95,
+        thicknessMm: 45,
+        lengthMm: 6000,
+      },
+    });
+    const naturalMoisture = makeMaterial('board', {
+      boardSpec: {
+        moisture: 'natural-moisture',
+        widthMm: 100,
+        thicknessMm: 50,
+        lengthMm: 6000,
+      },
+    });
+
+    expect(getCatalogDuplicateFingerprint(dry))
+      .not.toBe(getCatalogDuplicateFingerprint(naturalMoisture));
+  });
+});
+
 describe('buildCatalogDuplicateDeletePlan', () => {
   it('keeps one survivor and deletes the other 99 records', () => {
     const items = Array.from({ length: 100 }, (_, index) => makeMaterial(`material-${index}`));

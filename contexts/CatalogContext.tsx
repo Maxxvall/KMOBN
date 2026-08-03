@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import { DuplicateGroup, EstimateCategory, Material, Work, WorkBundle } from '../types';
+import { BoardSpec, DuplicateGroup, EstimateCategory, Material, Work, WorkBundle } from '../types';
 import type { CatalogDuplicateDecision } from '../services/duplicateManagement';
 
 type CatalogContextValue = {
@@ -9,8 +9,9 @@ type CatalogContextValue = {
   worksTotalCount: number;
   bundles: WorkBundle[];
   bundlesTotalCount: number;
-  onAddMaterial: (name: string, category: EstimateCategory, price?: number, link?: string) => Promise<void>;
+  onAddMaterial: (name: string, category: EstimateCategory, price?: number, link?: string, boardSpec?: BoardSpec) => Promise<Material | null>;
   onForceAddMaterial: (material: Material) => Promise<void>;
+  onUpdateMaterial: (material: Material) => Promise<Material | null>;
   onEditMaterialPrice: (materialId: string, newPrice: number) => Promise<void>;
   onEditMaterialLink: (materialId: string, link?: string) => Promise<void>;
   onDeleteMaterial: (materialId: string) => Promise<void>;

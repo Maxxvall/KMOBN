@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
-import { Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey, findDuplicates } from './types';
+import { BoardSpec, Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey, findDuplicates } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import StatusIndicators from './components/StatusIndicators';
@@ -285,6 +285,8 @@ const App: React.FC = () => {
     }, [editorDraft, estimates]);
     const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
     const [materials, setMaterials] = useState<Material[]>([]);
+    const materialsRef = useRef<Material[]>(materials);
+    materialsRef.current = materials;
     const [works, setWorks] = useState<Work[]>([]);
     const [bundles, setBundles] = useState<WorkBundle[]>([]);
     const subscriptionTier: SubscriptionTier = subscriptionLoading
@@ -1489,31 +1491,35 @@ const App: React.FC = () => {
         name: string,
         category: EstimateCategory,
         price?: number,
-        link?: string
-    ) => {
+        link?: string,
+        boardSpec?: BoardSpec,
+    ): Promise<Material | null> => {
         if (!canCreateMaterial(subscriptionUsage, subscriptionLimits)) {
-            return;
+            return null;
         }
 
         const normalizedInput = normalizeKey(name);
-        const existing = materials.find(m => normalizeKey(m.name) === normalizedInput);
+        const existing = materialsRef.current.find(m => normalizeKey(m.name) === normalizedInput);
 
         if (existing) {
             const confirmed = window.confirm(
                 `Материал «${existing.name}» уже существует (цена: ${existing.price} ₽).\n\nОбновить цену вместо создания дубликата?`
             );
             if (confirmed) {
-                const updated = { ...existing, price: price ?? existing.price, link: link ?? existing.link, lastUpdated: new Date().toISOString() };
+                const updated = { ...existing, price: price ?? existing.price, link: link ?? existing.link, boardSpec: boardSpec ?? existing.boardSpec, lastUpdated: new Date().toISOString() };
                 try {
                     await updateMaterial(updated);
+                    materialsRef.current = materialsRef.current.map(m => m.id === existing.id ? updated : m);
                     setMaterials(prev => prev.map(m => m.id === existing.id ? updated : m));
                     markDraftEstimatesWithPriceChange({ materialName: existing.name });
+                    return updated;
                 } catch (error) {
                     console.error('Failed to update material:', error);
                     alert('Не удалось обновить материал.');
+                    return null;
                 }
-                return;
             }
+            return null;
         }
 
         const newMaterial: Material = {
@@ -1524,16 +1530,20 @@ const App: React.FC = () => {
             category,
             isManualPrice: true,
             link,
+            boardSpec,
             sortOrder: Date.now(),
         };
         try {
             await addMaterial(newMaterial);
+            materialsRef.current = [...materialsRef.current, newMaterial];
             setMaterials(prev => [...prev, newMaterial]);
+            return newMaterial;
         } catch (error) {
             console.error('Failed to add material:', error);
             alert('Не удалось добавить материал.');
+            return null;
         }
-    }, [materials, subscriptionUsage, subscriptionLimits, markDraftEstimatesWithPriceChange]);
+    }, [subscriptionUsage, subscriptionLimits, markDraftEstimatesWithPriceChange]);
 
     const handleForceAddMaterial = useCallback(async (material: Material) => {
         try {
@@ -1669,6 +1679,27 @@ const App: React.FC = () => {
     const findMaterialDuplicates = useCallback(async () => {
         return findDuplicates(await loadMaterials());
     }, []);
+
+    const handleUpdateMaterial = useCallback(async (material: Material): Promise<Material | null> => {
+        const existing = materials.find(candidate => candidate.id === material.id);
+        if (!existing) return null;
+        const updatedMaterial: Material = {
+            ...material,
+            lastUpdated: new Date().toISOString(),
+        };
+        try {
+            await updateMaterial(updatedMaterial);
+            setMaterials(prev => prev.map(candidate => candidate.id === updatedMaterial.id ? updatedMaterial : candidate));
+            if (existing.price !== updatedMaterial.price || existing.name !== updatedMaterial.name) {
+                markDraftEstimatesWithPriceChange({ materialName: existing.name });
+            }
+            return updatedMaterial;
+        } catch (error) {
+            console.error('Failed to update material:', error);
+            alert('Не удалось обновить материал.');
+            return null;
+        }
+    }, [materials, markDraftEstimatesWithPriceChange]);
 
     const findWorkDuplicates = useCallback(async () => {
         return findDuplicates(await loadWorks());
@@ -1852,6 +1883,7 @@ const App: React.FC = () => {
         bundlesTotalCount: bundles.length,
         onAddMaterial: handleAddMaterial,
         onForceAddMaterial: handleForceAddMaterial,
+        onUpdateMaterial: handleUpdateMaterial,
         onEditMaterialPrice: handleEditMaterialPrice,
         onEditMaterialLink: handleEditMaterialLink,
         onDeleteMaterial: handleDeleteMaterial,
@@ -1874,6 +1906,7 @@ const App: React.FC = () => {
         bundles.length,
         handleAddMaterial,
         handleForceAddMaterial,
+        handleUpdateMaterial,
         handleEditMaterialPrice,
         handleEditMaterialLink,
         handleDeleteMaterial,

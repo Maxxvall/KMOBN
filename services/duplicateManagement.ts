@@ -45,6 +45,7 @@ export const getCatalogDuplicateFingerprint = (item: CatalogDuplicateItem): stri
     category: item.category,
     isManualPrice: 'isManualPrice' in item ? Boolean(item.isManualPrice) : false,
     link: 'link' in item ? String(item.link || '').trim() : '',
+    boardSpec: 'boardSpec' in item ? item.boardSpec ?? null : null,
   });
 };
 
