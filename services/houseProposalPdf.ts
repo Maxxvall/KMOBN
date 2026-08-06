@@ -198,8 +198,7 @@ export const createHouseProposalPdf = (
         startY: 80,
         body: [
             ['ПЛОЩАДЬ', `${input.area} м²`, 'ЭТАЖНОСТЬ', String(input.floors)],
-            ['ОКНА', String(input.windows), 'ДВЕРИ', String(input.doors)],
-            ['КРЫША', input.roof, 'ВЫБРАН ВАРИАНТ', model.selectedLabel],
+            ['ДВЕРИ', String(input.doors), 'КРЫША', input.roof],
         ],
         theme: 'grid',
         styles: { font, fontSize: 8.5, cellPadding: { top: 3, right: 3, bottom: 3, left: 3 }, textColor: COLORS.text, lineColor: COLORS.line, lineWidth: 0.25, fillColor: COLORS.row },

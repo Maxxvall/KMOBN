@@ -82,7 +82,6 @@ const variant = (tier: HouseTier, label: string, base: number): HouseVariantResu
 const input = (): HouseProposalPdfInput => ({
     area: 128,
     floors: 2,
-    windows: 12,
     doors: 8,
     roof: 'Двускатная',
     clientDescription: 'Нужен дом под ключ для круглогодичного проживания с террасой и большими окнами.',

@@ -25,8 +25,6 @@ interface HouseCalculatorProps {
     onCreateEstimate: (estimate: Estimate) => void;
 }
 
-type AdditionType = HouseCalculatorInput['additions'][number]['type'];
-
 const roofOptions: { value: RoofShape; label: string }[] = [
     { value: 'single-slope', label: 'Односкатная' },
     { value: 'gable', label: 'Двускатная' },
@@ -41,11 +39,6 @@ const packageOptions: { value: HousePackage; label: string; description: string 
     { value: 'rough-finish', label: 'Черновая отделка', description: 'Подготовка под чистовые работы' },
     { value: 'turnkey', label: 'Под ключ', description: 'Дом с чистовой отделкой' },
     { value: 'turnkey-engineering', label: 'Под ключ + инженерия', description: 'Сети, отопление и электрика' },
-];
-
-const additions: { type: AdditionType; label: string }[] = [
-    { type: 'terrace', label: 'Терраса' },
-    { type: 'porch', label: 'Входная группа' },
 ];
 
 const money = (value: number) => `${(Object.is(Math.round(value), -0) ? 0 : Math.round(value)).toLocaleString('ru-RU')} ₽`;
@@ -81,12 +74,11 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const [area, setArea] = useState(79);
     const [floors, setFloors] = useState(1);
     const [crewSize, setCrewSize] = useState(4);
-    const [windows, setWindows] = useState(6);
+    const [glazingArea, setGlazingArea] = useState(10);
     const [externalDoors, setExternalDoors] = useState(0);
     const [interiorDoors, setInteriorDoors] = useState(3);
     const [roofShape, setRoofShape] = useState<RoofShape>('gable');
     const [selectedPackage, setSelectedPackage] = useState<HousePackage>('warm-shell');
-    const [additionAreas, setAdditionAreas] = useState<Record<AdditionType, number>>({ terrace: 19, veranda: 0, porch: 0, balcony: 0, carport: 0, garage: 0 });
     const [rates, setRates] = useState({ overheadPercent: 0, marginPercent: 0, reservePercent: 0, taxPercent: 0, discountPercent: 0 });
     const [result, setResult] = useState<HouseCalculatorResult | null>(null);
     const [error, setError] = useState('');
@@ -109,17 +101,14 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         estimates,
         area,
         floors,
-        windows,
+        glazingArea,
         doors: externalDoors + interiorDoors,
         exteriorDoors: externalDoors,
         interiorDoors,
         roofShape,
         package: selectedPackage,
-        additions: additions
-            .map(({ type }) => ({ type, area: additionAreas[type] }))
-            .filter(item => item.area > 0),
         rates,
-    }), [estimates, area, floors, windows, externalDoors, interiorDoors, roofShape, selectedPackage, additionAreas, rates]);
+    }), [estimates, area, floors, glazingArea, externalDoors, interiorDoors, roofShape, selectedPackage, rates]);
 
     const applyVariants = useCallback((input: HouseCalculatorInput, tier: HouseTier = selectedTier) => {
         const nextVariants = calculateHouseVariants(input);
@@ -219,7 +208,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                 .join('\n') || 'Подходящих смет не найдено.';
             const summary = [
                 `Дом: каркасный, ${area} м², ${floors} эт.`,
-                `Окна: ${windows}; входные двери: ${externalDoors}; межкомнатные двери: ${interiorDoors}.`,
+                `Остекление: ${glazingArea} м²; входные двери: ${externalDoors}; межкомнатные двери: ${interiorDoors}.`,
                 `Крыша: ${roofOptions.find(option => option.value === roofShape)?.label || roofShape}.`,
                 `Комплектация: ${packageOptions.find(option => option.value === selectedPackage)?.label || selectedPackage}.`,
                 `Итог расчёта: ${money(result.base)}; диапазон: ${money(result.low)}—${money(result.high)}.`,
@@ -246,7 +235,6 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const proposalInput = () => ({
         area,
         floors,
-        windows,
         doors: externalDoors + interiorDoors,
         roof: roofOptions.find(option => option.value === roofShape)?.label || roofShape,
         clientDescription: clientDescription.trim(),
@@ -372,7 +360,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                                 <span className="mb-2 block text-sm font-medium text-text-secondary">Этажность</span>
                                 <div className="grid grid-cols-2 gap-2">{[1, 2].map(value => <Choice key={value} active={floors === value} label={`${value} этаж${value === 1 ? '' : 'а'}`} onClick={() => setFloors(value)} />)}</div>
                             </div>
-                            <Stepper label="Окна" value={windows} min={0} onChange={setWindows} />
+                            <label className="text-sm text-text-secondary">Площадь остекления<span className="relative mt-2 block"><input type="number" min={0} max={300} step={0.1} value={glazingArea} onChange={event => setGlazingArea(Math.max(0, Number(event.target.value) || 0))} className={`${inputClass} pr-10`} /><span className="pointer-events-none absolute right-3 top-3">м²</span></span><span className="mt-1 block text-xs">Остекление — 14 000 ₽/м², монтаж — 2 000 ₽/м²</span></label>
                             <Stepper label="Бригада" value={crewSize} min={1} max={30} onChange={setCrewSize} />
                             <Stepper label="Входные двери" value={externalDoors} min={0} onChange={setExternalDoors} />
                             <Stepper label="Межкомнатные двери" value={interiorDoors} min={0} onChange={setInteriorDoors} />
@@ -401,15 +389,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                     </fieldset>
 
                     <fieldset>
-                        <legend className="mb-1 text-lg font-bold">3. Дополнительные конструкции</legend>
-                        <p className="mb-4 text-sm text-text-secondary">Укажите только фактическую площадь. Нулевое значение исключает объект.</p>
-                        <div className="grid gap-3 sm:grid-cols-3">{additions.map(addition => (
-                            <label key={addition.type} className="text-sm text-text-secondary">{addition.label}<span className="relative mt-2 block"><input type="number" min={0} max={300} value={additionAreas[addition.type]} onChange={e => setAdditionAreas(current => ({ ...current, [addition.type]: Math.max(0, Number(e.target.value) || 0) }))} className={`${inputClass} pr-10`} /><span className="pointer-events-none absolute right-3 top-3">м²</span></span></label>
-                        ))}</div>
-                    </fieldset>
-
-                    <fieldset>
-                        <legend className="mb-2 text-lg font-bold">4. Пожелания клиента</legend>
+                        <legend className="mb-2 text-lg font-bold">3. Пожелания клиента</legend>
                         <label className="block text-sm text-text-secondary" htmlFor="house-client-description">Опишите дом и пожелания — AI сверит их с вашими сметами и подготовит итоговый вывод.</label>
                         <textarea id="house-client-description" value={clientDescription} onChange={event => setClientDescription(event.target.value)} maxLength={ESTIMATE_EXPLANATION_MAX_LENGTH} rows={4} placeholder="Например: нужен тёплый дом для круглогодичного проживания, важны большие окна и терраса." className={`${inputClass} mt-2 resize-y py-3`} />
                     </fieldset>

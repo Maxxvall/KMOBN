@@ -22,7 +22,6 @@ import { HouseTier, HouseVariantResult } from './houseCalculator';
 export interface HouseProposalDocxInput {
     area: number;
     floors: number;
-    windows: number;
     doors: number;
     roof: string;
     clientDescription?: string;
@@ -155,7 +154,7 @@ const masthead = (input: HouseProposalDocxInput) => new Paragraph({
     ],
 });
 
-const parameterTable = (input: HouseProposalDocxInput, selected: HouseVariantResult) => {
+const parameterTable = (input: HouseProposalDocxInput, _selected: HouseVariantResult) => {
     const widths = [1500, 3543, 1500, 3543];
     const parameterCell = (label: string) => cell(label.toUpperCase(), 1500, {
         bold: true,
@@ -165,8 +164,7 @@ const parameterTable = (input: HouseProposalDocxInput, selected: HouseVariantRes
     });
     return table(widths, [
         new TableRow({ cantSplit: true, children: [parameterCell('Площадь'), cell(`${input.area} м²`, 3543, { bold: true }), parameterCell('Этажность'), cell(`${input.floors}`, 3543, { bold: true })] }),
-        new TableRow({ cantSplit: true, children: [parameterCell('Окна'), cell(`${input.windows}`, 3543), parameterCell('Двери'), cell(`${input.doors}`, 3543)] }),
-        new TableRow({ cantSplit: true, children: [parameterCell('Крыша'), cell(input.roof, 3543), parameterCell('Выбран вариант'), cell(selected.label, 3543, { bold: true, color: COLORS.red })] }),
+        new TableRow({ cantSplit: true, children: [parameterCell('Двери'), cell(`${input.doors}`, 3543), parameterCell('Крыша'), cell(input.roof, 3543)] }),
     ]);
 };
 

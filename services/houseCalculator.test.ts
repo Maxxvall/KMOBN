@@ -51,10 +51,9 @@ const input = (overrides: Partial<HouseCalculatorInput> = {}): HouseCalculatorIn
     estimates: [estimate()],
     area: 79,
     floors: 1,
-    windows: 8,
+    glazingArea: 0,
     doors: 4,
     roofShape: 'gable',
-    additions: [],
     package: 'warm-shell',
     rates: {
         overheadPercent: 0,
@@ -233,7 +232,7 @@ describe('houseCalculator reference and packages', () => {
         expect(result.items.reduce((total, value) => total + value.total, 0)).toBe(250);
     });
 
-    it('excludes windows and doors from box, but includes them in warm shell', () => {
+    it('excludes glazing and doors from box, but includes doors in warm shell', () => {
         const source = estimate({
             items: [
                 item({ id: 'wall' }),
@@ -246,7 +245,20 @@ describe('houseCalculator reference and packages', () => {
         const warm = calculateHouseEstimate(input({ estimates: [source], package: 'warm-shell' }));
 
         expect(box.items.map(value => value.name)).toEqual(['Пиломатериал каркаса']);
-        expect(warm.items.map(value => value.name)).toEqual(['Пиломатериал каркаса', 'Окна ПВХ', 'Входная дверь']);
+        expect(warm.items.map(value => value.name)).toEqual(['Пиломатериал каркаса', 'Входная дверь']);
+    });
+
+    it('prices glazing by area at market material and installation rates', () => {
+        const result = calculateHouseEstimate(input({
+            estimates: [estimate({ items: [item({ total: 100 })] })],
+            glazingArea: 12.5,
+        }));
+
+        expect(result.items.filter(value => value.category === EstimateCategory.WINDOWS)).toMatchObject([
+            { name: 'Остекление', unit: 'м²', quantity: 12.5, price: 14_000, total: 175_000 },
+            { name: 'Монтаж остекления', unit: 'м²', quantity: 12.5, price: 2_000, total: 25_000 },
+        ]);
+        expect(result.base).toBe(200_100);
     });
 
     it('scales exterior and interior doors by their own source quantities', () => {
@@ -317,7 +329,7 @@ describe('houseCalculator financials and failures', () => {
     it.each([
         { area: 0 },
         { floors: 0 },
-        { windows: -1 },
+        { glazingArea: -1 },
         { doors: -1 },
     ])('rejects invalid dimensions: %o', invalid => {
         expect(() => calculateHouseEstimate(input(invalid))).toThrow();

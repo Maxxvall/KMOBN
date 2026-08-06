@@ -15,11 +15,6 @@ export type HousePackage =
 
 export type RoofShape = 'single-slope' | 'gable' | 'hip' | 'flat' | 'mansard';
 
-export interface HouseAddition {
-    type: 'terrace' | 'veranda' | 'porch' | 'balcony' | 'carport' | 'garage';
-    area: number;
-}
-
 export interface HouseFinancialRates {
     overheadPercent: number;
     marginPercent: number;
@@ -32,16 +27,18 @@ export interface HouseCalculatorInput {
     estimates: Estimate[];
     area: number;
     floors: number;
-    windows: number;
+    glazingArea: number;
     doors: number;
     exteriorDoors?: number;
     interiorDoors?: number;
     roofShape: RoofShape;
-    additions: HouseAddition[];
     package: HousePackage;
     rates: HouseFinancialRates;
     now?: Date;
 }
+
+export const GLAZING_MATERIAL_PRICE_PER_SQM = 14_000;
+export const GLAZING_INSTALLATION_PRICE_PER_SQM = 2_000;
 
 export interface HouseFinancialBreakdown {
     materials: number;
@@ -279,41 +276,40 @@ const quantityByName = (source: Estimate, matches: (name: string) => boolean, fa
     return quantity > 0 ? quantity : fallback;
 };
 
-const additionTypesIn = (item: EstimateItem): HouseAddition['type'][] => {
+const isWindowItem = (item: EstimateItem): boolean => {
     const text = normalize(item.name);
-    const types: HouseAddition['type'][] = [];
-    if (text.includes('террас')) types.push('terrace');
-    if (text.includes('веранд')) types.push('veranda');
-    if (text.includes('крыльц') || text.includes('входн') && text.includes('групп')) types.push('porch');
-    if (text.includes('балкон')) types.push('balcony');
-    if (text.includes('навес')) types.push('carport');
-    if (text.includes('гараж')) types.push('garage');
-    return types;
+    return text.includes('окн') || (item.category === EstimateCategory.WINDOWS && !text.includes('двер'));
 };
 
-const additionFactor = (input: HouseCalculatorInput, source: Estimate, item: EstimateItem): number => {
-    const itemTypes = additionTypesIn(item);
-    const requestedTypes = itemTypes.length ? itemTypes : ['terrace'];
-    const total = input.additions
-        .filter(addition => requestedTypes.includes(addition.type))
-        .reduce((sum, addition) => sum + Math.max(0, addition.area), 0);
-    const sourceAdditionArea = source.items.reduce((largest, item) => {
-        if (itemKind(item) !== 'addition') return largest;
-        if (!additionTypesIn(item).some(type => requestedTypes.includes(type))) return largest;
-        const unit = normalize(item.unit);
-        return unit.includes('м2') || unit.includes('м²') ? Math.max(largest, item.quantity) : largest;
-    }, 0);
-    return total > 0 && sourceAdditionArea > 0 ? total / sourceAdditionArea : 0;
-};
+const glazingItems = (area: number): EstimateItem[] => area > 0 ? [
+    {
+        id: 'house-glazing-materials',
+        name: 'Остекление',
+        unit: 'м²',
+        quantity: area,
+        price: GLAZING_MATERIAL_PRICE_PER_SQM,
+        total: money(area * GLAZING_MATERIAL_PRICE_PER_SQM),
+        category: EstimateCategory.WINDOWS,
+        subgroup: EstimateSubgroup.MATERIALS,
+        note: `Рыночная цена ${GLAZING_MATERIAL_PRICE_PER_SQM.toLocaleString('ru-RU')} ₽/м²`,
+    },
+    {
+        id: 'house-glazing-installation',
+        name: 'Монтаж остекления',
+        unit: 'м²',
+        quantity: area,
+        price: GLAZING_INSTALLATION_PRICE_PER_SQM,
+        total: money(area * GLAZING_INSTALLATION_PRICE_PER_SQM),
+        category: EstimateCategory.WINDOWS,
+        subgroup: EstimateSubgroup.WORKS,
+        note: `Рыночная цена ${GLAZING_INSTALLATION_PRICE_PER_SQM.toLocaleString('ru-RU')} ₽/м²`,
+    },
+] : [];
 
 export function scaleReferenceItems(source: Estimate, input: HouseCalculatorInput): EstimateItem[] {
     const sourceArea = source.area > 0 ? source.area : input.area;
     const areaFactor = input.area / sourceArea;
     const floorFactor = Math.max(1, input.floors);
-    const sourceWindows = Math.max(1, source.items.reduce((largest, item) => {
-        const name = normalize(item.name);
-        return name.includes('установка окон') ? Math.max(largest, item.quantity) : largest;
-    }, 0) || Math.round(sourceArea / 10));
     const sourceInteriorDoors = quantityByName(
         source,
         name => name.includes('межкомнатн'),
@@ -330,19 +326,14 @@ export function scaleReferenceItems(source: Estimate, input: HouseCalculatorInpu
     return source.items.flatMap((item, index) => {
         const kind = itemKind(item);
         if (!packageAllows(kind, input.package)) return [];
+        if (isWindowItem(item)) return [];
         let factor = areaFactor;
         if (kind === 'roof') factor *= roofFactor[input.roofShape];
         if (kind === 'warm-shell') {
             const text = normalize(item.name);
-            if (text.includes('окн')) factor = input.windows / sourceWindows;
-            else if (text.includes('межкомнатн')) factor = targetInteriorDoors / sourceInteriorDoors;
+            if (text.includes('межкомнатн')) factor = targetInteriorDoors / sourceInteriorDoors;
             else if (text.includes('входн') || text.includes('террасн')) factor = targetExteriorDoors / sourceExteriorDoors;
             else if (text.includes('двер')) factor = input.doors / (sourceInteriorDoors + sourceExteriorDoors);
-        }
-        if (kind === 'addition') {
-            const additions = additionFactor(input, source, item);
-            if (additions <= 0) return [];
-            factor = additions;
         }
         if (kind === 'logistics' || kind === 'equipment') factor = 1;
         if (kind === 'structure' && input.floors > 1) factor *= 1 + (floorFactor - 1) * 0.35;
@@ -490,8 +481,8 @@ export function createAiHouseEstimateResult(
 }
 
 export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalculatorResult {
-    if (!(input.area > 0) || !(input.floors >= 1) || input.windows < 0 || input.doors < 0) {
-        throw new Error('Площадь и этажность должны быть больше нуля, окна и двери — неотрицательными.');
+    if (!(input.area > 0) || !(input.floors >= 1) || input.glazingArea < 0 || input.doors < 0) {
+        throw new Error('Площадь и этажность должны быть больше нуля, площадь остекления и двери — неотрицательными.');
     }
     validateRates(input.rates);
     const eligible = selectEligibleHouseHistory(input.estimates, input.now);
@@ -501,6 +492,7 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     if (!source) throw new Error(`В личной базе загружено ${input.estimates.length} смет, но нет согласованных смет с позициями для расчёта дома.`);
 
     const { items, supplements } = scalePackageScope(source, history, input);
+    if (input.package !== 'box') items.push(...glazingItems(input.glazingArea));
     const warnings: string[] = [];
     if (!eligible.length && broaderApproved.length) {
         warnings.push('Тип объекта не распознан автоматически: использована ближайшая согласованная смета из личной базы.');
@@ -522,12 +514,6 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
         }
     }
     if (supplements.length) warnings.push(`Комплектация дополнена позициями из личной базы: ${supplements.join('; ')}.`);
-    const sourceAdditionTypes = new Set(source.items.flatMap(additionTypesIn));
-    for (const addition of input.additions) {
-        if (!sourceAdditionTypes.has(addition.type)) {
-            warnings.push(`В эталонной смете нет подтверждённых данных для объекта «${addition.type}»: его стоимость не включена.`);
-        }
-    }
     if (!isReference(source) && !explanationMatchesPackage(source, input.package)) {
         warnings.push('Эталон «Наталья_Дубровка, 79 м²» не найден; выбран ближайший подтверждённый аналог.');
     }
