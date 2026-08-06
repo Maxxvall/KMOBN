@@ -176,7 +176,7 @@ describe('houseCalculator history selection', () => {
 
         const variants = calculateHouseVariants(input({ estimates: [base, fullScope] }));
 
-        expect(variants.map(variant => variant.result.base)).toEqual([1_000, 1_200, 1_900]);
+        expect(variants.map(variant => variant.result.base)).toEqual([135_000, 135_200, 135_900]);
         expect(variants[2].result.warnings.join(' ')).toContain('КМ-ПОД-КЛЮЧ');
     });
 });
@@ -227,12 +227,12 @@ describe('houseCalculator reference and packages', () => {
             total: 250,
         });
 
-        const result = calculateHouseEstimate(input({ estimates: [source], area: 79 }));
+        const result = calculateHouseEstimate(input({ estimates: [source], area: 79, package: 'box' }));
 
         expect(result.items.reduce((total, value) => total + value.total, 0)).toBe(250);
     });
 
-    it('excludes glazing and doors from box, but includes doors in warm shell', () => {
+    it('excludes glazing and doors from box, but adds market-priced doors to warm shell', () => {
         const source = estimate({
             items: [
                 item({ id: 'wall' }),
@@ -245,23 +245,24 @@ describe('houseCalculator reference and packages', () => {
         const warm = calculateHouseEstimate(input({ estimates: [source], package: 'warm-shell' }));
 
         expect(box.items.map(value => value.name)).toEqual(['Пиломатериал каркаса']);
-        expect(warm.items.map(value => value.name)).toEqual(['Пиломатериал каркаса', 'Входная дверь']);
+        expect(warm.items.map(value => value.name)).toEqual(['Пиломатериал каркаса', 'Входная дверь', 'Межкомнатные двери', 'Установка межкомнатных дверей']);
     });
 
     it('prices glazing by area at market material and installation rates', () => {
         const result = calculateHouseEstimate(input({
             estimates: [estimate({ items: [item({ total: 100 })] })],
             glazingArea: 12.5,
+            doors: 0,
         }));
 
-        expect(result.items.filter(value => value.category === EstimateCategory.WINDOWS)).toMatchObject([
+        expect(result.items.filter(value => value.id.startsWith('house-glazing'))).toMatchObject([
             { name: 'Остекление', unit: 'м²', quantity: 12.5, price: 14_000, total: 175_000 },
             { name: 'Монтаж остекления', unit: 'м²', quantity: 12.5, price: 2_000, total: 25_000 },
         ]);
-        expect(result.base).toBe(200_100);
+        expect(result.base).toBe(250_100);
     });
 
-    it('scales exterior and interior doors by their own source quantities', () => {
+    it('prices one entrance door and each interior door at fixed market rates', () => {
         const source = estimate({
             items: [
                 item({ id: 'frame', total: 100 }),
@@ -272,13 +273,14 @@ describe('houseCalculator reference and packages', () => {
 
         const result = calculateHouseEstimate(input({
             estimates: [source],
-            interiorDoors: 5,
-            exteriorDoors: 1,
-            doors: 6,
+            doors: 5,
         }));
 
-        expect(result.items.find(value => value.id.includes('interior'))?.total).toBe(175_000);
-        expect(result.items.find(value => value.id.includes('exterior'))?.total).toBe(45_000);
+        expect(result.items.filter(value => value.category === EstimateCategory.WINDOWS)).toMatchObject([
+            { name: 'Входная дверь', quantity: 1, price: 50_000, total: 50_000 },
+            { name: 'Межкомнатные двери', quantity: 5, price: 15_000, total: 75_000 },
+            { name: 'Установка межкомнатных дверей', quantity: 5, price: 6_000, total: 30_000 },
+        ]);
     });
 });
 
@@ -308,6 +310,7 @@ describe('houseCalculator financials and failures', () => {
 
         const result = calculateHouseEstimate(input({
             estimates: [source],
+            package: 'box',
             rates: { overheadPercent: 10, marginPercent: 10, reservePercent: 5, discountPercent: 10, taxPercent: 20 },
         }));
 

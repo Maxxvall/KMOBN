@@ -29,8 +29,6 @@ export interface HouseCalculatorInput {
     floors: number;
     glazingArea: number;
     doors: number;
-    exteriorDoors?: number;
-    interiorDoors?: number;
     roofShape: RoofShape;
     package: HousePackage;
     rates: HouseFinancialRates;
@@ -39,6 +37,9 @@ export interface HouseCalculatorInput {
 
 export const GLAZING_MATERIAL_PRICE_PER_SQM = 14_000;
 export const GLAZING_INSTALLATION_PRICE_PER_SQM = 2_000;
+export const INTERIOR_DOOR_PRICE = 15_000;
+export const INTERIOR_DOOR_INSTALLATION_PRICE = 6_000;
+export const ENTRANCE_DOOR_PRICE = 50_000;
 
 export interface HouseFinancialBreakdown {
     materials: number;
@@ -268,17 +269,9 @@ const roofFactor: Record<RoofShape, number> = {
     mansard: 1.25,
 };
 
-const quantityByName = (source: Estimate, matches: (name: string) => boolean, fallback: number): number => {
-    const quantity = source.items.reduce((total, item) => {
-        const name = normalize(item.name);
-        return matches(name) ? total + Math.max(0, item.quantity) : total;
-    }, 0);
-    return quantity > 0 ? quantity : fallback;
-};
-
-const isWindowItem = (item: EstimateItem): boolean => {
+const isOpeningItem = (item: EstimateItem): boolean => {
     const text = normalize(item.name);
-    return text.includes('окн') || (item.category === EstimateCategory.WINDOWS && !text.includes('двер'));
+    return text.includes('окн') || text.includes('двер') || item.category === EstimateCategory.WINDOWS;
 };
 
 const glazingItems = (area: number): EstimateItem[] => area > 0 ? [
@@ -306,35 +299,54 @@ const glazingItems = (area: number): EstimateItem[] => area > 0 ? [
     },
 ] : [];
 
+const doorItems = (quantity: number): EstimateItem[] => [
+    {
+        id: 'house-entrance-door',
+        name: 'Входная дверь',
+        unit: 'шт',
+        quantity: 1,
+        price: ENTRANCE_DOOR_PRICE,
+        total: ENTRANCE_DOOR_PRICE,
+        category: EstimateCategory.WINDOWS,
+        subgroup: EstimateSubgroup.MATERIALS,
+        note: 'Стандартная входная дверь',
+    },
+    ...(quantity > 0 ? [
+        {
+            id: 'house-interior-doors',
+            name: 'Межкомнатные двери',
+            unit: 'шт',
+            quantity,
+            price: INTERIOR_DOOR_PRICE,
+            total: money(quantity * INTERIOR_DOOR_PRICE),
+            category: EstimateCategory.WINDOWS,
+            subgroup: EstimateSubgroup.MATERIALS,
+            note: `Стандартная дверь ${INTERIOR_DOOR_PRICE.toLocaleString('ru-RU')} ₽/шт`,
+        },
+        {
+            id: 'house-interior-door-installation',
+            name: 'Установка межкомнатных дверей',
+            unit: 'шт',
+            quantity,
+            price: INTERIOR_DOOR_INSTALLATION_PRICE,
+            total: money(quantity * INTERIOR_DOOR_INSTALLATION_PRICE),
+            category: EstimateCategory.WINDOWS,
+            subgroup: EstimateSubgroup.WORKS,
+            note: `Монтаж ${INTERIOR_DOOR_INSTALLATION_PRICE.toLocaleString('ru-RU')} ₽/шт`,
+        },
+    ] : []),
+];
+
 export function scaleReferenceItems(source: Estimate, input: HouseCalculatorInput): EstimateItem[] {
     const sourceArea = source.area > 0 ? source.area : input.area;
     const areaFactor = input.area / sourceArea;
     const floorFactor = Math.max(1, input.floors);
-    const sourceInteriorDoors = quantityByName(
-        source,
-        name => name.includes('межкомнатн'),
-        Math.max(1, Math.round(sourceArea / 20)),
-    );
-    const sourceExteriorDoors = quantityByName(
-        source,
-        name => name.includes('входн') || name.includes('террасн'),
-        1,
-    );
-    const targetInteriorDoors = input.interiorDoors ?? input.doors;
-    const targetExteriorDoors = input.exteriorDoors ?? Math.max(0, input.doors - targetInteriorDoors);
-
     return source.items.flatMap((item, index) => {
         const kind = itemKind(item);
         if (!packageAllows(kind, input.package)) return [];
-        if (isWindowItem(item)) return [];
+        if (isOpeningItem(item)) return [];
         let factor = areaFactor;
         if (kind === 'roof') factor *= roofFactor[input.roofShape];
-        if (kind === 'warm-shell') {
-            const text = normalize(item.name);
-            if (text.includes('межкомнатн')) factor = targetInteriorDoors / sourceInteriorDoors;
-            else if (text.includes('входн') || text.includes('террасн')) factor = targetExteriorDoors / sourceExteriorDoors;
-            else if (text.includes('двер')) factor = input.doors / (sourceInteriorDoors + sourceExteriorDoors);
-        }
         if (kind === 'logistics' || kind === 'equipment') factor = 1;
         if (kind === 'structure' && input.floors > 1) factor *= 1 + (floorFactor - 1) * 0.35;
         const quantity = money(Math.max(0, item.quantity) * Math.max(0, factor));
@@ -492,7 +504,7 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     if (!source) throw new Error(`В личной базе загружено ${input.estimates.length} смет, но нет согласованных смет с позициями для расчёта дома.`);
 
     const { items, supplements } = scalePackageScope(source, history, input);
-    if (input.package !== 'box') items.push(...glazingItems(input.glazingArea));
+    if (input.package !== 'box') items.push(...glazingItems(input.glazingArea), ...doorItems(input.doors));
     const warnings: string[] = [];
     if (!eligible.length && broaderApproved.length) {
         warnings.push('Тип объекта не распознан автоматически: использована ближайшая согласованная смета из личной базы.');

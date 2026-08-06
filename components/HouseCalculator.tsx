@@ -75,7 +75,6 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const [floors, setFloors] = useState(1);
     const [crewSize, setCrewSize] = useState(4);
     const [glazingArea, setGlazingArea] = useState(10);
-    const [externalDoors, setExternalDoors] = useState(0);
     const [interiorDoors, setInteriorDoors] = useState(3);
     const [roofShape, setRoofShape] = useState<RoofShape>('gable');
     const [selectedPackage, setSelectedPackage] = useState<HousePackage>('warm-shell');
@@ -102,13 +101,11 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         area,
         floors,
         glazingArea,
-        doors: externalDoors + interiorDoors,
-        exteriorDoors: externalDoors,
-        interiorDoors,
+        doors: interiorDoors,
         roofShape,
         package: selectedPackage,
         rates,
-    }), [estimates, area, floors, glazingArea, externalDoors, interiorDoors, roofShape, selectedPackage, rates]);
+    }), [estimates, area, floors, glazingArea, interiorDoors, roofShape, selectedPackage, rates]);
 
     const applyVariants = useCallback((input: HouseCalculatorInput, tier: HouseTier = selectedTier) => {
         const nextVariants = calculateHouseVariants(input);
@@ -208,7 +205,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                 .join('\n') || 'Подходящих смет не найдено.';
             const summary = [
                 `Дом: каркасный, ${area} м², ${floors} эт.`,
-                `Остекление: ${glazingArea} м²; входные двери: ${externalDoors}; межкомнатные двери: ${interiorDoors}.`,
+                `Остекление: ${glazingArea} м²; входная дверь: 1; межкомнатные двери: ${interiorDoors}.`,
                 `Крыша: ${roofOptions.find(option => option.value === roofShape)?.label || roofShape}.`,
                 `Комплектация: ${packageOptions.find(option => option.value === selectedPackage)?.label || selectedPackage}.`,
                 `Итог расчёта: ${money(result.base)}; диапазон: ${money(result.low)}—${money(result.high)}.`,
@@ -235,7 +232,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const proposalInput = () => ({
         area,
         floors,
-        doors: externalDoors + interiorDoors,
+        doors: interiorDoors + 1,
         roof: roofOptions.find(option => option.value === roofShape)?.label || roofShape,
         clientDescription: clientDescription.trim(),
         selectedTier,
@@ -362,8 +359,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                             </div>
                             <label className="text-sm text-text-secondary">Площадь остекления<span className="relative mt-2 block"><input type="number" min={0} max={300} step={0.1} value={glazingArea} onChange={event => setGlazingArea(Math.max(0, Number(event.target.value) || 0))} className={`${inputClass} pr-10`} /><span className="pointer-events-none absolute right-3 top-3">м²</span></span><span className="mt-1 block text-xs">Остекление — 14 000 ₽/м², монтаж — 2 000 ₽/м²</span></label>
                             <Stepper label="Бригада" value={crewSize} min={1} max={30} onChange={setCrewSize} />
-                            <Stepper label="Входные двери" value={externalDoors} min={0} onChange={setExternalDoors} />
-                            <Stepper label="Межкомнатные двери" value={interiorDoors} min={0} onChange={setInteriorDoors} />
+                            <Stepper label="Межкомнатные двери (21 000 ₽/шт)" value={interiorDoors} min={0} onChange={setInteriorDoors} />
                             <div className="sm:col-span-2">
                                 <span className="mb-2 block text-sm font-medium text-text-secondary">Форма крыши</span>
                                 <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{roofOptions.map(option => <Choice key={option.value} active={roofShape === option.value} label={option.label} onClick={() => setRoofShape(option.value)} />)}</div>
