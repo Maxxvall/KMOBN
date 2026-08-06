@@ -45,7 +45,7 @@ test('persists an offline material across Electron restart and syncs push before
     );
     expect(initiallyFetched).toEqual(new Set(OFFLINE_TABLES));
 
-    await first.page.getByRole('button', { name: 'Цены', exact: true }).first().click();
+    await first.page.getByRole('button', { name: 'Материалы', exact: true }).first().click();
     const backgroundSyncLogStart = mock.logs.length;
     await first.page.getByPlaceholder('Наименование материала').fill('Материал из фоновой синхронизации');
     await first.page.getByPlaceholder('Цена (₽)').fill('777');
@@ -56,7 +56,7 @@ test('persists an offline material across Electron restart and syncs push before
     expect(mock.logs.slice(backgroundSyncLogStart).some(log => log.method === 'GET' && log.table && OFFLINE_TABLES.includes(log.table as typeof OFFLINE_TABLES[number]))).toBe(false);
 
     await first.app.context().setOffline(true);
-    await first.page.getByRole('button', { name: 'Цены', exact: true }).first().click();
+    await first.page.getByRole('button', { name: 'Материалы', exact: true }).first().click();
     await first.page.getByPlaceholder('Наименование материала').fill('Материал из оффлайна');
     await first.page.getByPlaceholder('Цена (₽)').fill('1234');
     await first.page.getByRole('button', { name: 'Добавить', exact: true }).click();
@@ -68,7 +68,7 @@ test('persists an offline material across Electron restart and syncs push before
 
     const second = await launchApp(userDataDir, true);
     secondApp = second.app;
-    await expect(second.page.getByRole('button', { name: 'Цены', exact: true }).first()).toBeVisible();
+    await expect(second.page.getByRole('button', { name: 'Материалы', exact: true }).first()).toBeVisible();
     const offlineSeedIds = await second.page.evaluate(async tables => {
       const database = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open('kmobn_indexeddb_cache');
@@ -82,7 +82,7 @@ test('persists an offline material across Electron restart and syncs push before
       })));
     }, [...OFFLINE_TABLES]);
     expect(offlineSeedIds.map(ids => ids.some(id => id.startsWith('seed-')))).toEqual(OFFLINE_TABLES.map(() => true));
-    await second.page.getByRole('button', { name: 'Цены', exact: true }).first().click();
+    await second.page.getByRole('button', { name: 'Материалы', exact: true }).first().click();
     await expect(second.page.getByText('Материал из оффлайна', { exact: true }).first()).toBeVisible();
     await expect(second.page.getByTestId('sync-pending-count')).toContainText('1');
     await expect(second.page.getByTestId('offline-readiness').first()).toContainText('Офлайн готово');

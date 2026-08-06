@@ -50,14 +50,14 @@ const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 
 const MOBILE_TABS: ReadonlyArray<{ view: View | 'MORE'; label: string; icon: NavIconName }> = [
     { view: View.HISTORY, label: 'Сметы', icon: 'file-text' },
     { view: View.HOUSE_CALCULATOR, label: 'Дом', icon: 'house' },
-    { view: View.PRICES, label: 'Цены', icon: 'tag' },
+    { view: View.PRICES, label: 'Материалы', icon: 'tag' },
     { view: View.WORKS, label: 'Работы', icon: 'briefcase-business' },
     { view: 'MORE', label: 'Ещё', icon: 'more-horizontal' },
 ];
 
 const PRIMARY_DESKTOP_NAV_ITEMS = [
     { view: View.HISTORY, label: 'Сметы' },
-    { view: View.PRICES, label: 'Цены' },
+    { view: View.PRICES, label: 'Материалы' },
     { view: View.WORKS, label: 'Работы' },
 ] as const;
 
