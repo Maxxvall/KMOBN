@@ -2,12 +2,13 @@ import React, { useState, useMemo, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { findEstimateVersionDuplicates, getLatestEstimateVersions, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
-import { exportData, importData, validateImportData } from '../services/database';
+import { exportData, importData, importSharedEstimate, validateImportData } from '../services/database';
 
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import SmartEstimateWizard from './SmartEstimateWizard';
 import EstimateDuplicateDialog from './EstimateDuplicateDialog';
+import EstimateTransferModal from './EstimateTransferModal';
 
 interface EstimateHistoryProps {
     estimates?: Estimate[];
@@ -29,8 +30,9 @@ const HistoryActionsMenu: React.FC<{
     desktop?: boolean;
     onExport: () => void | Promise<void>;
     onImport: () => void;
+    onImportSharedEstimate: () => void;
     onCheckDuplicates: () => void;
-}> = ({ desktop = false, onExport, onImport, onCheckDuplicates }) => {
+}> = ({ desktop = false, onExport, onImport, onImportSharedEstimate, onCheckDuplicates }) => {
     const [open, setOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -68,6 +70,7 @@ const HistoryActionsMenu: React.FC<{
             </button>
             {open && (
                 <div role="menu" className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-2xl">
+                    <button type="button" role="menuitem" onClick={() => runAction(onImportSharedEstimate)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-text-primary hover:bg-white/5">Вставить смету</button>
                     <button type="button" role="menuitem" onClick={() => runAction(onExport)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-text-primary hover:bg-white/5">Экспорт данных</button>
                     <button type="button" role="menuitem" onClick={() => runAction(onImport)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-text-primary hover:bg-white/5">Импорт данных</button>
                     <button type="button" role="menuitem" onClick={() => runAction(onCheckDuplicates)} className="w-full rounded-md px-3 py-2.5 text-left text-sm text-text-primary hover:bg-white/5">Найти дубли версий</button>
@@ -268,6 +271,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [showFilters, setShowFilters] = useState(false);
     const [showDuplicateDialog, setShowDuplicateDialog] = useState(false);
     const [duplicateGroups, setDuplicateGroups] = useState<EstimateDuplicateGroup[]>([]);
+    const [transferModal, setTransferModal] = useState<'share' | 'import' | null>(null);
+    const [estimateToShare, setEstimateToShare] = useState<Estimate | null>(null);
     const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '';
     const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1);
     const archiveCounts = useMemo(() => getLatestEstimateVersions(allEstimatesList).reduce((counts, estimate) => {
@@ -292,6 +297,20 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const handleDeleteDuplicates = async (requests: EstimateDuplicateDeleteRequest[]): Promise<number> => {
         if (!deleteVersionDuplicatesAction) return 0;
         return deleteVersionDuplicatesAction(requests);
+    };
+
+    const handleShareEstimate = (estimate: Estimate) => {
+        setEstimateToShare(estimate);
+        setTransferModal('share');
+    };
+
+    const handleImportSharedEstimate = async (payload: string) => {
+        const result = await importSharedEstimate(payload);
+        alert(
+            result.numberChanged
+                ? `Смета добавлена как новая копия. Номер изменён на №${result.estimate.estimateNumber}, чтобы не затронуть существующую смету.`
+                : `Смета №${result.estimate.estimateNumber} добавлена в базу данных.`,
+        );
     };
 
     const handleExportData = async () => {
@@ -511,7 +530,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">{activeFilterCount}</span>
                     )}
                 </button>
-                <HistoryActionsMenu onExport={handleExportData} onImport={handleImportData} onCheckDuplicates={handleCheckDuplicates} />
+                <HistoryActionsMenu onExport={handleExportData} onImport={handleImportData} onImportSharedEstimate={() => setTransferModal('import')} onCheckDuplicates={handleCheckDuplicates} />
             </div>
 
             <div className="mb-4 hidden items-center gap-2 xl:flex">
@@ -538,7 +557,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     <button type="button" onClick={resetFilters} className="h-9 rounded-lg px-2.5 text-sm text-text-secondary transition hover:bg-white/5 hover:text-text-primary">Сбросить</button>
                 )}
                 <div className="ml-auto">
-                    <HistoryActionsMenu desktop onExport={handleExportData} onImport={handleImportData} onCheckDuplicates={handleCheckDuplicates} />
+                    <HistoryActionsMenu desktop onExport={handleExportData} onImport={handleImportData} onImportSharedEstimate={() => setTransferModal('import')} onCheckDuplicates={handleCheckDuplicates} />
                 </div>
             </div>
 
@@ -620,6 +639,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                     <td className="px-3 py-2.5 text-right">
                                         <div className="flex items-center justify-end gap-1">
                                             <button onClick={() => editAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-primary transition hover:bg-white/5">Открыть</button>
+                                            <button onClick={() => handleShareEstimate(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">Поделиться</button>
                                             <button onClick={() => generatePdfAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">PDF для клиента</button>
                                             <button onClick={() => setArchivedAction?.(selectedEstimate, archiveView !== 'archive')} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">{archiveView === 'archive' ? 'Вернуть' : 'В архив'}</button>
                                             <button onClick={() => deleteAction?.(estimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-300">Удалить</button>
@@ -675,6 +695,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                 <button onClick={() => generatePdfAction?.(selectedEstimate)} className="min-h-11 flex-1 rounded-lg border border-border bg-background/50 text-sm font-medium text-text-primary transition hover:bg-white/5">
                                     PDF клиенту
                                 </button>
+                                <button onClick={() => handleShareEstimate(selectedEstimate)} className="min-h-11 flex-1 rounded-lg border border-border bg-background/50 px-2 text-sm font-medium text-text-primary transition hover:bg-white/5">
+                                    Поделиться
+                                </button>
                                 <button onClick={() => setArchivedAction?.(selectedEstimate, archiveView !== 'archive')} className="min-h-11 flex-1 rounded-lg border border-border bg-background/50 px-2 text-sm font-medium text-text-primary transition hover:bg-white/5">
                                     {archiveView === 'archive' ? 'Вернуть' : 'В архив'}
                                 </button>
@@ -715,6 +738,23 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 duplicateGroups={duplicateGroups}
                 onDelete={handleDeleteDuplicates}
             />
+            {transferModal === 'share' && estimateToShare && (
+                <EstimateTransferModal
+                    mode="share"
+                    estimate={estimateToShare}
+                    onClose={() => {
+                        setTransferModal(null);
+                        setEstimateToShare(null);
+                    }}
+                />
+            )}
+            {transferModal === 'import' && (
+                <EstimateTransferModal
+                    mode="import"
+                    onImport={handleImportSharedEstimate}
+                    onClose={() => setTransferModal(null)}
+                />
+            )}
         </div>
     );
 };

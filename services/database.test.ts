@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Estimate } from '../types';
-import { EstimateStatus } from '../types';
-import { mergeImportedEstimate, pickChangedRecordsByIds, prepareEstimatesForExport } from './database';
+import { EstimateCategory, EstimateStatus } from '../types';
+import {
+  createEstimateTransfer,
+  mergeImportedEstimate,
+  parseEstimateTransfer,
+  pickChangedRecordsByIds,
+  prepareEstimatesForExport,
+  prepareSharedEstimateImport,
+} from './database';
 
 const createEstimate = (id: string): Estimate => ({
   id,
@@ -51,5 +58,53 @@ describe('prepareEstimatesForExport', () => {
 
     expect(mergeImportedEstimate(sanitized, existing).explanation).toBe('дом под ключ');
     expect(mergeImportedEstimate({ ...sanitized, explanation: '' }, existing).explanation).toBe('');
+  });
+});
+
+describe('estimate transfer', () => {
+  it('exports and reads exactly one sanitized estimate', () => {
+    const source = { ...createEstimate('shared'), explanation: 'internal note' };
+
+    const received = parseEstimateTransfer(createEstimateTransfer(source));
+
+    expect(received).toMatchObject({ id: 'shared', estimateNumber: source.estimateNumber });
+    expect(received).not.toHaveProperty('explanation');
+  });
+
+  it('creates an independent estimate with new ids when importing a shared estimate', () => {
+    const source: Estimate = {
+      ...createEstimate('source'),
+      items: [{ id: 'original-item', name: 'Work', unit: 'pcs', quantity: 1, price: 10, total: 10, category: EstimateCategory.GENERAL }],
+    };
+
+    const result = prepareSharedEstimateImport(source, [], new Date('2026-08-16T10:00:00.000Z'), 'imported-id');
+
+    expect(result.numberChanged).toBe(false);
+    expect(result.estimate).toMatchObject({
+      id: 'imported-id',
+      estimateNumber: source.estimateNumber,
+      version: 1,
+      parentId: undefined,
+      isArchived: false,
+    });
+    expect(result.estimate.items[0].id).toBe('imported-id-item-1');
+  });
+
+  it('assigns a new estimate number instead of replacing an existing estimate', () => {
+    const source = createEstimate('source');
+
+    const result = prepareSharedEstimateImport(
+      source,
+      [source.estimateNumber],
+      new Date('2026-08-16T10:00:00.000Z'),
+      'imported-id',
+    );
+
+    expect(result.numberChanged).toBe(true);
+    expect(result.estimate.estimateNumber).not.toBe(source.estimateNumber);
+  });
+
+  it('rejects a full backup in the single-estimate flow', () => {
+    expect(() => parseEstimateTransfer(JSON.stringify({ estimates: [createEstimate('backup')] }))).toThrow('не файл обмена');
   });
 });

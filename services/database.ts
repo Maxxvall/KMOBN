@@ -1,4 +1,5 @@
-import { Estimate, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation, normalizeKey } from '../types';
+import { Estimate, EstimateStatus, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation, normalizeKey } from '../types';
+import { generateEstimateNumber } from './estimateNumber';
 import {
   CacheTableKey,
   deleteCachedRecords,
@@ -550,6 +551,125 @@ export const deleteSalaryCalculation = async (calculationId: string): Promise<vo
 };
 
 export const SCHEMA_VERSION = 2;
+
+const ESTIMATE_TRANSFER_FORMAT = 'kmobn-estimate';
+const ESTIMATE_TRANSFER_SCHEMA_VERSION = 1;
+const MAX_ESTIMATE_TRANSFER_SIZE = 10 * 1024 * 1024;
+
+type EstimateTransferPayload = {
+  format: typeof ESTIMATE_TRANSFER_FORMAT;
+  schemaVersion: typeof ESTIMATE_TRANSFER_SCHEMA_VERSION;
+  exportedAt: string;
+  estimate: Estimate;
+};
+
+export type ImportedSharedEstimate = {
+  estimate: Estimate;
+  numberChanged: boolean;
+};
+
+const isObject = (value: unknown): value is Record<string, unknown> => (
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+);
+
+export const createEstimateTransfer = (estimate: Estimate): string => {
+  const [exportableEstimate] = prepareEstimatesForExport([estimate]);
+  const payload: EstimateTransferPayload = {
+    format: ESTIMATE_TRANSFER_FORMAT,
+    schemaVersion: ESTIMATE_TRANSFER_SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    estimate: exportableEstimate,
+  };
+  return JSON.stringify(payload);
+};
+
+export const parseEstimateTransfer = (payloadText: string): Estimate => {
+  if (payloadText.length > MAX_ESTIMATE_TRANSFER_SIZE) {
+    throw new Error('Смета слишком большая для импорта (максимум 10 МБ).');
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadText);
+  } catch {
+    throw new Error('Не удалось прочитать данные сметы. Вставьте код, скопированный из приложения, или выберите файл.');
+  }
+
+  if (!isObject(parsed) || parsed.format !== ESTIMATE_TRANSFER_FORMAT) {
+    throw new Error('Это не файл обмена одной сметой КМОВН.');
+  }
+  if (parsed.schemaVersion !== ESTIMATE_TRANSFER_SCHEMA_VERSION) {
+    throw new Error('Формат этой сметы не поддерживается. Обновите приложение у отправителя и получателя.');
+  }
+  if (!isObject(parsed.estimate)) {
+    throw new Error('В файле нет данных сметы.');
+  }
+
+  const estimate = parsed.estimate as unknown as Estimate;
+  const requiredTextFields: Array<keyof Pick<Estimate, 'estimateNumber' | 'client' | 'date' | 'buildingType'>> = [
+    'estimateNumber', 'client', 'date', 'buildingType',
+  ];
+  if (requiredTextFields.some(field => typeof estimate[field] !== 'string')) {
+    throw new Error('В смете отсутствуют обязательные данные.');
+  }
+  if (!estimate.estimateNumber.trim()) {
+    throw new Error('У сметы не указан номер.');
+  }
+  if (!Object.values(EstimateStatus).includes(estimate.status)) {
+    throw new Error('У сметы указан неизвестный статус.');
+  }
+  if (!Array.isArray(estimate.items) || !Number.isFinite(estimate.area) || !Number.isFinite(estimate.total)) {
+    throw new Error('В смете некорректные позиции или итоговая сумма.');
+  }
+
+  return estimate;
+};
+
+export const prepareSharedEstimateImport = (
+  source: Estimate,
+  existingEstimateNumbers: string[],
+  now = new Date(),
+  newId = `sm-id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+): ImportedSharedEstimate => {
+  const sourceNumber = source.estimateNumber.trim();
+  const numberChanged = existingEstimateNumbers.some(number => String(number) === sourceNumber);
+  const estimateNumber = numberChanged
+    ? generateEstimateNumber(existingEstimateNumbers, now)
+    : sourceNumber;
+  const timestamp = now.toISOString();
+
+  return {
+    numberChanged,
+    estimate: {
+      ...source,
+      id: newId,
+      parentId: undefined,
+      estimateNumber,
+      version: 1,
+      date: timestamp,
+      isArchived: false,
+      sortOrder: now.getTime(),
+      created_at: timestamp,
+      updated_at: timestamp,
+      items: source.items.map((item, index) => ({
+        ...item,
+        id: `${newId}-item-${index + 1}`,
+      })),
+    },
+  };
+};
+
+export const importSharedEstimate = async (payloadText: string): Promise<ImportedSharedEstimate> => {
+  const source = parseEstimateTransfer(payloadText);
+  const existingEstimates = await loadEstimates();
+  const imported = prepareSharedEstimateImport(source, existingEstimates.map(estimate => estimate.estimateNumber));
+
+  await saveLocalRecords('estimates', [imported.estimate]);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
+  }
+  return imported;
+};
 
 export const prepareEstimatesForExport = (estimates: Estimate[]): Estimate[] => estimates.map(estimate => {
   const { explanation: _internalExplanation, ...exportableEstimate } = estimate;
