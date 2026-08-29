@@ -5,6 +5,7 @@ import {
     EstimateItem,
     EstimateSubgroup,
     ESTIMATE_CATEGORIES,
+    Material,
 } from '../types';
 import { PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 import {
@@ -16,6 +17,10 @@ import {
 export interface PremiumPdfAssets {
     fontBase64: string | null;
     boldFontBase64?: string | null;
+}
+
+export interface PremiumPdfOptions {
+    materials?: readonly Pick<Material, 'id' | 'link'>[];
 }
 
 export interface PremiumEstimateSubgroup {
@@ -143,7 +148,11 @@ const formatDate = (value: string): string => {
 
 const safeText = (value: unknown): string => String(value ?? '').trim() || '—';
 
-export const createPremiumEstimatePdf = (estimate: Estimate, assets: PremiumPdfAssets): jsPDF => {
+export const createPremiumEstimatePdf = (
+    estimate: Estimate,
+    assets: PremiumPdfAssets,
+    options: PremiumPdfOptions = {},
+): jsPDF => {
     const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -195,6 +204,28 @@ export const createPremiumEstimatePdf = (estimate: Estimate, assets: PremiumPdfA
 
     const linkArea = (x: number, top: number, width: number, height: number, url: string) => {
         doc.link(x, top, Math.max(width, 1), Math.max(height, 1), { url });
+    };
+
+    const materialLinks = new Map(
+        (options.materials ?? []).flatMap(material => {
+            const rawLink = material.link?.trim();
+            if (!rawLink) return [];
+
+            const candidate = /^[a-z][a-z\d+.-]*:/i.test(rawLink) ? rawLink : `https://${rawLink}`;
+            try {
+                const url = new URL(candidate);
+                return url.protocol === 'http:' || url.protocol === 'https:'
+                    ? [[material.id, url.toString()] as const]
+                    : [];
+            } catch {
+                return [];
+            }
+        }),
+    );
+
+    const materialLinkFor = (item: EstimateItem): string | undefined => {
+        if (subgroupOf(item) !== EstimateSubgroup.MATERIALS || !item.catalogMaterialId) return undefined;
+        return materialLinks.get(item.catalogMaterialId);
     };
 
     const drawLinkedText = (
@@ -421,6 +452,7 @@ export const createPremiumEstimatePdf = (estimate: Estimate, assets: PremiumPdfA
     const drawItemChunk = (item: EstimateItem, lines: string[], showNumbers: boolean) => {
         const unitLines = showNumbers ? itemUnitLines(item) : [];
         const rowHeight = itemHeightForLines(Math.max(lines.length, unitLines.length));
+        const materialLink = materialLinkFor(item);
         if (stripedRow) {
             setFill(doc, COLORS.row);
             doc.rect(MARGIN, y, CONTENT_WIDTH, rowHeight, 'F');
@@ -432,7 +464,14 @@ export const createPremiumEstimatePdf = (estimate: Estimate, assets: PremiumPdfA
         setPdfFont('normal');
         doc.setFontSize(8.5);
         setText(doc, COLORS.text);
-        lines.forEach((line, index) => doc.text(line, columnX[0] + 2, y + ITEM_PADDING_Y + 3 + index * ITEM_LINE_HEIGHT));
+        lines.forEach((line, index) => {
+            const textX = columnX[0] + 2;
+            const baseline = y + ITEM_PADDING_Y + 3 + index * ITEM_LINE_HEIGHT;
+            doc.text(line, textX, baseline);
+            if (materialLink) {
+                linkArea(textX, baseline - 3.2, doc.getTextWidth(line), ITEM_LINE_HEIGHT, materialLink);
+            }
+        });
 
         const centerY = rowHeight > 20 ? y + 6 : y + rowHeight / 2 + 1.4;
         const drawCenteredLines = (cellLines: string[], centerX: number) => {

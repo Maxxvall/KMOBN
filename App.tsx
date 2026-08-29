@@ -1403,7 +1403,7 @@ const App: React.FC = () => {
             if (style === 'simple') {
                 await generatePdf(pendingExportEstimate);
             } else {
-                await generatePdfColored(pendingExportEstimate);
+                await generatePdfColored(pendingExportEstimate, materialsRef.current);
             }
         } catch (error) {
             console.error("PDF Generation Error:", error);

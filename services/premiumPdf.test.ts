@@ -111,6 +111,34 @@ describe('premium PDF document', () => {
         expect(rawPdf).not.toContain('wa.me');
     });
 
+    it('makes a catalog material name clickable when the material has a link', () => {
+        const estimate = makeEstimate(1);
+        estimate.items[0].subgroup = EstimateSubgroup.MATERIALS;
+        estimate.items[0].catalogMaterialId = 'catalog-material';
+
+        const doc = createPremiumEstimatePdf(
+            estimate,
+            { fontBase64: null, boldFontBase64: null },
+            { materials: [{ id: 'catalog-material', link: 'shop.example/material/42' }] },
+        );
+
+        expect(doc.output()).toContain('https://shop.example/material/42');
+    });
+
+    it('does not embed a catalog link for a non-material estimate row', () => {
+        const estimate = makeEstimate(1);
+        estimate.items[0].subgroup = EstimateSubgroup.WORKS;
+        estimate.items[0].catalogMaterialId = 'catalog-material';
+
+        const doc = createPremiumEstimatePdf(
+            estimate,
+            { fontBase64: null, boldFontBase64: null },
+            { materials: [{ id: 'catalog-material', link: 'https://shop.example/material/42' }] },
+        );
+
+        expect(doc.output()).not.toContain('https://shop.example/material/42');
+    });
+
     it('splits a pathological item name without hanging or clipping the remaining document', () => {
         const estimate = makeEstimate(1);
         estimate.items[0].name = Array.from({ length: 180 }, (_, index) => `длинный-фрагмент-${index + 1}`).join(' ');
@@ -136,10 +164,13 @@ describe('premium PDF document', () => {
 
         const regularFont = readFileSync(path.resolve('assets/LiberationSans-Regular.ttf')).toString('base64');
         const boldFont = readFileSync(path.resolve('assets/LiberationSans-Bold.ttf')).toString('base64');
-        const doc = createPremiumEstimatePdf(makeEstimate(84), {
-            fontBase64: regularFont,
-            boldFontBase64: boldFont,
-        });
+        const linkedEstimate = makeEstimate(84);
+        linkedEstimate.items[1].catalogMaterialId = 'fixture-material';
+        const doc = createPremiumEstimatePdf(
+            linkedEstimate,
+            { fontBase64: regularFont, boldFontBase64: boldFont },
+            { materials: [{ id: 'fixture-material', link: 'https://shop.example/material/42' }] },
+        );
         const outputDir = path.resolve('tmp/pdfs');
         mkdirSync(outputDir, { recursive: true });
         writeFileSync(path.join(outputDir, 'premium-estimate-long.pdf'), Buffer.from(doc.output('arraybuffer')));
