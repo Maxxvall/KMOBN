@@ -127,6 +127,7 @@ export const validateCuttingItems = (
     settings: CuttingSettings = DEFAULT_CUTTING_SETTINGS,
 ): CuttingImportIssue[] => {
     const issues: CuttingImportIssue[] = [];
+    const maxBoardPartLength = Math.min(settings.boardStockLength, settings.maxBoardPartLength);
     for (const item of items) {
         if (!item.isSheet && !item.section) {
             issues.push({
@@ -165,14 +166,14 @@ export const validateCuttingItems = (
                 message: `${item.construction}: деталь ${item.length}×${item.width} мм не помещается на лист ${profile.width}×${profile.height} мм.`,
             });
         }
-        if (!item.isSheet && item.length > settings.maxBoardPartLength) {
+        if (!item.isSheet && item.length > maxBoardPartLength) {
             issues.push({
                 id: `${item.id}-oversized`,
                 sourceRow: item.sourceRow,
                 itemId: item.id,
                 severity: 'error',
                 code: 'oversized-board-part',
-                message: `${item.construction}: длина ${item.length} мм больше допустимых ${settings.maxBoardPartLength} мм.`,
+                message: `${item.construction}: длина ${item.length} мм больше допустимых ${maxBoardPartLength} мм.`,
             });
         }
     }

@@ -88,7 +88,7 @@ export interface SheetStockProfile {
 export const DEFAULT_CUTTING_SETTINGS: CuttingSettings = {
     boardStockLength: 6050,
     maxBoardPartLength: 6000,
-    boardKerf: 4,
+    boardKerf: 1.2,
     usefulOffcutLength: 500,
     separateStages: false,
     sheetWidth: 1525,

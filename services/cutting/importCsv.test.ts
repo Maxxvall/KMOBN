@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseCuttingText } from './importCsv';
+import { DEFAULT_CUTTING_SETTINGS } from './types';
 
 const HEADERS = [
     'Использование в конструкции',
@@ -58,6 +59,44 @@ describe('parseCuttingText', () => {
         ]);
     });
 
+    it('uses a 1.2 mm default saw kerf', () => {
+        expect(DEFAULT_CUTTING_SETTINGS.boardKerf).toBe(1.2);
+    });
+
+    it('allows parts up to the selected 3000 mm stock length', () => {
+        const text = [
+            HEADERS,
+            csvRow('Брусок вертикальный', '20х40', '2999', '1', '0,002'),
+        ].join('\n');
+
+        const result = parseCuttingText(text, 'туалет.txt', {
+            ...DEFAULT_CUTTING_SETTINGS,
+            boardStockLength: 3000,
+        });
+
+        expect(result.issues).toEqual([]);
+        expect(result.items).toHaveLength(1);
+    });
+
+    it('reports a board part longer than the selected stock length', () => {
+        const text = [
+            HEADERS,
+            csvRow('Брусок вертикальный', '20х40', '3001', '1', '0,002'),
+        ].join('\n');
+
+        const result = parseCuttingText(text, 'туалет.txt', {
+            ...DEFAULT_CUTTING_SETTINGS,
+            boardStockLength: 3000,
+        });
+
+        expect(result.issues).toEqual([
+            expect.objectContaining({
+                severity: 'error',
+                code: 'oversized-board-part',
+                message: expect.stringContaining('3000'),
+            }),
+        ]);
+    });
     it('uses the fixed sheet width when OSB and plywood rows have only one size', () => {
         const text = [
             HEADERS,

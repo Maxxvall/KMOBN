@@ -136,7 +136,6 @@ const Cutting: React.FC = () => {
     const settingsErrors = useMemo(() => {
         const errors: string[] = [];
         if (!Number.isFinite(settings.boardStockLength) || settings.boardStockLength <= 0) errors.push('Укажите длину заготовки больше нуля.');
-        if (settings.boardStockLength < settings.maxBoardPartLength) errors.push(`Заготовка должна быть не короче ${settings.maxBoardPartLength} мм.`);
         if (!Number.isFinite(settings.boardKerf) || settings.boardKerf < 0) errors.push('Пропил доски не может быть отрицательным.');
         if (!Number.isFinite(settings.usefulOffcutLength) || settings.usefulOffcutLength < 0) errors.push('Полезный остаток не может быть отрицательным.');
         if (settings.usefulOffcutLength >= settings.boardStockLength) errors.push('Полезный остаток должен быть короче заготовки.');
@@ -455,7 +454,7 @@ const Cutting: React.FC = () => {
                         </div>
                     </Section>
 
-                    <Section title="3. Настройки раскроя" description="Детали длиннее 6000 мм всегда считаются ошибкой, даже при увеличенной неторцованной заготовке.">
+                    <Section title="3. Настройки раскроя" description="Деталь не может быть длиннее выбранной заготовки; максимальная допустимая длина — 6000 мм.">
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                             <NumberField label="Заготовка, мм" value={settings.boardStockLength} min={1} step={10} onChange={value => updateSetting('boardStockLength', value)} hint="По умолчанию 6050" />
                             <NumberField label="Пропил доски, мм" value={settings.boardKerf} min={0} step={0.5} onChange={value => updateSetting('boardKerf', value)} />
