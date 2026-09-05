@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom';
 import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle } from '../types';
 import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
+import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
 import { generateEstimateWithAI } from '../services/geminiService';
 import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
@@ -140,6 +141,9 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
     hash = hashText(hash, value.explanation || '');
     hash = hashNumber(hash, value.total || 0);
     hash = hashBoolean(hash, Boolean(value.needsPriceUpdate));
+    for (const category of value.selectedSections ?? []) {
+        hash = hashText(hash, category);
+    }
 
     for (const item of value.items) {
         hash = hashText(hash, item.name);
@@ -190,7 +194,7 @@ const groupCatalogByCategory = <T extends Material | Work>(items: T[]): Map<Esti
         grouped.set(item.category, existing);
     }
 
-    for (const category of Object.values(EstimateCategory)) {
+    for (const category of new Set([...CATALOG_CATEGORIES, ...grouped.keys()])) {
         const existing = grouped.get(category) ?? [];
         grouped.set(category, generalItems.length > 0 ? [...existing, ...generalItems] : existing);
     }
@@ -303,7 +307,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [pasteTargetCategory, setPasteTargetCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
     const [boardSwitchTarget, setBoardSwitchTarget] = useState<BoardMoisture | null>(null);
     const [boardSwitchNotice, setBoardSwitchNotice] = useState<string | null>(null);
-    const [visibleCategories, setVisibleCategories] = useState<EstimateCategory[]>(baselineEstimate.selectedSections ?? []);
+    const visibleCategories = useMemo(
+        () => getEstimateCategories(estimate.items, estimate.selectedSections),
+        [estimate.items, estimate.selectedSections],
+    );
     const [showActuals, setShowActuals] = useState(false);
     const [actualFilter, setActualFilter] = useState<ActualFilter>('all');
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
@@ -963,7 +970,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             }
 
             const total = calculateTotal(merged);
-            setEstimate(prev => ({ ...prev, items: merged, total }));
+            setEstimate(prev => ({
+                ...prev,
+                items: merged,
+                total,
+                selectedSections: opts?.selectedSections ?? prev.selectedSections,
+            }));
 
             // Save baseline for learning on future user edits.
             // Cache key must match openRouterService.ts logic.
@@ -1086,34 +1098,26 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }));
     };
 
-    // Reset visibleCategories when estimate changes (new estimate opened)
-    useEffect(() => {
-        const fromSections = estimate.selectedSections ?? [];
-        const fromItems = Array.from(new Set(estimate.items.map(i => i.category)));
-        setVisibleCategories(Array.from(new Set([...fromSections, ...fromItems])));
-    }, [estimate.id]);
-
-    // keep visibleCategories in sync with items present in estimate
-    useEffect(() => {
-        const cats = Array.from(new Set(estimate.items.map(i => i.category)));
-        setVisibleCategories(prev => Array.from(new Set([...prev, ...cats])));
-    }, [estimate.items]);
-
     const addCategory = (cat: EstimateCategory) => {
         if (!cat) return;
-        setVisibleCategories(prev => prev.includes(cat) ? prev : [...prev, cat]);
+        setEstimate(prev => ({
+            ...prev,
+            selectedSections: Array.from(new Set([...(prev.selectedSections ?? []), cat])),
+        }));
     };
 
     const removeVisibleCategory = (cat: EstimateCategory) => {
         const itemsInCat = estimate.items.filter(it => it.category === cat);
-        if (itemsInCat.length > 0) {
-            if (!confirm('В разделе есть позиции. Удалить раздел и все позиции?')) return;
-            setEstimate(prev => {
-                const newItems = prev.items.filter(it => it.category !== cat);
-                return { ...prev, items: newItems, total: calculateTotal(newItems) };
-            });
-        }
-        setVisibleCategories(prev => prev.filter(c => c !== cat));
+        if (itemsInCat.length > 0 && !confirm('В разделе есть позиции. Удалить раздел и все позиции?')) return;
+        setEstimate(prev => {
+            const newItems = prev.items.filter(it => it.category !== cat);
+            return {
+                ...prev,
+                items: newItems,
+                selectedSections: (prev.selectedSections ?? []).filter(c => c !== cat),
+                total: newItems.length === prev.items.length ? prev.total : calculateTotal(newItems),
+            };
+        });
     };
 
     const handleDuplicateSection = useCallback((cat: EstimateCategory) => {
@@ -1515,6 +1519,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             })}
                         </div>
                         <select
+                            aria-label="Добавить раздел"
                             onChange={(e) => {
                                 const val = e.target.value as EstimateCategory;
                                 if (val) {
@@ -1526,8 +1531,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             defaultValue=""
                         >
                             <option value="">+ Раздел...</option>
-                            {Object.values(EstimateCategory).map(cat => (
-                                <option key={cat} value={cat} disabled={visibleCategories.includes(cat)}>{cat}</option>
+                            {ESTIMATE_CATEGORIES.map(cat => (
+                                <option key={cat} value={cat} disabled={visibleCategories.includes(cat)}>{getSectionLabel(cat)}</option>
                             ))}
                         </select>
                         <button
@@ -1634,16 +1639,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 )}
 
                 <div className="mt-4 space-y-3 sm:mt-5 sm:space-y-4">
-                    {ESTIMATE_CATEGORIES.map((category, catIndex) => {
+                    {visibleCategories.map((category, catIndex) => {
                         const items = groupedItems.get(category) || [];
                         if (items.length === 0 && !visibleCategories.includes(category)) return null;
                         const isCollapsed = Boolean(collapsedCategories[category]);
                         const catTotal = categorySubtotals.get(category) || 0;
-                        const catItems = items;
-                        const worksTotal = catItems.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-                        const materialsTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.MATERIALS).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-                        const deliveryTotal = catItems.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-
                         return (
                             <div key={category} className="border border-border rounded-lg bg-background/30">
                                 <button
@@ -1652,7 +1652,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     className="w-full bg-gray-900/50 p-2 sm:p-3 flex items-center gap-2 rounded-t-lg border-b border-border text-left"
                                 >
                                     <span className={`text-xs transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
-                                    <h3 className="text-xs sm:text-lg font-bold text-text-primary truncate flex-1">{catIndex + 1}. {category}</h3>
+                                    <h3 className="min-w-0 flex-1 break-words text-xs font-bold text-text-primary sm:text-lg">{catIndex + 1}. {getSectionLabel(category)}</h3>
                                     <span className="text-xs sm:text-sm font-semibold text-text-secondary shrink-0">
                                         {catTotal.toLocaleString('ru-RU')} ₽
                                     </span>
@@ -1668,9 +1668,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                 </button>
                                 {!isCollapsed && (
                                 <div className="p-2 sm:p-3 space-y-3 sm:space-y-4">
-                                    {((category: EstimateCategory) => {
-                                        return (category === EstimateCategory.LOGISTICS) ? [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY] : [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS];
-                                    })(category).map((subgroup) => {
+                                    {getSectionSubgroups(category, items).map((subgroup) => {
                                         const subItems = items.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
                                         const visibleSubItems = showActuals ? subItems.filter(item => shouldShowActualRow(item, actualFilter)) : subItems;
                                         const subgroupKey = `${category}:${subgroup}`;

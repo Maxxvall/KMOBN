@@ -4,6 +4,8 @@ export enum EstimateCategory {
     WALLS = 'СТЕНЫ',
     ROOF = 'КРОВЛЯ/ПОТОЛОК',
     WINDOWS = 'ОКНА/ДВЕРИ',
+    WATER_SUPPLY = 'ВОДОСНАБЖЕНИЕ/САНТЕХНИКА',
+    SEWERAGE = 'КАНАЛИЗАЦИЯ',
     ELECTRICAL = 'ЭЛЕКТРИКА',
     LOGISTICS = 'ЛОГИСТИКА',
     GENERAL = 'ОБЩАЯ',
@@ -299,16 +301,38 @@ export const safeNumber = (v: unknown, fallback = 0): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-export const ESTIMATE_CATEGORIES: EstimateCategory[] = [
-    EstimateCategory.FOUNDATION,
-    EstimateCategory.GRILLAGE,
-    EstimateCategory.WALLS,
-    EstimateCategory.ROOF,
-    EstimateCategory.DEMOLITION,
-    EstimateCategory.WINDOWS,
-    EstimateCategory.ELECTRICAL,
-    EstimateCategory.LOGISTICS,
+export interface EstimateSectionDefinition {
+    id: EstimateCategory;
+    label: string;
+    description: string;
+    icon: string;
+    order: number;
+    subgroups: readonly EstimateSubgroup[];
+    aliases: readonly string[];
+    catalogGlobal?: boolean;
+}
+
+const STANDARD_SECTION_SUBGROUPS = [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS] as const;
+
+// Persisted IDs stay stable. Display order is independent of AI alias priority.
+export const ESTIMATE_SECTION_DEFINITIONS: readonly EstimateSectionDefinition[] = [
+    { id: EstimateCategory.FOUNDATION, label: 'Фундамент', description: 'Фундамент и основание', icon: '🧱', order: 10, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['фундамент', 'сваи', 'свай', 'плита', 'лента'] },
+    { id: EstimateCategory.GRILLAGE, label: 'Ростверк, лаги, полы', description: 'Ростверк, лаги, полы', icon: '🪵', order: 20, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['ростверк', 'лаги', 'полы', 'обвязка'] },
+    { id: EstimateCategory.WALLS, label: 'Стены', description: 'Стены и утепление', icon: '🏗️', order: 30, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['стены', 'стена', 'каркас', 'перегород'] },
+    { id: EstimateCategory.ROOF, label: 'Кровля/Потолок', description: 'Кровля и потолок', icon: '🏠', order: 40, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['водосточ', 'водосток', 'кровля', 'крыша', 'потолок', 'стропил'] },
+    { id: EstimateCategory.WINDOWS, label: 'Окна/Двери', description: 'Окна и двери', icon: '🪟', order: 60, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['окна', 'двери', 'окно', 'дверь'] },
+    { id: EstimateCategory.ELECTRICAL, label: 'Электрика', description: 'Электрика', icon: '⚡', order: 70, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['электрика', 'кабель', 'щит', 'розет', 'выключ'] },
+    { id: EstimateCategory.LOGISTICS, label: 'Логистика', description: 'Логистика и доставка', icon: '🚚', order: 100, subgroups: [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY], aliases: ['логистика', 'доставка', 'транспорт', 'перевоз'] },
+    { id: EstimateCategory.GENERAL, label: 'Общая', description: 'Общие работы', icon: '📋', order: 110, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['общая', 'общее', 'прочее'], catalogGlobal: true },
+    { id: EstimateCategory.DEMOLITION, label: 'Демонтаж', description: 'Демонтаж', icon: '🔨', order: 50, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['демонтаж', 'разбор', 'снос'] },
+    { id: EstimateCategory.SEWERAGE, label: 'Канализация', description: 'Канализация и отведение стоков', icon: '🚰', order: 90, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['канализац', 'сточные воды', 'сточных вод', 'водоотвед', 'септик', 'кнс', 'фанов'] },
+    { id: EstimateCategory.WATER_SUPPLY, label: 'Водоснабжение/Сантехника', description: 'Водоснабжение и сантехника', icon: '💧', order: 80, subgroups: STANDARD_SECTION_SUBGROUPS, aliases: ['водоснаб', 'водопровод', 'хвс', 'гвс', 'сантех', 'смесител', 'унитаз'] },
 ];
+
+export const ESTIMATE_CATEGORIES: EstimateCategory[] = ESTIMATE_SECTION_DEFINITIONS
+    .filter(section => !section.catalogGlobal)
+    .sort((left, right) => left.order - right.order)
+    .map(section => section.id);
 
 export interface DuplicateGroup<T extends { id: string; name: string; price: number }> {
     normalizedKey: string;

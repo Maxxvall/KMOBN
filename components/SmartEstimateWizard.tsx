@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { generateEstimateNumber } from '../services/estimateNumber';
 import { buildSmartEstimate, WIZARD_OPTIONS } from '../services/smartEstimateBuilder';
+import { getSectionLabel } from '../services/estimateSections';
 
 interface SmartEstimateWizardProps {
     isOpen: boolean;
@@ -271,18 +272,6 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
         </div>
     );
 
-    const categoryLabels: Record<EstimateCategory, string> = {
-        [EstimateCategory.FOUNDATION]: 'Фундамент',
-        [EstimateCategory.GRILLAGE]: 'Ростверк, лаги, полы',
-        [EstimateCategory.WALLS]: 'Стены',
-        [EstimateCategory.ROOF]: 'Кровля',
-        [EstimateCategory.WINDOWS]: 'Окна/двери',
-        [EstimateCategory.ELECTRICAL]: 'Электрика',
-        [EstimateCategory.LOGISTICS]: 'Логистика',
-        [EstimateCategory.GENERAL]: 'Общая',
-        [EstimateCategory.DEMOLITION]: 'Демонтаж',
-    };
-
     const renderStep5 = () => {
         const groupedItems = new Map<EstimateCategory, typeof result.items>();
         for (const item of result.items) {
@@ -328,7 +317,7 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
                     {Array.from(groupedItems.entries()).map(([category, items]) => (
                         <div key={category}>
                             <div className="px-3 py-1.5 bg-background/80 text-xs font-semibold text-text-secondary border-b border-border">
-                                {categoryLabels[category] || category}
+                                {getSectionLabel(category)}
                             </div>
                             {items.map(item => (
                                 <div key={item.id} className="flex items-center justify-between px-3 py-1.5 text-xs border-b border-border/50 last:border-b-0">

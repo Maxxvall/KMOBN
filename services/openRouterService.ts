@@ -5,6 +5,7 @@ import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, f
 import { checkNormAnomalies, computeNormExpectations } from './constructionNorms';
 import { getLearningHints, isCacheKeyBad } from './aiLearning';
 import { buildSp31_105_2002SystemMessage, containsSp31Reference } from './sp31_105_2002';
+import { CATALOG_CATEGORIES, normalizeEstimateCategory } from './estimateSections';
 
 export interface AIEstimateRequest {
   area: number;
@@ -513,34 +514,6 @@ const classifySubgroup = (name: string, unit?: string): EstimateSubgroup => {
   return EstimateSubgroup.WORKS;
 };
 
-const normalizeCategory = (raw: any): EstimateCategory | null => {
-  const s = String(raw || '').trim().toLowerCase();
-  if (!s) return null;
-
-  const map: Array<[EstimateCategory, string[]]> = [
-    [EstimateCategory.FOUNDATION, ['фундамент', 'сваи', 'свай', 'плита', 'лента']],
-    [EstimateCategory.GRILLAGE, ['ростверк', 'лаги', 'полы', 'обвязка']],
-    [EstimateCategory.WALLS, ['стены', 'стена', 'каркас', 'перегород']],
-    [EstimateCategory.ROOF, ['кровля', 'крыша', 'потолок', 'стропил']],
-    [EstimateCategory.WINDOWS, ['окна', 'двери', 'окно', 'дверь']],
-    [EstimateCategory.ELECTRICAL, ['электрика', 'кабель', 'щит', 'розет', 'выключ']],
-    [EstimateCategory.LOGISTICS, ['логистика', 'доставка', 'транспорт', 'перевоз']],
-    [EstimateCategory.GENERAL, ['общая', 'общее', 'прочее']],
-    [EstimateCategory.DEMOLITION, ['демонтаж', 'разбор', 'снос']],
-  ];
-
-  for (const [cat, keys] of map) {
-    if (keys.some(k => s.includes(k))) return cat;
-  }
-
-  // Exact match for the Russian enum values
-  for (const cat of Object.values(EstimateCategory)) {
-    if (s === cat.toLowerCase()) return cat;
-  }
-
-  return null;
-};
-
 const SYSTEM_PROMPT = `Ты - эксперт по составлению строительных смет.
 ВСЕГДА отвечай строго на русском языке. Никогда не используй английский.
 Ты работаешь как для "дома под ключ", так и для частичных смет (например: только работы, ремонт крыши, отделка, без электрики/сантехники и т.п.).
@@ -629,7 +602,7 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
 - coverage_area: СТЕНЫ = периметр×2.8, КРОВЛЯ = площадь×1.3, остальное = площадь проекта
 - Работы ВСЕГДА quantity = 1 (это услуга)
 
-Категории смет: ФУНДАМЕНТ, РОСТВЕРК, ЛАГИ, ПОЛЫ, СТЕНЫ, КРОВЛЯ/ПОТОЛОК, ОКНА/ДВЕРИ, ЭЛЕКТРИКА, ЛОГИСТИКА, ОБЩАЯ, ДЕМОНТАЖ
+Категории смет: ${CATALOG_CATEGORIES.join(', ')}
 
 Формат ответа: ТОЛЬКО строгий JSON без поясняющего текста.
 Схема:
@@ -912,7 +885,7 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
       const quantity = Math.max(0, safeNumber(it?.quantity, 0));
       // Price must come from catalogs in the app; never trust AI for pricing.
       const price = 0;
-      const category = normalizeCategory(it?.category) || EstimateCategory.GENERAL;
+      const category = normalizeEstimateCategory(it?.category) || EstimateCategory.GENERAL;
 
       const subgroupFromAi = String(it?.subgroup || '').trim();
       const subgroup: EstimateSubgroup =
@@ -1043,7 +1016,7 @@ const toEstimateItemsWithPrefix = (aiItems: any[], idPrefix: string): EstimateIt
       const unit = normalizeUnitText(String(it?.unit || 'шт'));
       const quantity = Math.max(0, safeNumber(it?.quantity, 0));
       const price = 0;
-      const category = normalizeCategory(it?.category) || EstimateCategory.GENERAL;
+      const category = normalizeEstimateCategory(it?.category) || EstimateCategory.GENERAL;
 
       const subgroupFromAi = String(it?.subgroup || '').trim();
       const subgroup: EstimateSubgroup =
@@ -1549,7 +1522,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     const blocksRaw: any[] = Array.isArray(s1Obj?.blocks) ? s1Obj.blocks : [];
     const blocks = blocksRaw
       .map(b => ({
-        category: normalizeCategory(b?.category),
+        category: normalizeEstimateCategory(b?.category),
         intent: String(b?.intent || '').trim(),
         keyWorks: Array.isArray(b?.keyWorks) ? b.keyWorks.map(String) : [],
         areaFactor: Number(b?.volumeHints?.areaFactor || 1) || 1,
@@ -1564,9 +1537,17 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     const stage1Warnings = Array.isArray(s1Obj?.warnings) ? s1Obj.warnings.map(String) : [];
     const stage1Assumptions = Array.isArray(s1Obj?.assumptions) ? s1Obj.assumptions.map(String) : [];
 
-    // Bound blocks to reduce API calls
-    const maxBlocks = 6;
-    const chosenBlocks = sectionFiltered.slice(0, maxBlocks);
+    // Explicit user selection is authoritative: detail every selected section,
+    // even when Stage 1 omitted it. Keep the historical cap only for unfiltered runs.
+    const selectedSections = Array.from(new Set(req.selectedSections || []));
+    const chosenBlocks = selectedSections.length > 0
+      ? selectedSections.map(category => sectionFiltered.find(block => block.category === category) || ({
+        category,
+        intent: '',
+        keyWorks: [],
+        areaFactor: 1,
+      }))
+      : sectionFiltered.slice(0, 6);
 
     parsedWarnings.push(...stage1Warnings);
     if (stage1Assumptions.length) {

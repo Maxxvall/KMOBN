@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Estimate, EstimateCategory, EstimateItem } from '../types';
-import { ESTIMATE_CATEGORIES } from '../types';
+import { getEstimateCategories } from '../services/estimateSections';
 
 interface PasteFromEstimateModalProps {
     isOpen: boolean;
@@ -35,9 +35,7 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
 
     const availableCategories = useMemo(() => {
         if (!selectedEstimate) return [];
-        return ESTIMATE_CATEGORIES.filter(cat =>
-            (selectedEstimate.items ?? []).some(item => item.category === cat)
-        );
+        return getEstimateCategories(selectedEstimate.items ?? []);
     }, [selectedEstimate]);
 
     const previewItems = useMemo(() => {

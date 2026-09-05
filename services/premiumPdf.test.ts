@@ -78,6 +78,23 @@ describe('premium PDF model', () => {
         expect(model.calculatedTotal).toBe(estimate.items[0].total);
     });
 
+    it('includes water, sewer, and a future category in a stable section order', () => {
+        const estimate = makeEstimate(3);
+        const futureSection = 'БУДУЩИЙ РАЗДЕЛ' as EstimateCategory;
+        estimate.items[0].category = EstimateCategory.SEWERAGE;
+        estimate.items[1].category = futureSection;
+        estimate.items[2].category = EstimateCategory.WATER_SUPPLY;
+
+        const model = buildPremiumEstimateModel(estimate);
+
+        expect(model.sections.map(section => section.category)).toEqual([
+            EstimateCategory.WATER_SUPPLY,
+            EstimateCategory.SEWERAGE,
+            futureSection,
+        ]);
+        expect(model.calculatedTotal).toBeCloseTo(estimate.total);
+    });
+
     it('calculates the client breakdown from all estimate items', () => {
         const estimate = makeEstimate(12);
         const model = buildPremiumEstimateModel(estimate);

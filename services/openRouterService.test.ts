@@ -148,4 +148,64 @@ describe('generateEstimateWithAI stage 2', () => {
     stage2Resolvers.forEach(resolve => resolve());
     await generationPromise;
   });
+
+  it('details every explicitly selected section beyond the legacy six-block limit', async () => {
+    const selectedSections = [
+      EstimateCategory.FOUNDATION,
+      EstimateCategory.GRILLAGE,
+      EstimateCategory.WALLS,
+      EstimateCategory.ROOF,
+      EstimateCategory.WINDOWS,
+      EstimateCategory.ELECTRICAL,
+      EstimateCategory.WATER_SUPPLY,
+      EstimateCategory.SEWERAGE,
+      EstimateCategory.LOGISTICS,
+    ];
+    let stage2Calls = 0;
+
+    const fetchMock = vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+      const requestBody = JSON.parse(String(init?.body || '{}')) as {
+        messages?: Array<{ content?: string }>;
+      };
+      const prompt = (requestBody.messages || []).map(message => String(message.content || '')).join('\n');
+
+      if (prompt.includes('Этап 1/3')) {
+        return Promise.resolve(createJsonResponse({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                blocks: selectedSections.slice(0, 6).map(category => ({
+                  category,
+                  intent: '',
+                  keyWorks: [],
+                  volumeHints: { areaFactor: 1 },
+                })),
+                assumptions: [],
+                warnings: [],
+              }),
+            },
+          }],
+        }));
+      }
+
+      if (prompt.includes('Этап 2/3')) {
+        stage2Calls += 1;
+      }
+
+      return Promise.resolve(createJsonResponse({
+        choices: [{
+          message: {
+            content: JSON.stringify({ items: [], suggestions: [], warnings: [] }),
+          },
+        }],
+      }));
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { generateEstimateWithAI } = await import('./openRouterService');
+    await generateEstimateWithAI({ ...baseRequest, selectedSections });
+
+    expect(stage2Calls).toBe(selectedSections.length);
+  });
 });

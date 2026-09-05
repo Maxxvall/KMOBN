@@ -2,7 +2,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
-import { ESTIMATE_CATEGORIES } from '../types';
+import { getEstimateCategories, getSectionSubgroups } from './estimateSections';
 import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 
 export const generatePdf = async (estimate: Estimate) => {
@@ -133,7 +133,7 @@ export const generatePdf = async (estimate: Estimate) => {
         { content: 'Стоимость', styles: { font: FONT_NAME, fontStyle: 'bold', halign: 'center' } }
     ]);
 
-    ESTIMATE_CATEGORIES.forEach((category) => {
+    getEstimateCategories(estimate.items).forEach((category) => {
         const itemsInCategory = estimate.items.filter(item => item.category === category);
         if (itemsInCategory.length > 0) {
             // Category Header
@@ -154,7 +154,7 @@ export const generatePdf = async (estimate: Estimate) => {
             const materialsTotal = itemsInCategory.filter(i => i.subgroup === EstimateSubgroup.MATERIALS).reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
             const deliveryTotal = itemsInCategory.filter(i => i.subgroup === EstimateSubgroup.DELIVERY).reduce((sum, it) => sum + (it.total || it.quantity * it.price), 0);
 
-            const subgroupList = category === EstimateCategory.LOGISTICS ? [EstimateSubgroup.WORKS, EstimateSubgroup.DELIVERY] : [EstimateSubgroup.WORKS, EstimateSubgroup.MATERIALS];
+            const subgroupList = getSectionSubgroups(category, itemsInCategory);
             subgroupList.forEach(subgroup => {
                 const subItems = itemsInCategory.filter(i => (i.subgroup || EstimateSubgroup.WORKS) === subgroup);
                 if (subItems.length === 0) return;

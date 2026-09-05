@@ -108,3 +108,63 @@ test('persists an offline material across Electron restart and syncs push before
     await fs.rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
   }
 });
+
+test('persists empty engineering sections across an offline Electron restart and syncs them', async () => {
+  const mock = await startMockSupabaseServer();
+  const userDataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'kmobn-electron-sections-e2e-'));
+  let firstApp: ElectronApplication | null = null;
+  let secondApp: ElectronApplication | null = null;
+
+  try {
+    const first = await launchApp(userDataDir, false);
+    firstApp = first.app;
+
+    await first.page.getByRole('button', { name: 'Войти', exact: true }).first().click();
+    const loginDialog = first.page.getByRole('dialog');
+    await loginDialog.locator('input[autocomplete="email"]').fill('offline@example.test');
+    await loginDialog.locator('input[autocomplete="current-password"]').fill('password');
+    await loginDialog.getByRole('button', { name: 'Войти', exact: true }).click();
+    await expect(first.page.getByTestId('offline-readiness').first()).toContainText('Офлайн готово');
+
+    await first.app.context().setOffline(true);
+    await first.page.getByRole('button', { name: 'Создать смету', exact: true }).click();
+    await first.page.getByPlaceholder('Имя клиента').fill('Offline engineering sections');
+    const sectionSelect = first.page.getByLabel('Добавить раздел');
+    await sectionSelect.selectOption({ label: 'Водоснабжение/Сантехника' });
+    await sectionSelect.selectOption({ label: 'Канализация' });
+    await expect(first.page.getByRole('heading', { name: /Водоснабжение\/Сантехника/ })).toBeVisible();
+    await expect(first.page.getByRole('heading', { name: /Канализация/ })).toBeVisible();
+
+    await first.page.getByRole('button', { name: 'Сохранить смету', exact: true }).click();
+    const saveDialog = first.page.getByRole('dialog');
+    await saveDialog.getByRole('button', { name: /Сохранить изменения/ }).click();
+    await expect(first.page.getByText('Offline engineering sections', { exact: true }).first()).toBeVisible();
+    await expect(first.page.getByTestId('sync-pending-count')).toHaveText(/Локально: [1-9]\d*/);
+
+    await first.app.close();
+    firstApp = null;
+
+    const second = await launchApp(userDataDir, true);
+    secondApp = second.app;
+    await expect(second.page.getByText('Offline engineering sections', { exact: true }).first()).toBeVisible();
+    await second.page.getByRole('button', { name: 'Открыть', exact: true }).first().click();
+    await expect(second.page.getByRole('heading', { name: /Водоснабжение\/Сантехника/ })).toBeVisible();
+    await expect(second.page.getByRole('heading', { name: /Канализация/ })).toBeVisible();
+
+    const reconnectLogStart = mock.logs.length;
+    await second.app.context().setOffline(false);
+    await expect.poll(() => mock.logs.slice(reconnectLogStart).some(log => log.method === 'POST' && log.table === 'estimates')).toBe(true);
+    await expect(second.page.getByTestId('sync-pending-count')).toHaveCount(0);
+    expect(mock.rows.estimates.some(row => (
+      row.payload?.client === 'Offline engineering sections'
+      && Array.isArray(row.payload?.selectedSections)
+      && row.payload.selectedSections.includes('ВОДОСНАБЖЕНИЕ/САНТЕХНИКА')
+      && row.payload.selectedSections.includes('КАНАЛИЗАЦИЯ')
+    ))).toBe(true);
+  } finally {
+    await firstApp?.close().catch(() => undefined);
+    await secondApp?.close().catch(() => undefined);
+    await mock.close();
+    await fs.rm(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }).catch(() => undefined);
+  }
+});

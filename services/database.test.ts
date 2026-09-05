@@ -63,11 +63,28 @@ describe('prepareEstimatesForExport', () => {
 
 describe('estimate transfer', () => {
   it('exports and reads exactly one sanitized estimate', () => {
-    const source = { ...createEstimate('shared'), explanation: 'internal note' };
+    const futureSection = 'БУДУЩИЙ РАЗДЕЛ' as EstimateCategory;
+    const source: Estimate = {
+      ...createEstimate('shared'),
+      explanation: 'internal note',
+      selectedSections: [EstimateCategory.SEWERAGE],
+      items: [
+        { id: 'water', name: 'Коллектор', unit: 'шт', quantity: 1, price: 10, total: 10, category: EstimateCategory.WATER_SUPPLY },
+        { id: 'general', name: 'Общая работа', unit: 'шт', quantity: 1, price: 20, total: 20, category: EstimateCategory.GENERAL },
+        { id: 'future', name: 'Будущая работа', unit: 'шт', quantity: 1, price: 30, total: 30, category: futureSection },
+      ],
+      total: 60,
+    };
 
     const received = parseEstimateTransfer(createEstimateTransfer(source));
 
     expect(received).toMatchObject({ id: 'shared', estimateNumber: source.estimateNumber });
+    expect(received.selectedSections).toEqual([EstimateCategory.SEWERAGE]);
+    expect(received.items.map(item => item.category)).toEqual([
+      EstimateCategory.WATER_SUPPLY,
+      EstimateCategory.GENERAL,
+      futureSection,
+    ]);
     expect(received).not.toHaveProperty('explanation');
   });
 

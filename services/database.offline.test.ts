@@ -187,6 +187,32 @@ describe('database offline behavior', () => {
     ]);
   });
 
+  it('preserves engineering, empty, legacy, and future sections offline', async () => {
+    const futureSection = 'БУДУЩИЙ РАЗДЕЛ' as EstimateCategory;
+    const localEstimate: Estimate = {
+      ...estimate('estimate-sections'),
+      selectedSections: [EstimateCategory.WATER_SUPPLY, EstimateCategory.SEWERAGE],
+      items: [
+        { id: 'water', name: 'Коллектор', unit: 'шт', quantity: 1, price: 100, total: 100, category: EstimateCategory.WATER_SUPPLY },
+        { id: 'general', name: 'Общая работа', unit: 'шт', quantity: 1, price: 200, total: 200, category: EstimateCategory.GENERAL },
+        { id: 'future', name: 'Будущая работа', unit: 'шт', quantity: 1, price: 300, total: 300, category: futureSection },
+      ],
+      total: 600,
+    };
+
+    await saveEstimates([localEstimate]);
+    closeIndexedDbCache();
+
+    expect(await loadEstimates()).toEqual([localEstimate]);
+    expect(await offlineQueue.getForTable(USER_A, 'estimates')).toEqual([
+      expect.objectContaining({
+        recordId: localEstimate.id,
+        operation: 'upsert',
+        data: localEstimate,
+      }),
+    ]);
+  });
+
   it('keeps an archived estimate after reopening the local cache', async () => {
     const initial = estimate('estimate-archive');
     const archived = { ...initial, isArchived: true };

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { WorkBundle, EstimateCategory, EstimateItem, Work, Material } from '../types';
+import { CATALOG_CATEGORIES, getSectionLabel } from '../services/estimateSections';
 
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import BundleItemPickerModal from './BundleItemPickerModal';
@@ -131,8 +132,8 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                     value={selectedCategory}
                     onChange={e => setSelectedCategory(e.target.value as EstimateCategory)}
                 >
-                    {Object.values(EstimateCategory).map(category => (
-                        <option key={category} value={category}>{category}</option>
+                    {CATALOG_CATEGORIES.map(category => (
+                        <option key={category} value={category}>{getSectionLabel(category)}</option>
                     ))}
                 </select>
                 <button
@@ -150,8 +151,8 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                     onChange={e => setFilterCategory(e.target.value as EstimateCategory | 'all')}
                 >
                     <option value="all">Все категории</option>
-                    {Object.values(EstimateCategory).map(category => (
-                        <option key={category} value={category}>{category}</option>
+                    {CATALOG_CATEGORIES.map(category => (
+                        <option key={category} value={category}>{getSectionLabel(category)}</option>
                     ))}
                 </select>
             </div>

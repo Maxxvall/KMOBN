@@ -13,6 +13,7 @@ import {
     normalizeKey,
     safeNumber,
 } from '../types';
+import { getSectionDescription } from './estimateSections';
 
 const median = (arr: number[]): number => {
     if (arr.length === 0) return 0;
@@ -396,7 +397,7 @@ function buildWizardItems(
         autoSummary.push({
             category,
             count,
-            description: getCategoryDescription(category),
+            description: getSectionDescription(category),
         });
     }
 
@@ -407,21 +408,6 @@ function buildWizardItems(
         autoSummary,
         warnings,
     };
-}
-
-function getCategoryDescription(category: EstimateCategory): string {
-    const descriptions: Record<string, string> = {
-        [EstimateCategory.FOUNDATION]: 'Фундамент и основание',
-        [EstimateCategory.GRILLAGE]: 'Ростверк, лаги, полы',
-        [EstimateCategory.WALLS]: 'Стены и утепление',
-        [EstimateCategory.ROOF]: 'Кровля и потолок',
-        [EstimateCategory.WINDOWS]: 'Окна и двери',
-        [EstimateCategory.ELECTRICAL]: 'Электрика',
-        [EstimateCategory.LOGISTICS]: 'Логистика и доставка',
-        [EstimateCategory.DEMOLITION]: 'Демонтаж',
-        [EstimateCategory.GENERAL]: 'Общие работы',
-    };
-    return descriptions[category] || category;
 }
 
 export function buildSmartEstimate(

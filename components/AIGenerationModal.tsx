@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Estimate, EstimateCategory, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
+import { ESTIMATE_CATEGORIES, ESTIMATE_SECTION_DEFINITIONS, Estimate, EstimateCategory, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
 
 // ─── Building type presets ───────────────────────────────────────────────────
 
@@ -26,6 +26,7 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
       EstimateCategory.FOUNDATION, EstimateCategory.GRILLAGE,
       EstimateCategory.WALLS, EstimateCategory.ROOF,
       EstimateCategory.WINDOWS, EstimateCategory.ELECTRICAL,
+      EstimateCategory.WATER_SUPPLY, EstimateCategory.SEWERAGE,
       EstimateCategory.LOGISTICS,
     ],
     promptHint: 'Каркасный жилой дом. Фундамент на сваях, силовой каркас стен, утепление, кровля металлочерепица, окна/двери.',
@@ -40,6 +41,7 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
       EstimateCategory.FOUNDATION, EstimateCategory.GRILLAGE,
       EstimateCategory.WALLS, EstimateCategory.ROOF,
       EstimateCategory.WINDOWS, EstimateCategory.ELECTRICAL,
+      EstimateCategory.WATER_SUPPLY, EstimateCategory.SEWERAGE,
       EstimateCategory.LOGISTICS,
     ],
     promptHint: 'Кирпичный/блочный дом. Ленточный/плитный фундамент, кладка стен, кровля, окна/двери.',
@@ -107,17 +109,10 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
   },
 ];
 
-const ALL_SECTIONS: { cat: EstimateCategory; label: string; icon: string }[] = [
-  { cat: EstimateCategory.FOUNDATION, label: 'Фундамент', icon: '🧱' },
-  { cat: EstimateCategory.GRILLAGE, label: 'Ростверк/Лаги/Полы', icon: '🪵' },
-  { cat: EstimateCategory.WALLS, label: 'Стены', icon: '🏗️' },
-  { cat: EstimateCategory.ROOF, label: 'Кровля/Потолок', icon: '🏠' },
-  { cat: EstimateCategory.WINDOWS, label: 'Окна/Двери', icon: '🪟' },
-  { cat: EstimateCategory.ELECTRICAL, label: 'Электрика', icon: '⚡' },
-  { cat: EstimateCategory.DEMOLITION, label: 'Демонтаж', icon: '🔨' },
-  { cat: EstimateCategory.LOGISTICS, label: 'Логистика', icon: '🚚' },
-  { cat: EstimateCategory.GENERAL, label: 'Общая', icon: '📋' },
-];
+const ALL_SECTIONS: { cat: EstimateCategory; label: string; icon: string }[] = [...ESTIMATE_SECTION_DEFINITIONS]
+  .filter(section => !section.catalogGlobal)
+  .sort((left, right) => left.order - right.order)
+  .map(section => ({ cat: section.id, label: section.label, icon: section.icon }));
 
 // ─── Similar estimate summary ───────────────────────────────────────────────
 
@@ -247,7 +242,7 @@ const computeDbCoverage = (
   works: Work[],
   sections: EstimateCategory[],
 ): DbCoverage => {
-  const cats = sections.length > 0 ? sections : Object.values(EstimateCategory);
+  const cats = sections.length > 0 ? sections : ESTIMATE_CATEGORIES;
   const categoryCoverage = cats.map(cat => ({
     cat,
     materials: (materials || []).filter(m => m.category === cat).length,

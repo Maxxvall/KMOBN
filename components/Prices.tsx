@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import FocusLock from 'react-focus-lock';
 import { BoardMoisture, BoardSpec, Material, EstimateCategory, DuplicateGroup, findDuplicates } from '../types';
+import { CATALOG_CATEGORIES, getSectionLabel } from '../services/estimateSections';
 
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import DuplicateCheckerDialog from './DuplicateCheckerDialog';
@@ -299,8 +300,8 @@ const Prices: React.FC<PricesProps> = ({
                         value={selectedCategory}
                         onChange={(e) => setSelectedCategory(e.target.value as EstimateCategory)}
                     >
-                        {Object.values(EstimateCategory).map(category => (
-                            <option key={category} value={category}>{category}</option>
+                        {CATALOG_CATEGORIES.map(category => (
+                            <option key={category} value={category}>{getSectionLabel(category)}</option>
                         ))}
                     </select>
                     <input
@@ -379,8 +380,8 @@ const Prices: React.FC<PricesProps> = ({
                     onChange={(e) => setFilterCategory(e.target.value as EstimateCategory | 'all')}
                 >
                     <option value="all">Все категории</option>
-                    {Object.values(EstimateCategory).map(category => (
-                        <option key={category} value={category}>{category}</option>
+                    {CATALOG_CATEGORIES.map(category => (
+                        <option key={category} value={category}>{getSectionLabel(category)}</option>
                     ))}
                 </select>
                 <button

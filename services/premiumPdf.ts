@@ -4,10 +4,10 @@ import {
     EstimateCategory,
     EstimateItem,
     EstimateSubgroup,
-    ESTIMATE_CATEGORIES,
     Material,
 } from '../types';
 import { PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
+import { getEstimateCategories } from './estimateSections';
 import {
     PREMIUM_PDF_COLORS as COLORS,
     PREMIUM_PDF_LINKS,
@@ -80,11 +80,7 @@ const subgroupOf = (item: EstimateItem): EstimateSubgroup => item.subgroup || Es
 const sumItems = (items: EstimateItem[]): number => items.reduce((sum, item) => sum + safeItemTotal(item), 0);
 
 export const buildPremiumEstimateModel = (estimate: Estimate): PremiumEstimateModel => {
-    const categorySet = new Set<EstimateCategory>(ESTIMATE_CATEGORIES);
-    const extraCategories = estimate.items
-        .map(item => item.category)
-        .filter(category => !categorySet.has(category));
-    const orderedCategories = [...ESTIMATE_CATEGORIES, ...Array.from(new Set(extraCategories))];
+    const orderedCategories = getEstimateCategories(estimate.items);
     const subgroupOrder = [
         EstimateSubgroup.WORKS,
         EstimateSubgroup.MATERIALS,

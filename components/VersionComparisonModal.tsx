@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Estimate, EstimateItem, EstimateCategory } from '../types';
-import { ESTIMATE_CATEGORIES } from '../types';
+import { getEstimateCategories } from '../services/estimateSections';
 
 interface VersionComparisonModalProps {
     oldVersion: Estimate;
@@ -47,7 +47,7 @@ const VersionComparisonModal: React.FC<VersionComparisonModalProps> = ({ oldVers
         }
 
         const groups = new Map<EstimateCategory, DiffItem[]>();
-        ESTIMATE_CATEGORIES.forEach(cat => groups.set(cat, []));
+        getEstimateCategories([...oldVersion.items, ...newVersion.items]).forEach(cat => groups.set(cat, []));
         changes.forEach(change => {
             const categoryChanges = groups.get(change.category) || [];
             categoryChanges.push(change);
@@ -76,7 +76,7 @@ const VersionComparisonModal: React.FC<VersionComparisonModalProps> = ({ oldVers
                 
                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
                     {!hasChanges && <p className="text-text-secondary">Нет изменений в позициях сметы.</p>}
-                    {ESTIMATE_CATEGORIES.map(category => {
+                    {Array.from(groupedDiffs.keys()).map(category => {
                         const diffs = groupedDiffs.get(category) || [];
                         if (diffs.length === 0) return null;
                         
