@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle } from '../types';
+import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId } from '../types';
 import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
 import { generateEstimateWithAI } from '../services/geminiService';
@@ -21,6 +21,7 @@ import { generateEstimateNumber } from '../services/estimateNumber';
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import { useOptionalSubscriptionContext } from '../contexts/SubscriptionContext';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 import {
     ActualFilter,
     calculateActualSummary,
@@ -43,6 +44,7 @@ interface EstimateEditorProps {
     onSaveAsTemplate?: (estimate: Estimate) => void;
     onDeleteTemplate?: (templateId: string) => void;
     onBack?: () => void;
+    onManageSections?: () => void;
     allEstimates?: Estimate[];
     validationResult?: EstimateValidationResult | null;
     aiAccess?: {
@@ -179,8 +181,8 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
     return hash;
 };
 
-const groupCatalogByCategory = <T extends Material | Work>(items: T[]): Map<EstimateCategory, T[]> => {
-    const grouped = new Map<EstimateCategory, T[]>();
+const groupCatalogByCategory = <T extends Material | Work>(items: T[], categories: readonly SectionId[]): Map<SectionId, T[]> => {
+    const grouped = new Map<SectionId, T[]>();
     const generalItems: T[] = [];
 
     for (const item of items) {
@@ -194,7 +196,7 @@ const groupCatalogByCategory = <T extends Material | Work>(items: T[]): Map<Esti
         grouped.set(item.category, existing);
     }
 
-    for (const category of new Set([...CATALOG_CATEGORIES, ...grouped.keys()])) {
+    for (const category of new Set([...categories, ...grouped.keys()])) {
         const existing = grouped.get(category) ?? [];
         grouped.set(category, generalItems.length > 0 ? [...existing, ...generalItems] : existing);
     }
@@ -237,10 +239,11 @@ const cancelNonUrgentTask = (handle?: NonUrgentTaskHandle): void => {
     clearTimeout(handle.id);
 };
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, allEstimates, validationResult, aiAccess, onUpgradeRequest }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, onManageSections, allEstimates, validationResult, aiAccess, onUpgradeRequest }) => {
     const estimateContext = useOptionalEstimateContext();
     const catalogContext = useOptionalCatalogContext();
     const subscriptionContext = useOptionalSubscriptionContext();
+    const sectionsContext = useOptionalEstimateSections();
 
     const initialEstimateValue = initialEstimate ?? estimateContext?.currentEstimate ?? null;
     const templatesValue = useMemo(() => templates ?? estimateContext?.templates ?? [], [templates, estimateContext?.templates]);
@@ -255,6 +258,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const onSaveAsTemplateAction = onSaveAsTemplate ?? estimateContext?.actions.onSaveAsTemplate;
     const onDeleteTemplateAction = onDeleteTemplate ?? estimateContext?.actions.onDeleteTemplate;
     const onBackAction = onBack ?? estimateContext?.actions.onBack;
+    const onManageSectionsAction = onManageSections ?? estimateContext?.actions.onManageSections;
     const validationResultValue = validationResult ?? estimateContext?.validationResult ?? null;
     const aiAccessValue = aiAccess ?? subscriptionContext?.aiAccess;
 
@@ -304,12 +308,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [quickBundleModalOpen, setQuickBundleModalOpen] = useState(false);
     const [quickBundleNotice, setQuickBundleNotice] = useState<string | null>(null);
     const [pasteModalOpen, setPasteModalOpen] = useState(false);
-    const [pasteTargetCategory, setPasteTargetCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
+    const [pasteTargetCategory, setPasteTargetCategory] = useState<SectionId>(EstimateCategory.FOUNDATION);
     const [boardSwitchTarget, setBoardSwitchTarget] = useState<BoardMoisture | null>(null);
     const [boardSwitchNotice, setBoardSwitchNotice] = useState<string | null>(null);
     const visibleCategories = useMemo(
-        () => getEstimateCategories(estimate.items, estimate.selectedSections),
-        [estimate.items, estimate.selectedSections],
+        () => getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot, sectionsContext?.document),
+        [estimate.items, estimate.sectionSnapshot, estimate.selectedSections, sectionsContext?.document],
     );
     const [showActuals, setShowActuals] = useState(false);
     const [actualFilter, setActualFilter] = useState<ActualFilter>('all');
@@ -415,9 +419,22 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         return index;
     }, [worksValue]);
 
-    const filteredMaterialsByCategory = useMemo(() => groupCatalogByCategory(materialsValue), [materialsValue]);
+    const catalogCategoryIds = useMemo(
+        () => sectionsContext?.allSections.map(section => section.id) ?? CATALOG_CATEGORIES,
+        [sectionsContext?.allSections],
+    );
+    const addableCategoryIds = useMemo(
+        () => sectionsContext?.activeSections.filter(section => !section.catalogGlobal).map(section => section.id) ?? ESTIMATE_CATEGORIES,
+        [sectionsContext?.activeSections],
+    );
+    const sectionLabel = useCallback(
+        (category: SectionId) => getSectionLabel(category, estimate.sectionSnapshot, sectionsContext?.document),
+        [estimate.sectionSnapshot, sectionsContext?.document],
+    );
 
-    const filteredWorksByCategory = useMemo(() => groupCatalogByCategory(worksValue), [worksValue]);
+    const filteredMaterialsByCategory = useMemo(() => groupCatalogByCategory(materialsValue, catalogCategoryIds), [catalogCategoryIds, materialsValue]);
+
+    const filteredWorksByCategory = useMemo(() => groupCatalogByCategory(worksValue, catalogCategoryIds), [catalogCategoryIds, worksValue]);
 
     const boardInventoryState = useMemo(
         () => getEstimateBoardState(estimate, materialsValue),
@@ -591,7 +608,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
     const groupedItems = useMemo(() => {
-        const groups = new Map<EstimateCategory, EstimateItem[]>();
+        const groups = new Map<SectionId, EstimateItem[]>();
         ESTIMATE_CATEGORIES.forEach(cat => groups.set(cat, []));
         estimate.items.forEach(item => {
             const categoryItems = groups.get(item.category) || [];
@@ -602,7 +619,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     }, [estimate.items]);
 
     const categorySubtotals = useMemo(() => {
-        const subtotals = new Map<EstimateCategory, number>();
+        const subtotals = new Map<SectionId, number>();
         for (const [category, items] of groupedItems.entries()) {
             const subtotal = items.reduce((sum, item) => sum + item.total, 0);
             subtotals.set(category, subtotal);
@@ -694,7 +711,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }));
     };
 
-    const addItem = (category: EstimateCategory, subgroup: EstimateSubgroup = EstimateSubgroup.WORKS) => {
+    const addItem = (category: SectionId, subgroup: EstimateSubgroup = EstimateSubgroup.WORKS) => {
         const newItem: EstimateItem = {
             id: `item-new-${Date.now()}`,
             name: '',
@@ -708,7 +725,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setEstimate(prev => ({ ...prev, items: [...prev.items, newItem] }));
     };
 
-    const addActualOnlyItem = (category: EstimateCategory, subgroup: EstimateSubgroup = EstimateSubgroup.MATERIALS) => {
+    const addActualOnlyItem = (category: SectionId, subgroup: EstimateSubgroup = EstimateSubgroup.MATERIALS) => {
         const newItem: EstimateItem = {
             id: `item-actual-${Date.now()}`,
             name: '',
@@ -842,7 +859,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         enableAiPriceSearch?: boolean;
         area?: number;
         buildingType?: string;
-        selectedSections?: EstimateCategory[];
+        selectedSections?: SectionId[];
         referenceEstimateId?: string;
         windowCount?: number;
         doorCount?: number;
@@ -987,7 +1004,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 selectedTemplate?.id || genParams.projectTemplateId || null,
                 selectedTemplate?.name || null,
                 opts?.referenceEstimateId || null,
-                opts?.selectedSections?.sort() || null,
+                opts?.selectedSections ? [...opts.selectedSections].sort() : null,
                 (baseItems || []).map(i => i.name).sort(),
             );
             aiSessionRef.current = {
@@ -1098,7 +1115,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }));
     };
 
-    const addCategory = (cat: EstimateCategory) => {
+    const addCategory = (cat: SectionId) => {
         if (!cat) return;
         setEstimate(prev => ({
             ...prev,
@@ -1106,7 +1123,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }));
     };
 
-    const removeVisibleCategory = (cat: EstimateCategory) => {
+    const removeVisibleCategory = (cat: SectionId) => {
         const itemsInCat = estimate.items.filter(it => it.category === cat);
         if (itemsInCat.length > 0 && !confirm('В разделе есть позиции. Удалить раздел и все позиции?')) return;
         setEstimate(prev => {
@@ -1120,7 +1137,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         });
     };
 
-    const handleDuplicateSection = useCallback((cat: EstimateCategory) => {
+    const handleDuplicateSection = useCallback((cat: SectionId) => {
         const itemsInCat = estimate.items.filter(it => it.category === cat);
         if (itemsInCat.length === 0) {
             alert('В разделе нет позиций для дублирования.');
@@ -1141,12 +1158,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         });
     }, [estimate.items]);
 
-    const handleOpenPasteModal = useCallback((cat: EstimateCategory) => {
+    const handleOpenPasteModal = useCallback((cat: SectionId) => {
         setPasteTargetCategory(cat);
         setPasteModalOpen(true);
     }, []);
 
-    const handlePasteFromEstimate = useCallback((items: EstimateItem[], _targetCategory: EstimateCategory) => {
+    const handlePasteFromEstimate = useCallback((items: EstimateItem[], _targetCategory: SectionId) => {
         setEstimate(prev => {
             const updatedItems = [...prev.items, ...items];
             return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
@@ -1518,23 +1535,30 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                 );
                             })}
                         </div>
-                        <select
-                            aria-label="Добавить раздел"
-                            onChange={(e) => {
-                                const val = e.target.value as EstimateCategory;
-                                if (val) {
-                                    addCategory(val);
-                                    e.target.value = '';
-                                }
-                            }}
-                            className="min-h-[44px] min-w-0 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
-                            defaultValue=""
-                        >
-                            <option value="">+ Раздел...</option>
-                            {ESTIMATE_CATEGORIES.map(cat => (
-                                <option key={cat} value={cat} disabled={visibleCategories.includes(cat)}>{getSectionLabel(cat)}</option>
-                            ))}
-                        </select>
+                        <div className="flex min-w-0 flex-col gap-1">
+                            <select
+                                aria-label="Добавить раздел"
+                                onChange={(e) => {
+                                    const val = e.target.value as SectionId;
+                                    if (val) {
+                                        addCategory(val);
+                                        e.target.value = '';
+                                    }
+                                }}
+                                className="min-h-[44px] min-w-0 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
+                                defaultValue=""
+                            >
+                                <option value="">+ Раздел...</option>
+                                {addableCategoryIds.map(cat => (
+                                    <option key={cat} value={cat} disabled={visibleCategories.includes(cat)}>{sectionLabel(cat)}</option>
+                                ))}
+                            </select>
+                            {onManageSectionsAction && (
+                                <button type="button" onClick={onManageSectionsAction} className="min-h-[32px] rounded px-1 text-left text-xs font-semibold text-blue-400 hover:bg-white/5 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                    Управлять разделами
+                                </button>
+                            )}
+                        </div>
                         <button
                             type="button"
                             onClick={() => setShowActuals(prev => !prev)}
@@ -1652,7 +1676,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     className="w-full bg-gray-900/50 p-2 sm:p-3 flex items-center gap-2 rounded-t-lg border-b border-border text-left"
                                 >
                                     <span className={`text-xs transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
-                                    <h3 className="min-w-0 flex-1 break-words text-xs font-bold text-text-primary sm:text-lg">{catIndex + 1}. {getSectionLabel(category)}</h3>
+                                    <h3 className="min-w-0 flex-1 break-words text-xs font-bold text-text-primary sm:text-lg">{catIndex + 1}. {sectionLabel(category)}</h3>
                                     <span className="text-xs sm:text-sm font-semibold text-text-secondary shrink-0">
                                         {catTotal.toLocaleString('ru-RU')} ₽
                                     </span>

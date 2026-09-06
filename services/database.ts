@@ -1,4 +1,4 @@
-import { Estimate, EstimateStatus, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation, normalizeKey } from '../types';
+import { Estimate, EstimateStatus, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation, normalizeKey, EstimateSectionsDocument } from '../types';
 import { generateEstimateNumber } from './estimateNumber';
 import {
   CacheTableKey,
@@ -14,6 +14,7 @@ import { offlineQueue } from './offlineQueue';
 import { hashData } from './hashing';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
+import { normalizeEstimateSectionsDocument, prepareEstimateSectionsDocumentForSave } from './estimateSections';
 import supabase, {
   isSupabaseConfigured,
   fetchEstimates,
@@ -22,6 +23,7 @@ import supabase, {
   fetchWorks,
   fetchBundles,
   fetchSalaryCalculations,
+  fetchEstimateSections,
 } from './supabase';
 
 const ensureSupabase = () => {
@@ -163,6 +165,7 @@ const OFFLINE_TABLE_FETCHERS: Record<CacheTableKey, TableFetcher> = {
   works: fetchWorks,
   bundles: fetchBundles,
   salary_calculations: fetchSalaryCalculations,
+  estimate_sections: fetchEstimateSections,
 };
 
 export type OfflineWorkspaceRefreshResult = {
@@ -170,6 +173,11 @@ export type OfflineWorkspaceRefreshResult = {
   skippedTables: CacheTableKey[];
   failedTables: CacheTableKey[];
 };
+
+const hasUnresolvedEstimateSectionsConflict = async (userId: string): Promise<boolean> => (
+  (await getCachedRecords<EstimateSectionsDocument>('estimate_sections', getCacheUserId(userId)))
+    .some(document => Boolean(document.syncConflict))
+);
 
 /** Downloads complete server snapshots without overwriting newer local changes. */
 export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWorkspaceRefreshResult> => {
@@ -186,6 +194,10 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
       result.skippedTables.push(table);
       continue;
     }
+    if (table === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) {
+      result.skippedTables.push(table);
+      continue;
+    }
     const refreshGeneration = getMutationGeneration(refreshKey);
     try {
       const { data, error } = await OFFLINE_TABLE_FETCHERS[table](userId);
@@ -194,6 +206,7 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
       const applied = await withTableMutationLock(refreshKey, async (): Promise<boolean> => {
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
         if ((await offlineQueue.getForTable(userId, table)).length > 0) return false;
+        if (table === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return false;
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
         await syncCachedRecords(table, getCacheUserId(userId), records);
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
@@ -221,6 +234,7 @@ const refreshCacheInBackground = async <T extends { id: string }>(
   options?: LoadTableOptions,
 ): Promise<void> => {
   if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
+  if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return;
   if (isRefreshThrottled(key, userId)) return;
   const refreshKey = getRefreshKey(key, userId);
   if (refreshesInFlight.has(refreshKey)) return;
@@ -240,6 +254,7 @@ const refreshCacheInBackground = async <T extends { id: string }>(
     await withTableMutationLock(refreshKey, async () => {
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
       if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
+      if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return;
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
       const changed = (await syncCachedRecords(key, cacheUserId, records)).changed;
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
@@ -268,9 +283,11 @@ const readTableCached = async <T extends { id: string }>(
   const hasCompleteSnapshot = await isTableSnapshotComplete(key, cacheUserId);
   const canFetch = isSupabaseConfigured() && !!userId;
   const limitedCached = typeof options?.limit === 'number' ? cached.slice(0, options.limit) : cached;
+  const hasLocalConflict = key === 'estimate_sections'
+    && cached.some(record => Boolean((record as unknown as EstimateSectionsDocument).syncConflict));
 
   if (cached.length > 0 || hasCompleteSnapshot) {
-    if (canFetch && pending.length === 0) {
+    if (canFetch && pending.length === 0 && !hasLocalConflict) {
       void refreshCacheInBackground<T>(key, userId as string, fetcher, options);
     }
     return limitedCached;
@@ -296,6 +313,10 @@ const readTableCached = async <T extends { id: string }>(
         await getCachedRecords<T>(key, cacheUserId),
         pendingAfterFetch,
       ));
+      return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
+    }
+    if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(cacheUserId)) {
+      const local = normalizeStableOrder(await getCachedRecords<T>(key, cacheUserId));
       return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
     }
     if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
@@ -526,6 +547,14 @@ export const saveSalaryCalculation = async (calculation: SalaryCalculation): Pro
   await saveLocalRecords('salary_calculations', [calculation]);
 };
 
+export const loadEstimateSections = async (options?: LoadTableOptions): Promise<EstimateSectionsDocument[]> => (
+  readTableCached<EstimateSectionsDocument>('estimate_sections', fetchEstimateSections, options)
+);
+
+export const saveEstimateSections = async (document: EstimateSectionsDocument): Promise<void> => {
+  await saveLocalRecords('estimate_sections', [prepareEstimateSectionsDocumentForSave(document)]);
+};
+
 export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
   // Try to find in local cache first for fast path
   const userId = await getAuthenticatedUserId();
@@ -550,10 +579,10 @@ export const deleteSalaryCalculation = async (calculationId: string): Promise<vo
   await deleteRecord('salary_calculations', calculationId);
 };
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 const ESTIMATE_TRANSFER_FORMAT = 'kmobn-estimate';
-const ESTIMATE_TRANSFER_SCHEMA_VERSION = 1;
+const ESTIMATE_TRANSFER_SCHEMA_VERSION = 2;
 const MAX_ESTIMATE_TRANSFER_SIZE = 10 * 1024 * 1024;
 
 type EstimateTransferPayload = {
@@ -598,7 +627,7 @@ export const parseEstimateTransfer = (payloadText: string): Estimate => {
   if (!isObject(parsed) || parsed.format !== ESTIMATE_TRANSFER_FORMAT) {
     throw new Error('Это не файл обмена одной сметой КМОВН.');
   }
-  if (parsed.schemaVersion !== ESTIMATE_TRANSFER_SCHEMA_VERSION) {
+  if (parsed.schemaVersion !== 1 && parsed.schemaVersion !== ESTIMATE_TRANSFER_SCHEMA_VERSION) {
     throw new Error('Формат этой сметы не поддерживается. Обновите приложение у отправителя и получателя.');
   }
   if (!isObject(parsed.estimate)) {
@@ -685,13 +714,14 @@ export const mergeImportedEstimate = (incoming: Estimate, existing?: Estimate): 
 };
 
 export const exportData = async (): Promise<string> => {
-  const [estimates, templates, materials, works, bundles, salaryCalculations] = await Promise.all([
+  const [estimates, templates, materials, works, bundles, salaryCalculations, estimateSections] = await Promise.all([
     loadEstimates(),
     loadTemplates(),
     loadMaterials(),
     loadWorks(),
     loadBundles(),
     loadAllSalaryCalculations(),
+    loadEstimateSections(),
   ]);
 
   const data = {
@@ -702,6 +732,7 @@ export const exportData = async (): Promise<string> => {
     works,
     bundles,
     salaryCalculations,
+    estimateSections: estimateSections[0] ?? null,
     exportedAt: new Date().toISOString(),
   };
 
@@ -738,6 +769,9 @@ export const validateImportData = (jsonData: string): ImportValidationResult => 
     if (obj[key] !== undefined && !Array.isArray(obj[key])) {
       return { ok: false, error: `Поле «${key}» должно быть массивом.` };
     }
+  }
+  if (obj.estimateSections !== undefined && obj.estimateSections !== null && !isObject(obj.estimateSections)) {
+    return { ok: false, error: 'Поле «estimateSections» должно быть объектом.' };
   }
 
   return { ok: true, data: obj };
@@ -857,6 +891,9 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     }
     const rawBundles = asArray<WorkBundle>(data.bundles);
     const rawSalaryCalculations = asArray<SalaryCalculation>(data.salaryCalculations);
+    const rawEstimateSections = isObject(data.estimateSections)
+      ? data.estimateSections as unknown as EstimateSectionsDocument
+      : null;
 
     let estimatesAdded = 0, estimatesUpdated = 0, estimatesUnchanged = 0;
     const estimateIdMap = new Map<string, string>();
@@ -1014,6 +1051,20 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       if (!records.length) return;
       await saveLocalRecords(tableName, records);
     };
+
+    if (rawEstimateSections) {
+      const userId = await getAuthenticatedUserId();
+      if (userId) {
+        await saveEstimateSections({
+          ...normalizeEstimateSectionsDocument(rawEstimateSections, userId),
+          id: userId,
+          serverRevision: 0,
+          baseDocument: undefined,
+          operationId: undefined,
+          syncConflict: undefined,
+        });
+      }
+    }
 
     await Promise.all([
       importTable('estimates', estimates),

@@ -4,6 +4,7 @@ import {
     EstimateItem,
     EstimateStatus,
     EstimateSubgroup,
+    SectionId,
 } from '../types';
 
 export type HousePackage =
@@ -55,7 +56,7 @@ export interface HouseFinancialBreakdown {
 }
 
 export interface HouseCalculatorSection {
-    category: EstimateCategory;
+    category: SectionId;
     total: number;
     items: EstimateItem[];
 }

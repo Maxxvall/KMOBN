@@ -1,11 +1,11 @@
-import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, normalizeKey, safeNumber } from '../types';
+import { Estimate, EstimateItem, EstimateSubgroup, normalizeKey, safeNumber, SectionId } from '../types';
 
 export type ActualFilter = 'all' | 'different' | 'missing' | 'actualOnly';
 
 export interface ActualItemComparison {
   id: string;
   name: string;
-  category: EstimateCategory;
+  category: SectionId;
   subgroup: EstimateSubgroup;
   planUnit: string;
   actualUnit: string;

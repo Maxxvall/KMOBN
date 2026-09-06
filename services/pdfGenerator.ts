@@ -2,7 +2,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
-import { getEstimateCategories, getSectionSubgroups } from './estimateSections';
+import { getEstimateCategories, getSectionLabel, getSectionSubgroups } from './estimateSections';
 import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 
 export const generatePdf = async (estimate: Estimate) => {
@@ -133,12 +133,12 @@ export const generatePdf = async (estimate: Estimate) => {
         { content: 'Стоимость', styles: { font: FONT_NAME, fontStyle: 'bold', halign: 'center' } }
     ]);
 
-    getEstimateCategories(estimate.items).forEach((category) => {
+    getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot).forEach((category) => {
         const itemsInCategory = estimate.items.filter(item => item.category === category);
         if (itemsInCategory.length > 0) {
             // Category Header
             tableBody.push([{ 
-                content: category, 
+                content: getSectionLabel(category, estimate.sectionSnapshot),
                 colSpan: 5, 
                 styles: { 
                     font: FONT_NAME, 

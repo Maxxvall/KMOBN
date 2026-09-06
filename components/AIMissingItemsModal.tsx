@@ -1,13 +1,15 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { ESTIMATE_CATEGORIES } from '../types';
-import { EstimateCategory, EstimateItem, EstimateSubgroup } from '../types';
+import { EstimateItem, EstimateSubgroup, SectionId } from '../types';
+import { getSectionLabel } from '../services/estimateSections';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 export type NotInDbItem = {
   name: string;
   unit: string;
   quantity: number;
   price: number;
-  category: EstimateCategory;
+  category: SectionId;
   subgroup: EstimateSubgroup;
 };
 
@@ -37,6 +39,8 @@ const AIMissingItemsModal = ({
   /** Names already added to catalog in this session */
   addedToCatalogNames?: Set<string>;
 }) => {
+  const sectionsContext = useOptionalEstimateSections();
+  const sectionLabel = (category: SectionId) => getSectionLabel(category, [], sectionsContext?.document);
   const [activeTab, setActiveTab] = useState<'recommendations' | 'notInDb'>('recommendations');
 
   const hasNotInDb = (notInDbItems?.length ?? 0) > 0;
@@ -141,7 +145,7 @@ const AIMissingItemsModal = ({
             </span>
           </div>
           <div className="text-sm text-text-secondary">
-            {item.quantity} {item.unit} · {item.category}
+            {item.quantity} {item.unit} · {sectionLabel(item.category)}
           </div>
         </div>
         {onAddToCatalog && (
@@ -233,7 +237,7 @@ const AIMissingItemsModal = ({
                   <div className="space-y-4">
                     {grouped.map(({ category, group }) => (
                       <div key={category} className="border border-border rounded-md bg-background/10">
-                        <div className="p-2 border-b border-border bg-gray-900/30 font-semibold text-text-primary">{category}</div>
+                        <div className="p-2 border-b border-border bg-gray-900/30 font-semibold text-text-primary">{sectionLabel(category as SectionId)}</div>
                         <div className="p-2 space-y-3">
                           {group.works.length > 0 && (
                             <div className="space-y-2">

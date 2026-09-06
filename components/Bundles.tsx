@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { WorkBundle, EstimateCategory, EstimateItem, Work, Material } from '../types';
+import { WorkBundle, EstimateCategory, EstimateItem, Work, Material, SectionId } from '../types';
 import { CATALOG_CATEGORIES, getSectionLabel } from '../services/estimateSections';
 
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 import BundleItemPickerModal from './BundleItemPickerModal';
 
 interface BundlesProps {
@@ -16,6 +17,13 @@ interface BundlesProps {
 
 const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundle, onUpdateBundle, onDeleteBundle }) => {
     const catalogContext = useOptionalCatalogContext();
+    const sectionsContext = useOptionalEstimateSections();
+    const addCategories = sectionsContext?.activeSections.map(section => section.id) ?? CATALOG_CATEGORIES;
+    const filterCategories = sectionsContext?.allSections.map(section => section.id) ?? CATALOG_CATEGORIES;
+    const sectionLabel = (category: SectionId) => {
+        const label = getSectionLabel(category, [], sectionsContext?.document);
+        return sectionsContext?.allSections.find(section => section.id === category)?.archived ? `${label} (архив)` : label;
+    };
     const bundleList = useMemo(() =>
         (bundles ?? catalogContext?.bundles ?? []).map(b => ({
             ...b,
@@ -32,13 +40,13 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
     const deleteBundleAction = onDeleteBundle ?? catalogContext?.onDeleteBundle;
 
     const [newBundleName, setNewBundleName] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
-    const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
+    const [selectedCategory, setSelectedCategory] = useState<SectionId>(EstimateCategory.FOUNDATION);
+    const [filterCategory, setFilterCategory] = useState<SectionId | 'all'>('all');
     const [expandedBundles, setExpandedBundles] = useState<Set<string>>(new Set());
     const [editingBundleName, setEditingBundleName] = useState<{ id: string; name: string } | null>(null);
 
     const [pickerOpen, setPickerOpen] = useState(false);
-    const [pickerCategory, setPickerCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
+    const [pickerCategory, setPickerCategory] = useState<SectionId>(EstimateCategory.FOUNDATION);
     const [pickerBundleId, setPickerBundleId] = useState<string | null>(null);
 
     const filteredBundles = useMemo(() => {
@@ -130,10 +138,10 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 <select
                     className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={selectedCategory}
-                    onChange={e => setSelectedCategory(e.target.value as EstimateCategory)}
+                    onChange={e => setSelectedCategory(e.target.value as SectionId)}
                 >
-                    {CATALOG_CATEGORIES.map(category => (
-                        <option key={category} value={category}>{getSectionLabel(category)}</option>
+                    {addCategories.map(category => (
+                        <option key={category} value={category}>{sectionLabel(category)}</option>
                     ))}
                 </select>
                 <button
@@ -148,11 +156,11 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 <select
                     className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={filterCategory}
-                    onChange={e => setFilterCategory(e.target.value as EstimateCategory | 'all')}
+                    onChange={e => setFilterCategory(e.target.value as SectionId | 'all')}
                 >
                     <option value="all">Все категории</option>
-                    {CATALOG_CATEGORIES.map(category => (
-                        <option key={category} value={category}>{getSectionLabel(category)}</option>
+                    {filterCategories.map(category => (
+                        <option key={category} value={category}>{sectionLabel(category)}</option>
                     ))}
                 </select>
             </div>
@@ -181,7 +189,7 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                                             <span className={`mr-2 transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
                                             <div className="min-w-0">
                                                 <h3 className="text-sm sm:text-lg font-bold text-text-primary truncate">{bundle.name}</h3>
-                                                <p className="text-xs sm:text-sm text-text-secondary">{bundle.category} | {itemCount} эл.</p>
+                                                <p className="text-xs sm:text-sm text-text-secondary">{sectionLabel(bundle.category)} | {itemCount} эл.</p>
                                             </div>
                                         </div>
                                     )}

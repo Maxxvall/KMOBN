@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
-import { Estimate, EstimateItem, EstimateCategory } from '../types';
-import { getEstimateCategories } from '../services/estimateSections';
+import { Estimate, EstimateItem, SectionId } from '../types';
+import { getEstimateCategories, getSectionLabel } from '../services/estimateSections';
 
 interface VersionComparisonModalProps {
     oldVersion: Estimate;
@@ -13,7 +13,7 @@ interface DiffItem {
     oldValue: string;
     newValue: string;
     type: 'added' | 'removed' | 'changed';
-    category: EstimateCategory;
+    category: SectionId;
 }
 
 const VersionComparisonModal: React.FC<VersionComparisonModalProps> = ({ oldVersion, newVersion, onClose }) => {
@@ -46,8 +46,12 @@ const VersionComparisonModal: React.FC<VersionComparisonModalProps> = ({ oldVers
             }
         }
 
-        const groups = new Map<EstimateCategory, DiffItem[]>();
-        getEstimateCategories([...oldVersion.items, ...newVersion.items]).forEach(cat => groups.set(cat, []));
+        const groups = new Map<SectionId, DiffItem[]>();
+        getEstimateCategories(
+            [...oldVersion.items, ...newVersion.items],
+            [...(oldVersion.selectedSections ?? []), ...(newVersion.selectedSections ?? [])],
+            [...(oldVersion.sectionSnapshot ?? []), ...(newVersion.sectionSnapshot ?? [])],
+        ).forEach(cat => groups.set(cat, []));
         changes.forEach(change => {
             const categoryChanges = groups.get(change.category) || [];
             categoryChanges.push(change);
@@ -82,7 +86,9 @@ const VersionComparisonModal: React.FC<VersionComparisonModalProps> = ({ oldVers
                         
                         return (
                             <div key={category}>
-                                <h4 className="font-bold text-md text-text-secondary mb-2 mt-4">{category}</h4>
+                                <h4 className="font-bold text-md text-text-secondary mb-2 mt-4">
+                                    {getSectionLabel(category, [...(oldVersion.sectionSnapshot ?? []), ...(newVersion.sectionSnapshot ?? [])])}
+                                </h4>
                                 {diffs.map((diff, index) => (
                                     <div key={index} className={`p-3 rounded-md border grid grid-cols-3 gap-4 text-sm mb-2 ${diffStyles[diff.type]}`}>
                                         <div className="col-span-3 sm:col-span-1 font-semibold text-text-primary">{diff.name}</div>

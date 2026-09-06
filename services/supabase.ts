@@ -98,6 +98,7 @@ const normalizeFetchedRows = (rows: Record<string, unknown>[]): Record<string, u
     if (!Object.prototype.hasOwnProperty.call(payload, 'sortOrder')) {
       payload.sortOrder = inferSortOrder({ ...payload, created_at: payload.created_at ?? row.created_at, updated_at: payload.updated_at ?? row.updated_at }, index);
     }
+    if (typeof row.revision === 'number') payload.serverRevision = row.revision;
 
     return payload;
   });
@@ -210,5 +211,38 @@ export const fetchBundles = async (userId: string, options?: FetchTableOptions) 
 
 export const upsertSalaryCalculations = async (calculations: any[], userId: string) => upsertTable('salary_calculations', calculations, userId);
 export const fetchSalaryCalculations = async (userId: string, options?: FetchTableOptions) => fetchTable('salary_calculations', userId, options);
+
+export const upsertEstimateSections = async (documents: any[], userId: string) => upsertTable('estimate_sections', documents, userId);
+export const fetchEstimateSections = async (userId: string, options?: FetchTableOptions) => fetchTable('estimate_sections', userId, options);
+
+const createOperationId = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
+    const random = Math.floor(Math.random() * 16);
+    return (token === 'x' ? random : (random & 0x3) | 0x8).toString(16);
+  });
+};
+
+export const saveEstimateSectionsRemote = async (document: any, userId: string) => {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+  if (!userId) return { data: null, error: new Error('User is not authenticated') };
+  const payload = { ...document };
+  delete payload.serverRevision;
+  delete payload.baseDocument;
+  delete payload.operationId;
+  delete payload.syncConflict;
+  const operationId = document.operationId || createOperationId();
+  const { data, error } = await supabase.rpc('save_estimate_sections', {
+    p_payload: payload,
+    p_expected_revision: document.serverRevision || 0,
+    p_operation_id: operationId,
+  });
+  if (error) return { data: null, error };
+  const rows = Array.isArray(data) ? data : [];
+  return {
+    data: rows.map(row => ({ ...(row.payload || {}), id: row.id, serverRevision: row.revision })),
+    error: null,
+  };
+};
 
 export default supabase;

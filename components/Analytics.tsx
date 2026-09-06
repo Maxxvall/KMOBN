@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Estimate } from '../types';
+import { Estimate, type SectionId } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
 import { buildActualComparisons, calculateActualSummary } from '../services/estimateActuals';
+import { getSectionLabel } from '../services/estimateSections';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 import {
     Bar,
@@ -283,6 +285,11 @@ const EstimateDropdown: React.FC<{
 };
 
 const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
+    const sectionsContext = useOptionalEstimateSections();
+    const sectionLabel = useCallback(
+        (category: string) => getSectionLabel(category as SectionId, [], sectionsContext?.document),
+        [sectionsContext?.document],
+    );
     const [selectedEstimate1, setSelectedEstimate1] = useState<string>('');
     const [selectedEstimate2, setSelectedEstimate2] = useState<string>('');
     const [selectedCategory, setSelectedCategory] = useState<string>('');
@@ -1201,7 +1208,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                 className={`w-full rounded-lg border px-3 py-2 text-left transition ${selectedCategory === category.category ? 'border-primary bg-primary/10' : 'border-border bg-background/40 hover:border-primary/50'}`}
                                             >
                                                 <div className="flex items-center justify-between gap-3">
-                                                    <span className="truncate text-sm font-semibold text-text-primary">{category.category}</span>
+                                                    <span className="truncate text-sm font-semibold text-text-primary">{sectionLabel(category.category)}</span>
                                                     <span className={`text-sm font-semibold ${category.diff > 0 ? 'text-red-300' : category.diff < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>{formatSignedRub(category.diff)}</span>
                                                 </div>
                                                 <div className="mt-1 text-xs text-text-secondary">План {formatRub(category.plan)} · Прогноз {formatRub(category.forecast)} · {category.diffPct > 0 ? '+' : ''}{category.diffPct}%</div>
@@ -1263,7 +1270,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                 <div key={row.id} className={`grid grid-cols-[minmax(220px,1fr)_90px_100px_110px_90px_100px_110px_110px_80px] gap-2 border-t border-border px-3 py-2 text-sm ${index % 2 === 0 ? 'bg-background/20' : ''}`}>
                                                     <div className="min-w-0">
                                                         <div className="truncate text-text-primary" title={row.name}>{row.name}</div>
-                                                        <div className="text-xs text-text-secondary">{row.category}{row.isActualOnly ? ' · новая по факту' : ''}</div>
+                                                        <div className="text-xs text-text-secondary">{sectionLabel(row.category)}{row.isActualOnly ? ' · новая по факту' : ''}</div>
                                                     </div>
                                                     <div className="text-right tabular-nums text-text-primary">{row.planQuantity}</div>
                                                     <div className="text-right tabular-nums text-text-primary">{row.planPrice}</div>
@@ -1341,7 +1348,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         >
                                             <div className="flex items-center justify-between gap-3">
                                                 <div className="min-w-0">
-                                                    <div className="text-sm font-semibold text-text-primary truncate">{driver.category}</div>
+                                                    <div className="text-sm font-semibold text-text-primary truncate">{sectionLabel(driver.category)}</div>
                                                     <div className="text-xs text-text-secondary mt-1">доля отклонений: {driver.share}%</div>
                                                 </div>
                                                 <div className={`text-sm font-semibold tabular-nums ${driver.diff > 0 ? 'text-red-200' : 'text-emerald-200'}`}>
@@ -1456,7 +1463,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                 }`}
                                             >
                                                 <div className="absolute inset-x-0 top-0 h-1" style={{ background: getCategoryColor(category.category) }} />
-                                                <div className="text-sm font-semibold text-text-primary truncate">{category.category}</div>
+                                                <div className="text-sm font-semibold text-text-primary truncate">{sectionLabel(category.category)}</div>
                                                 <div className="mt-3 flex items-end justify-between gap-3">
                                                     <div>
                                                         <div className="text-xs text-text-secondary">Смета 2</div>
@@ -1682,7 +1689,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                             key={category}
                                             dataKey={category}
                                             stackId="stack"
-                                            name={category}
+                                            name={sectionLabel(category)}
                                             radius={[10, 10, 0, 0]}
                                             fill={getCategoryColor(category)}
                                             isAnimationActive
@@ -1804,7 +1811,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                         title="Фильтровать по категории"
                                                     >
                                                         <span className="w-2 h-2 rounded-full" style={{ background: getCategoryColor(c.category) }} />
-                                                        {c.category}
+                                                        {sectionLabel(c.category)}
                                                     </button>
                                                 </td>
                                                 <td className="px-3 py-2">
@@ -1962,7 +1969,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                             className="inline-flex items-center gap-3 text-text-primary font-semibold hover:opacity-90 transition"
                                                         >
                                                             <span className="w-2 h-2 rounded-full" style={{ background: getCategoryColor(category) }} />
-                                                            <span className="text-left">{isOpen ? '▾' : '▸'} {category}</span>
+                                                            <span className="text-left">{isOpen ? '▾' : '▸'} {sectionLabel(category)}</span>
                                                             <span className="text-xs text-text-secondary font-normal">Позиций: {allItems.length}</span>
                                                         </button>
 

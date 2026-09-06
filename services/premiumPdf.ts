@@ -1,13 +1,13 @@
 ﻿import { jsPDF } from 'jspdf';
 import {
     Estimate,
-    EstimateCategory,
     EstimateItem,
     EstimateSubgroup,
     Material,
+    SectionId,
 } from '../types';
 import { PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
-import { getEstimateCategories } from './estimateSections';
+import { getEstimateCategories, getSectionLabel } from './estimateSections';
 import {
     PREMIUM_PDF_COLORS as COLORS,
     PREMIUM_PDF_LINKS,
@@ -29,7 +29,8 @@ export interface PremiumEstimateSubgroup {
 }
 
 export interface PremiumEstimateSection {
-    category: EstimateCategory;
+    category: SectionId;
+    label: string;
     subgroups: PremiumEstimateSubgroup[];
     total: number;
     worksTotal: number;
@@ -80,7 +81,7 @@ const subgroupOf = (item: EstimateItem): EstimateSubgroup => item.subgroup || Es
 const sumItems = (items: EstimateItem[]): number => items.reduce((sum, item) => sum + safeItemTotal(item), 0);
 
 export const buildPremiumEstimateModel = (estimate: Estimate): PremiumEstimateModel => {
-    const orderedCategories = getEstimateCategories(estimate.items);
+    const orderedCategories = getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot);
     const subgroupOrder = [
         EstimateSubgroup.WORKS,
         EstimateSubgroup.MATERIALS,
@@ -102,6 +103,7 @@ export const buildPremiumEstimateModel = (estimate: Estimate): PremiumEstimateMo
 
         return [{
             category,
+            label: getSectionLabel(category, estimate.sectionSnapshot),
             subgroups,
             total: sumItems(items),
             worksTotal: sumItems(worksItems),
@@ -409,7 +411,7 @@ export const createPremiumEstimatePdf = (
         y = drawContinuationHeader();
     };
 
-    const drawCategoryRow = (category: EstimateCategory, continuation = false) => {
+    const drawCategoryRow = (category: SectionId, continuation = false) => {
         setFill(doc, COLORS.graphiteSoft);
         doc.rect(MARGIN, y, CONTENT_WIDTH, CATEGORY_HEIGHT, 'F');
         setFill(doc, COLORS.red);
@@ -417,7 +419,8 @@ export const createPremiumEstimatePdf = (
         setPdfFont('bold');
         doc.setFontSize(9.4);
         setText(doc, COLORS.white);
-        const label = continuation ? `${category} · ПРОДОЛЖЕНИЕ` : category;
+        const categoryLabel = getSectionLabel(category, estimate.sectionSnapshot);
+        const label = continuation ? `${categoryLabel} · ПРОДОЛЖЕНИЕ` : categoryLabel;
         doc.text(label, MARGIN + 5, y + 6);
         y += CATEGORY_HEIGHT;
         stripedRow = false;
@@ -500,7 +503,7 @@ export const createPremiumEstimatePdf = (
         stripedRow = !stripedRow;
     };
 
-    const beginContextContinuation = (category: EstimateCategory, subgroup: EstimateSubgroup) => {
+    const beginContextContinuation = (category: SectionId, subgroup: EstimateSubgroup) => {
         newTablePage();
         drawCategoryRow(category, true);
         drawSubgroupRow(subgroup, true);
@@ -508,7 +511,7 @@ export const createPremiumEstimatePdf = (
 
     const drawItem = (
         item: EstimateItem,
-        category: EstimateCategory,
+        category: SectionId,
         subgroup: EstimateSubgroup,
         reserveAfter = 0,
     ) => {

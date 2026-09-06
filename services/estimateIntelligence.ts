@@ -1,4 +1,4 @@
-import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, Material, Work, normalizeKey, safeNumber } from '../types';
+import { Estimate, EstimateItem, EstimateSubgroup, Material, Work, normalizeKey, safeNumber, SectionId } from '../types';
 import { hashData } from './hashing';
 
 export type DependencySeverity = 'critical' | 'important' | 'optional';
@@ -30,7 +30,7 @@ export type HistoricalPatterns = {
   // Typical ratios (works vs materials totals)
   costShares: { worksShare: number; materialsShare: number; deliveryShare: number };
   // Category cost shares, normalized to 0..1 (sum across categories)
-  categoryCostShares: Array<{ category: EstimateCategory; share: number }>;
+  categoryCostShares: Array<{ category: SectionId; share: number }>;
 };
 
 export type QualityScore = {
@@ -192,7 +192,7 @@ export function analyzeHistoricalPatterns(
   const presenceByEstimate: Array<Set<string>> = [];
 
   const subgroupTotals = { works: 0, materials: 0, delivery: 0 };
-  const categoryTotals = new Map<EstimateCategory, number>();
+  const categoryTotals = new Map<SectionId, number>();
 
   for (const est of similar) {
     const present = new Set<string>();
@@ -396,7 +396,7 @@ export function buildPromptInsights(patterns: HistoricalPatterns): string {
 }
 
 export function summarizeEstimateExample(items: EstimateItem[], maxPerCategory = 5): any {
-  const byCat = new Map<EstimateCategory, EstimateItem[]>();
+  const byCat = new Map<SectionId, EstimateItem[]>();
   for (const it of items || []) {
     const list = byCat.get(it.category) || [];
     list.push(it);

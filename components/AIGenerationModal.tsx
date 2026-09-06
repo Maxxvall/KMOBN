@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ESTIMATE_CATEGORIES, ESTIMATE_SECTION_DEFINITIONS, Estimate, EstimateCategory, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
+import { ESTIMATE_CATEGORIES, ESTIMATE_SECTION_DEFINITIONS, Estimate, EstimateCategory, EstimateStatus, EstimateSubgroup, Material, Work, SectionId } from '../types';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 // ─── Building type presets ───────────────────────────────────────────────────
 
@@ -234,13 +235,13 @@ const computeHistoryStats = (estimates: Estimate[]): HistoryStats => {
 type DbCoverage = {
   materialsCount: number;
   worksCount: number;
-  categoryCoverage: { cat: EstimateCategory; materials: number; works: number }[];
+  categoryCoverage: { cat: SectionId; materials: number; works: number }[];
 };
 
 const computeDbCoverage = (
   materials: Material[],
   works: Work[],
-  sections: EstimateCategory[],
+  sections: SectionId[],
 ): DbCoverage => {
   const cats = sections.length > 0 ? sections : ESTIMATE_CATEGORIES;
   const categoryCoverage = cats.map(cat => ({
@@ -261,7 +262,7 @@ export type AIGenerationPayload = {
   description: string;
   enableAiPriceSearch: boolean;
   selectedPreset: BuildingTypePreset;
-  selectedSections: EstimateCategory[];
+  selectedSections: SectionId[];
   area: number;
   buildingType: string;
   referenceEstimateId?: string;
@@ -294,11 +295,19 @@ const AIGenerationModal = ({
   currentArea?: number;
   currentBuildingType?: string;
 }) => {
+  const sectionsContext = useOptionalEstimateSections();
+  const allSections = useMemo(
+    () => sectionsContext?.activeSections
+      .filter(section => !section.catalogGlobal)
+      .map(section => ({ cat: section.id, label: section.label, icon: section.icon }))
+      ?? ALL_SECTIONS,
+    [sectionsContext?.activeSections],
+  );
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedPresetId, setSelectedPresetId] = useState<string | null>(null);
   const [area, setArea] = useState(currentArea || 120);
   const [buildingType, setBuildingType] = useState(currentBuildingType || '');
-  const [selectedSections, setSelectedSections] = useState<EstimateCategory[]>([]);
+  const [selectedSections, setSelectedSections] = useState<SectionId[]>([]);
   const [customDescription, setCustomDescription] = useState(initialValue || '');
   const [enableAiPriceSearch, setEnableAiPriceSearch] = useState(Boolean(initialEnableAiPriceSearch));
   const [referenceEstimateId, setReferenceEstimateId] = useState<string | undefined>();
@@ -351,7 +360,7 @@ const AIGenerationModal = ({
     }
   }, []);
 
-  const toggleSection = useCallback((cat: EstimateCategory) => {
+  const toggleSection = useCallback((cat: SectionId) => {
     setSelectedSections(prev =>
       prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat],
     );
@@ -368,12 +377,12 @@ const AIGenerationModal = ({
     const allDefault = selectedPreset.defaultSections;
     const excluded = allDefault.filter(s => !selectedSections.includes(s));
     if (excluded.length > 0) {
-      const sectionLabels = excluded.map(cat => ALL_SECTIONS.find(s => s.cat === cat)?.label || cat);
+      const sectionLabels = excluded.map(cat => allSections.find(s => s.cat === cat)?.label || cat);
       descParts.push(`Без разделов: ${sectionLabels.join(', ')}.`);
     }
-    const extra = selectedSections.filter(s => !allDefault.includes(s));
+    const extra = selectedSections.filter(s => !allDefault.some(defaultSection => defaultSection === s));
     if (extra.length > 0) {
-      const sectionLabels = extra.map(cat => ALL_SECTIONS.find(s => s.cat === cat)?.label || cat);
+      const sectionLabels = extra.map(cat => allSections.find(s => s.cat === cat)?.label || cat);
       descParts.push(`Дополнительно включить: ${sectionLabels.join(', ')}.`);
     }
 
@@ -388,7 +397,7 @@ const AIGenerationModal = ({
       windowCount: selectedSections.includes(EstimateCategory.WINDOWS) ? windowCount : undefined,
       doorCount: selectedSections.includes(EstimateCategory.WINDOWS) ? doorCount : undefined,
     });
-  }, [selectedPreset, customDescription, selectedSections, enableAiPriceSearch, area, buildingType, referenceEstimateId, windowCount, doorCount, onConfirm]);
+  }, [selectedPreset, customDescription, selectedSections, enableAiPriceSearch, area, buildingType, referenceEstimateId, windowCount, doorCount, onConfirm, allSections]);
 
   if (!isOpen) return null;
 
@@ -499,7 +508,7 @@ const AIGenerationModal = ({
       <div>
         <label className="block text-sm text-text-secondary mb-2">Разделы сметы (включить/выключить)</label>
         <div className="grid grid-cols-3 gap-2">
-          {ALL_SECTIONS.map(sec => {
+          {allSections.map(sec => {
             const active = selectedSections.includes(sec.cat);
             const covItem = dbCoverage.categoryCoverage.find(c => c.cat === sec.cat);
             const hasData = (covItem?.materials ?? 0) + (covItem?.works ?? 0) > 0;
@@ -532,7 +541,7 @@ const AIGenerationModal = ({
         return (
           <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
             <span className="text-sm text-yellow-300">
-              ⚠ Для разделов {emptySections.map(s => ALL_SECTIONS.find(a => a.cat === s.cat)?.label || s.cat).join(', ')} нет данных в справочниках.
+              ⚠ Для разделов {emptySections.map(s => allSections.find(a => a.cat === s.cat)?.label || s.cat).join(', ')} нет данных в справочниках.
               AI может добавить позиции, но их придётся заполнить вручную.
             </span>
           </div>
@@ -593,7 +602,7 @@ const AIGenerationModal = ({
           <span className="text-text-secondary">Окна / Двери:</span>
           <span className="text-text-primary">🪟 {windowCount} шт / 🚪 {doorCount} шт</span>
           <span className="text-text-secondary">Разделы:</span>
-          <span className="text-text-primary">{selectedSections.length} из {ALL_SECTIONS.length}</span>
+          <span className="text-text-primary">{selectedSections.length} из {allSections.length}</span>
           <span className="text-text-secondary">Материалов в БД:</span>
           <span className="text-text-primary">{dbCoverage.materialsCount}</span>
           <span className="text-text-secondary">Работ в БД:</span>

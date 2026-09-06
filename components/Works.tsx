@@ -1,21 +1,29 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { Work, EstimateCategory, DuplicateGroup, findDuplicates } from '../types';
+import { Work, EstimateCategory, DuplicateGroup, findDuplicates, SectionId } from '../types';
 import { CATALOG_CATEGORIES, getSectionLabel } from '../services/estimateSections';
 
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 import DuplicateCheckerDialog from './DuplicateCheckerDialog';
 import WorkToolRequirementsEditor from './WorkToolRequirementsEditor';
 import type { CatalogDuplicateDecision } from '../services/duplicateManagement';
 
 interface WorksProps {
     works?: Work[];
-    onAddWork?: (name: string, category: EstimateCategory, price: number) => void | Promise<void>;
+    onAddWork?: (name: string, category: SectionId, price: number) => void | Promise<void>;
     onUpdateWork?: (work: Work) => void | Promise<void>;
     onDeleteWork?: (workId: string) => void | Promise<void>;
 }
 
 const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteWork }) => {
     const catalogContext = useOptionalCatalogContext();
+    const sectionsContext = useOptionalEstimateSections();
+    const addCategories = sectionsContext?.activeSections.map(section => section.id) ?? CATALOG_CATEGORIES;
+    const filterCategories = sectionsContext?.allSections.map(section => section.id) ?? CATALOG_CATEGORIES;
+    const sectionLabel = (category: SectionId) => {
+        const label = getSectionLabel(category, [], sectionsContext?.document);
+        return sectionsContext?.allSections.find(section => section.id === category)?.archived ? `${label} (архив)` : label;
+    };
     const worksList = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
     const totalWorksCount = works ? worksList.length : (catalogContext?.worksTotalCount ?? worksList.length);
     const hiddenWorksCount = Math.max(0, totalWorksCount - worksList.length);
@@ -25,8 +33,8 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
 
     const [newWorkName, setNewWorkName] = useState('');
     const [newWorkPrice, setNewWorkPrice] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
-    const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
+    const [selectedCategory, setSelectedCategory] = useState<SectionId>(EstimateCategory.FOUNDATION);
+    const [filterCategory, setFilterCategory] = useState<SectionId | 'all'>('all');
     const [searchInput, setSearchInput] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const debounceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -176,10 +184,10 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                     <select
                         className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                         value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value as EstimateCategory)}
+                        onChange={(e) => setSelectedCategory(e.target.value as SectionId)}
                     >
-                        {CATALOG_CATEGORIES.map(category => (
-                            <option key={category} value={category}>{getSectionLabel(category)}</option>
+                        {addCategories.map(category => (
+                            <option key={category} value={category}>{sectionLabel(category)}</option>
                         ))}
                     </select>
                 </div>
@@ -203,11 +211,11 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 <select
                     className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={filterCategory}
-                    onChange={(e) => setFilterCategory(e.target.value as EstimateCategory | 'all')}
+                    onChange={(e) => setFilterCategory(e.target.value as SectionId | 'all')}
                 >
                     <option value="all">Все категории</option>
-                    {CATALOG_CATEGORIES.map(category => (
-                        <option key={category} value={category}>{getSectionLabel(category)}</option>
+                    {filterCategories.map(category => (
+                        <option key={category} value={category}>{sectionLabel(category)}</option>
                     ))}
                 </select>
                 <button
@@ -234,7 +242,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                     <tbody className="text-text-primary">
                         {paginatedWorks.map(work => (
                             <tr key={work.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
-                                <td className="text-left py-3 px-4">{work.category}</td>
+                                <td className="text-left py-3 px-4">{sectionLabel(work.category)}</td>
                                 <td className="text-left py-3 px-4">{work.name}</td>
                                 <td className="text-right py-3 px-4">
                                     {editingWorkId === work.id ? (
@@ -311,7 +319,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                         <div className="flex items-start justify-between gap-2 mb-1">
                             <div className="min-w-0 flex-1">
                                 <div className="font-semibold text-text-primary text-sm truncate">{work.name}</div>
-                                <div className="text-xs text-text-secondary">{work.category}</div>
+                                <div className="text-xs text-text-secondary">{sectionLabel(work.category)}</div>
                             </div>
                             {editingWorkId === work.id ? (
                                 <input

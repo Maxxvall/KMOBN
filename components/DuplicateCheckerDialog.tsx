@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { DuplicateGroup, Material, Work, EstimateCategory } from '../types';
+import { DuplicateGroup, Material, Work, EstimateCategory, type SectionId } from '../types';
 import { getCatalogDuplicateFingerprint, selectPreferredCatalogDuplicate, type CatalogDuplicateDecision } from '../services/duplicateManagement';
+import { getSectionLabel } from '../services/estimateSections';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 interface DuplicateCheckerDialogProps {
     isOpen: boolean;
@@ -17,6 +19,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
     duplicateGroups,
     onMerge,
 }) => {
+    const sectionsContext = useOptionalEstimateSections();
     const [survivorByKey, setSurvivorByKey] = useState<Record<string, string>>({});
     const [isMerging, setIsMerging] = useState(false);
     const [mergeResult, setMergeResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -210,7 +213,7 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                                             <td className="py-2 text-text-secondary">
                                                                 {'category' in item ? (
                                                                     <span className={isGeneral ? 'text-primary font-semibold' : ''}>
-                                                                        {item.category}
+                                                                        {getSectionLabel(item.category as SectionId, [], sectionsContext?.document)}
                                                                     </span>
                                                                 ) : '—'}
                                                             </td>

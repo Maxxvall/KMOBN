@@ -1,6 +1,10 @@
 import type { CacheTableKey } from './indexedDbCache';
 import { offlineQueue, type PendingChange } from './offlineQueue';
 import { deleteTableRecords, upsertTable } from './supabase';
+import { fetchEstimateSections, saveEstimateSectionsRemote } from './supabase';
+import { upsertCachedRecords } from './indexedDbCache';
+import type { EstimateSectionsDocument } from '../types';
+import { tryMergeEstimateSectionsDocuments } from './estimateSections';
 
 const SUPPORTED_TABLES: ReadonlySet<CacheTableKey> = new Set<CacheTableKey>([
   'estimates',
@@ -9,6 +13,7 @@ const SUPPORTED_TABLES: ReadonlySet<CacheTableKey> = new Set<CacheTableKey>([
   'works',
   'bundles',
   'salary_calculations',
+  'estimate_sections',
 ]);
 
 export type ExecutePendingChange = (change: PendingChange, userId: string) => Promise<void>;
@@ -54,6 +59,40 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
   if (change.operation === 'upsert') {
     if (!change.data || typeof change.data !== 'object') {
       throw new Error(`Invalid upsert payload for ${change.table}:${change.recordId}`);
+    }
+    if (change.table === 'estimate_sections') {
+      const local = change.data as EstimateSectionsDocument;
+      const { data, error } = await saveEstimateSectionsRemote(local, userId);
+      if (error && (String((error as { code?: unknown }).code) === '40001' || /ESTIMATE_SECTIONS_CONFLICT/.test(String((error as { message?: unknown }).message)))) {
+        const remoteResult = await fetchEstimateSections(userId);
+        if (remoteResult.error || !remoteResult.data?.[0]) throw remoteResult.error ?? error;
+        const remote = remoteResult.data[0] as EstimateSectionsDocument;
+        const merged = tryMergeEstimateSectionsDocuments(local, remote);
+        if (merged) {
+          await offlineQueue.enqueueUpserts(userId, 'estimate_sections', [merged]);
+          await upsertCachedRecords('estimate_sections', userId, [merged]);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key: 'estimate_sections', data: [merged] } }));
+          }
+          return;
+        }
+        const conflict: EstimateSectionsDocument = {
+          ...local,
+          syncConflict: {
+            local: { definitions: local.definitions, order: local.order, serverRevision: local.serverRevision },
+            remote: { definitions: remote.definitions, order: remote.order, serverRevision: remote.serverRevision },
+            detectedAt: new Date().toISOString(),
+          },
+        };
+        await upsertCachedRecords('estimate_sections', userId, [conflict]);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key: 'estimate_sections', data: [conflict] } }));
+        }
+        return;
+      }
+      if (error) throw error;
+      if (!Array.isArray(data) || data.length !== 1) throw new Error('Supabase did not acknowledge estimate_sections');
+      return;
     }
     const { data, error } = await upsertTable(change.table, [change.data], userId);
     if (error) throw error;

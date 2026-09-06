@@ -1,4 +1,4 @@
-import { Estimate, EstimateItem, GenerationParams, EstimateCategory, EstimateSubgroup, Material, Work } from '../types';
+import { Estimate, EstimateItem, GenerationParams, EstimateCategory, EstimateSubgroup, Material, Work, SectionId } from '../types';
 import { generateEstimateWithAI as generateWithOpenRouter } from './openRouterService';
 import { hasOpenRouterKey } from './aiConfig';
 
@@ -64,7 +64,7 @@ export const generateEstimateWithAI = async (
         scopeDescription?: string;
         enableAiPriceSearch?: boolean;
         referenceEstimateId?: string;
-        selectedSections?: EstimateCategory[];
+        selectedSections?: SectionId[];
         windowCount?: number;
         doorCount?: number;
     },

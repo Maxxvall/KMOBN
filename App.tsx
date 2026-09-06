@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
-import { BoardSpec, Estimate, View, EstimateStatus, ProjectTemplate, Material, EstimateCategory, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey, findDuplicates } from './types';
+import { BoardSpec, Estimate, View, EstimateStatus, ProjectTemplate, Material, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey, findDuplicates, EstimateSectionsDocument, CustomSectionId, SectionId } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import StatusIndicators from './components/StatusIndicators';
@@ -25,7 +25,9 @@ import { EstimateProvider } from './contexts/EstimateContext';
 import { CatalogProvider } from './contexts/CatalogContext';
 import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import { SyncProvider } from './contexts/SyncContext';
-import { loadEstimates, refreshEstimatesFromRemote, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, deleteMaterials, loadWorks, saveWorks, addWork, updateWork, deleteWork, deleteWorks, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle } from './services/database';
+import { EstimateSectionsProvider } from './contexts/EstimateSectionsContext';
+import { loadEstimates, refreshEstimatesFromRemote, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, deleteMaterials, loadWorks, saveWorks, addWork, updateWork, deleteWork, deleteWorks, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle, loadEstimateSections, saveEstimateSections } from './services/database';
+import { addUserEstimateSection, createEstimateSectionsDocument, getResolvedEstimateSections, normalizeEstimateSectionsDocument, preserveEstimateSectionSnapshot, renameUserEstimateSection, reorderEstimateSections, resolveEstimateSectionsConflict, setUserEstimateSectionArchived } from './services/estimateSections';
 import type { CacheTableKey } from './services/indexedDbCache';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
@@ -63,6 +65,7 @@ const Analytics = lazy(() => import('./components/Analytics'));
 const Cutting = lazy(() => import('./components/Cutting'));
 const Subscriptions = lazy(() => import('./components/Subscriptions'));
 const Wiki = lazy(() => import('./components/Wiki'));
+const EstimateSectionsSettings = lazy(() => import('./components/EstimateSectionsSettings'));
 
 const AUTOSAVE_DELAY_MS = 8000;
 
@@ -289,6 +292,9 @@ const App: React.FC = () => {
     materialsRef.current = materials;
     const [works, setWorks] = useState<Work[]>([]);
     const [bundles, setBundles] = useState<WorkBundle[]>([]);
+    const [sectionsDocument, setSectionsDocument] = useState<EstimateSectionsDocument>(() => createEstimateSectionsDocument('local'));
+    const [sectionsLoading, setSectionsLoading] = useState(true);
+    const [sectionsError, setSectionsError] = useState<string | null>(null);
     const subscriptionTier: SubscriptionTier = subscriptionLoading
         ? (subscription?.subscription_tier ?? 'premium') // Don't downgrade during loading
         : (subscription?.subscription_tier ?? 'free');
@@ -368,6 +374,12 @@ const App: React.FC = () => {
             return;
         }
 
+        if (detail.key === 'estimate_sections') {
+            const loaded = detail.data[0] as EstimateSectionsDocument | undefined;
+            if (supabaseUser) setSectionsDocument(normalizeEstimateSectionsDocument(loaded, supabaseUser.id));
+            return;
+        }
+
         const setterMap: Record<string, [React.Dispatch<React.SetStateAction<unknown>>, string]> = {
             templates: [setTemplates as React.Dispatch<React.SetStateAction<unknown>>, 'templates'],
             materials: [setMaterials as React.Dispatch<React.SetStateAction<unknown>>, 'materials'],
@@ -381,7 +393,30 @@ const App: React.FC = () => {
             setLoadedFlags(prev => ({ ...prev, [flag]: true }));
             setDataHashes(prev => ({ ...prev, [flag]: hashData(detail.data) }));
         }
-    }, [dataHashes]);
+    }, [dataHashes, supabaseUser]);
+
+    useEffect(() => {
+        let active = true;
+        if (!supabaseUser) {
+            setSectionsDocument(createEstimateSectionsDocument('local'));
+            setSectionsLoading(false);
+            return;
+        }
+        setSectionsLoading(true);
+        setSectionsError(null);
+        void loadEstimateSections().then(documents => {
+            if (!active) return;
+            setSectionsDocument(normalizeEstimateSectionsDocument(documents[0], supabaseUser.id));
+        }).catch(error => {
+            if (!active) return;
+            console.error('Failed to load estimate sections:', error);
+            setSectionsDocument(createEstimateSectionsDocument(supabaseUser.id));
+            setSectionsError('Не удалось загрузить пользовательские разделы. Встроенные разделы доступны.');
+        }).finally(() => {
+            if (active) setSectionsLoading(false);
+        });
+        return () => { active = false; };
+    }, [supabaseUser, offlineSync.workspaceVersion]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -569,6 +604,7 @@ const App: React.FC = () => {
         setMaterials([]);
         setWorks([]);
         setBundles([]);
+        setSectionsDocument(createEstimateSectionsDocument('local'));
         setLoadedFlags({ estimates: false, templates: false, materials: false, works: false, bundles: false });
         setDataHashes({});
         setRecoveryRequired(false);
@@ -1298,21 +1334,21 @@ const App: React.FC = () => {
     });
 
     const handleDraftChange = useCallback((draft: Estimate) => {
-        setEditorDraft(draft);
-    }, [setEditorDraft]);
+        setEditorDraft({ ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) });
+    }, [sectionsDocument, setEditorDraft]);
 
     const handleDirtyChange = useCallback((dirty: boolean) => {
         setEditorDirty(dirty);
     }, [setEditorDirty]);
 
     const handleSaveRequest = useCallback((draft: Estimate) => {
-        setEditorDraft(draft);
+        setEditorDraft({ ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) });
         setRestoreArchivedOnSave(true);
         setViewAfterSave(View.HISTORY);
         setShowSaveOptions(true);
         setShowUnsavedModal(false);
         setPendingView(null);
-    }, [setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
+    }, [sectionsDocument, setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
 
     const handleConfirmSave = useCallback((mode: SaveMode) => {
         if (!editorDraft) return;
@@ -1489,7 +1525,7 @@ const App: React.FC = () => {
 
     const handleAddMaterial = useCallback(async (
         name: string,
-        category: EstimateCategory,
+        category: SectionId,
         price?: number,
         link?: string,
         boardSpec?: BoardSpec,
@@ -1602,7 +1638,7 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const handleAddWork = useCallback(async (name: string, category: EstimateCategory, price: number) => {
+    const handleAddWork = useCallback(async (name: string, category: SectionId, price: number) => {
         if (!canCreateWork(subscriptionUsage, subscriptionLimits)) {
             return;
         }
@@ -1849,6 +1885,7 @@ const App: React.FC = () => {
             onSaveAsTemplate: handleSaveAsTemplate,
             onDeleteTemplate: handleDeleteTemplate,
             onBack: handleBackToHistory,
+            onManageSections: () => handleNavigationAttempt(View.SECTIONS),
         },
     }), [
         view,
@@ -1872,6 +1909,7 @@ const App: React.FC = () => {
         handleSaveAsTemplate,
         handleDeleteTemplate,
         handleBackToHistory,
+        handleNavigationAttempt,
     ]);
 
     const catalogContextValue = useMemo(() => ({
@@ -1921,6 +1959,33 @@ const App: React.FC = () => {
         findWorkDuplicates,
         handleMergeCatalogDuplicates,
     ]);
+
+    const persistSectionsDocument = useCallback(async (next: EstimateSectionsDocument) => {
+        setSectionsError(null);
+        try {
+            await saveEstimateSections(next);
+            setSectionsDocument(next);
+        } catch (error) {
+            console.error('Failed to save estimate sections:', error);
+            const message = error instanceof Error ? error.message : 'Не удалось сохранить разделы.';
+            setSectionsError(message);
+            throw error;
+        }
+    }, []);
+
+    const sectionsContextValue = useMemo(() => ({
+        document: sectionsDocument,
+        activeSections: getResolvedEstimateSections(sectionsDocument),
+        allSections: getResolvedEstimateSections(sectionsDocument, { includeArchived: true }),
+        isLoading: sectionsLoading,
+        pending: offlineSync.pendingChanges.some(change => change.table === 'estimate_sections'),
+        error: sectionsError,
+        addSection: async (label: string) => persistSectionsDocument(addUserEstimateSection(sectionsDocument, label)),
+        renameSection: async (id: CustomSectionId, label: string) => persistSectionsDocument(renameUserEstimateSection(sectionsDocument, id, label)),
+        setArchived: async (id: CustomSectionId, archived: boolean) => persistSectionsDocument(setUserEstimateSectionArchived(sectionsDocument, id, archived)),
+        reorderSections: async (order: SectionId[]) => persistSectionsDocument(reorderEstimateSections(sectionsDocument, order)),
+        resolveConflict: async (choice: 'local' | 'remote') => persistSectionsDocument(resolveEstimateSectionsConflict(sectionsDocument, choice)),
+    }), [offlineSync.pendingChanges, persistSectionsDocument, sectionsDocument, sectionsError, sectionsLoading]);
 
     const subscriptionContextValue = useMemo(() => ({
         subscription,
@@ -2045,6 +2110,7 @@ const App: React.FC = () => {
     return (
         <ErrorBoundary>
         <SubscriptionProvider value={subscriptionContextValue}>
+            <EstimateSectionsProvider value={sectionsContextValue}>
             <CatalogProvider value={catalogContextValue}>
                 <EstimateProvider value={estimateContextValue}>
                     <SyncProvider value={syncContextValue}>
@@ -2070,7 +2136,9 @@ const App: React.FC = () => {
                         missingTableCount={offlineSync.missingTables.length}
                         lastPreparedAt={offlineSync.lastPreparedAt}
                         retryAt={offlineSync.retryAt}
-                        syncError={offlineSync.pendingChanges[0]?.lastError
+                        syncError={sectionsDocument.syncConflict
+                            ? 'Конфликт разделов: откройте «Разделы смет» и выберите вариант.'
+                            : offlineSync.pendingChanges[0]?.lastError
                             ? `${offlineSync.pendingChanges[0].table}/${offlineSync.pendingChanges[0].recordId}: ${offlineSync.pendingChanges[0].lastError}`
                             : null}
                         onSync={offlineSync.syncNow}
@@ -2102,7 +2170,9 @@ const App: React.FC = () => {
                     missingTableCount={offlineSync.missingTables.length}
                     lastPreparedAt={offlineSync.lastPreparedAt}
                     retryAt={offlineSync.retryAt}
-                    syncError={offlineSync.pendingChanges[0]?.lastError
+                    syncError={sectionsDocument.syncConflict
+                        ? 'Конфликт разделов: откройте «Разделы смет» и выберите вариант.'
+                        : offlineSync.pendingChanges[0]?.lastError
                         ? `${offlineSync.pendingChanges[0].table}/${offlineSync.pendingChanges[0].recordId}: ${offlineSync.pendingChanges[0].lastError}`
                         : null}
                     onSync={offlineSync.syncNow}
@@ -2160,6 +2230,9 @@ const App: React.FC = () => {
                             <Suspense fallback={<WikiSkeleton />}>
                                 <Wiki />
                             </Suspense>
+                        )}
+                        {view === View.SECTIONS && (
+                            <EstimateSectionsSettings />
                         )}
                     </Suspense>
                 )}
@@ -2289,6 +2362,7 @@ const App: React.FC = () => {
                     </SyncProvider>
                 </EstimateProvider>
             </CatalogProvider>
+            </EstimateSectionsProvider>
         </SubscriptionProvider>
         </ErrorBoundary>
     );

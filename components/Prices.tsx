@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import FocusLock from 'react-focus-lock';
-import { BoardMoisture, BoardSpec, Material, EstimateCategory, DuplicateGroup, findDuplicates } from '../types';
+import { BoardMoisture, BoardSpec, Material, EstimateCategory, DuplicateGroup, findDuplicates, SectionId } from '../types';
 import { CATALOG_CATEGORIES, getSectionLabel } from '../services/estimateSections';
 
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 import DuplicateCheckerDialog from './DuplicateCheckerDialog';
 import type { CatalogDuplicateDecision } from '../services/duplicateManagement';
 import { formatBoardDimensions, isValidBoardSpec, suggestBoardSpecFromName } from '../services/boardMaterialSwitch';
@@ -38,7 +39,7 @@ interface PricesProps {
     materials?: Material[];
     onAddMaterial?: (
         name: string,
-        category: EstimateCategory,
+        category: SectionId,
         price?: number,
         link?: string,
         boardSpec?: BoardSpec,
@@ -58,6 +59,13 @@ const Prices: React.FC<PricesProps> = ({
     onEditMaterialLink,
 }) => {
     const catalogContext = useOptionalCatalogContext();
+    const sectionsContext = useOptionalEstimateSections();
+    const addCategories = sectionsContext?.activeSections.map(section => section.id) ?? CATALOG_CATEGORIES;
+    const filterCategories = sectionsContext?.allSections.map(section => section.id) ?? CATALOG_CATEGORIES;
+    const sectionLabel = (category: SectionId) => {
+        const label = getSectionLabel(category, [], sectionsContext?.document);
+        return sectionsContext?.allSections.find(section => section.id === category)?.archived ? `${label} (архив)` : label;
+    };
     const materialList = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
     const totalMaterialCount = materials ? materialList.length : (catalogContext?.materialsTotalCount ?? materialList.length);
     const hiddenMaterialCount = Math.max(0, totalMaterialCount - materialList.length);
@@ -68,14 +76,14 @@ const Prices: React.FC<PricesProps> = ({
     const editMaterialLinkAction = onEditMaterialLink ?? catalogContext?.onEditMaterialLink;
 
     const [newMaterialName, setNewMaterialName] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState<EstimateCategory>(EstimateCategory.FOUNDATION);
+    const [selectedCategory, setSelectedCategory] = useState<SectionId>(EstimateCategory.FOUNDATION);
     const [newMaterialPrice, setNewMaterialPrice] = useState('');
     const [newMaterialLink, setNewMaterialLink] = useState('');
     const [isNewMaterialBoard, setIsNewMaterialBoard] = useState(false);
     const [newBoardDraft, setNewBoardDraft] = useState<BoardDraft>(() => boardDraftFromSpec());
     const [editingBoard, setEditingBoard] = useState<{ material: Material; draft: BoardDraft } | null>(null);
     const [isRecognizingBoards, setIsRecognizingBoards] = useState(false);
-    const [filterCategory, setFilterCategory] = useState<EstimateCategory | 'all'>('all');
+    const [filterCategory, setFilterCategory] = useState<SectionId | 'all'>('all');
     const [searchInput, setSearchInput] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const debounceTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -298,10 +306,10 @@ const Prices: React.FC<PricesProps> = ({
                     <select
                         className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                         value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value as EstimateCategory)}
+                        onChange={(e) => setSelectedCategory(e.target.value as SectionId)}
                     >
-                        {CATALOG_CATEGORIES.map(category => (
-                            <option key={category} value={category}>{getSectionLabel(category)}</option>
+                        {addCategories.map(category => (
+                            <option key={category} value={category}>{sectionLabel(category)}</option>
                         ))}
                     </select>
                     <input
@@ -377,11 +385,11 @@ const Prices: React.FC<PricesProps> = ({
                 <select
                     className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={filterCategory}
-                    onChange={(e) => setFilterCategory(e.target.value as EstimateCategory | 'all')}
+                    onChange={(e) => setFilterCategory(e.target.value as SectionId | 'all')}
                 >
                     <option value="all">Все категории</option>
-                    {CATALOG_CATEGORIES.map(category => (
-                        <option key={category} value={category}>{getSectionLabel(category)}</option>
+                    {filterCategories.map(category => (
+                        <option key={category} value={category}>{sectionLabel(category)}</option>
                     ))}
                 </select>
                 <button
@@ -420,7 +428,7 @@ const Prices: React.FC<PricesProps> = ({
                                 const lastUpdatedLabel = new Date(material.lastUpdated).toLocaleDateString('ru-RU');
                                 return (
                             <tr key={material.id} className="border-b border-border hover:bg-gray-700/50 transition-colors">
-                                <td className="text-left py-3 px-4">{material.category}</td>
+                                <td className="text-left py-3 px-4">{sectionLabel(material.category)}</td>
                                 <td className="text-left py-3 px-4">
                                     <div>{material.name}</div>
                                     {material.boardSpec && (
@@ -535,7 +543,7 @@ const Prices: React.FC<PricesProps> = ({
                         <div className="flex items-start justify-between gap-2 mb-1">
                             <div className="min-w-0 flex-1">
                                 <div className="font-semibold text-text-primary text-sm truncate">{material.name}</div>
-                                <div className="text-xs text-text-secondary">{material.category}</div>
+                                <div className="text-xs text-text-secondary">{sectionLabel(material.category)}</div>
                                 {material.boardSpec && (
                                     <div className="mt-1 text-xs font-medium text-emerald-300">
                                         {material.boardSpec.moisture === 'dry-planed' ? 'СС' : 'ЕВ'} · {formatBoardDimensions(material.boardSpec)}

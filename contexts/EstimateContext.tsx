@@ -17,6 +17,7 @@ type EstimateActions = {
   onSaveAsTemplate?: (estimate: Estimate) => void;
   onDeleteTemplate?: (templateId: string) => void;
   onBack?: () => void;
+  onManageSections?: () => void;
 };
 
 type EstimateContextValue = {

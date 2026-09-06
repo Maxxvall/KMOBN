@@ -12,6 +12,40 @@ export enum EstimateCategory {
     DEMOLITION = 'ДЕМОНТАЖ',
 }
 
+export type CustomSectionId = `custom:${string}`;
+export type SectionId = EstimateCategory | CustomSectionId;
+
+export interface EstimateSectionSnapshot {
+    id: SectionId;
+    label: string;
+    order: number;
+}
+
+export interface UserEstimateSectionDefinition {
+    id: CustomSectionId;
+    label: string;
+    archived: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface EstimateSectionsConflict {
+    local: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'>;
+    remote: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'>;
+    detectedAt: string;
+}
+
+export interface EstimateSectionsDocument {
+    id: string;
+    schemaVersion: 1;
+    definitions: UserEstimateSectionDefinition[];
+    order: SectionId[];
+    serverRevision: number;
+    baseDocument?: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'>;
+    operationId?: string;
+    syncConflict?: EstimateSectionsConflict;
+}
+
 export interface EstimateItem {
     id: string;
     name: string;
@@ -19,7 +53,7 @@ export interface EstimateItem {
     quantity: number;
     price: number;
     total: number;
-    category: EstimateCategory;
+    category: SectionId;
     // Подгруппа внутри раздела: работы или материалы
     subgroup?: EstimateSubgroup;
     note?: string;
@@ -76,7 +110,8 @@ export interface Estimate {
     area: number;
     explanation?: string;
     needsPriceUpdate?: boolean;
-    selectedSections?: EstimateCategory[];
+    selectedSections?: SectionId[];
+    sectionSnapshot?: EstimateSectionSnapshot[];
     sortOrder?: number;
     created_at?: string | null;
     updated_at?: string | null;
@@ -103,6 +138,7 @@ export enum View {
     SUBSCRIPTIONS,
     CUTTING,
     WIKI,
+    SECTIONS,
 }
 
 export type SubscriptionTier = 'free' | 'basic' | 'premium';
@@ -204,7 +240,7 @@ export interface Material {
     name: string;
     price: number;
     lastUpdated: string;
-    category: EstimateCategory;
+    category: SectionId;
     isManualPrice?: boolean;
     link?: string;
     boardSpec?: BoardSpec;
@@ -217,7 +253,7 @@ export interface Work {
     id: string;
     name: string;
     price: number;
-    category: EstimateCategory;
+    category: SectionId;
     sortOrder?: number;
     created_at?: string | null;
     updated_at?: string | null;
@@ -229,7 +265,7 @@ export interface WorkBundle {
     name: string;
     mainWorkId?: string; // ID основной работы, если есть
     items: EstimateItem[]; // Работы и материалы в комплекте
-    category: EstimateCategory; // Категория блока, куда добавлять
+    category: SectionId; // Категория блока, куда добавлять
     sortOrder?: number;
     created_at?: string | null;
     updated_at?: string | null;
@@ -375,7 +411,7 @@ export interface SmartWizardParams {
 }
 
 export interface AutoAddedSummary {
-    category: EstimateCategory;
+    category: SectionId;
     count: number;
     description: string;
 }

@@ -4,7 +4,8 @@ export type CacheTableKey =
   | 'materials'
   | 'works'
   | 'bundles'
-  | 'salary_calculations';
+  | 'salary_calculations'
+  | 'estimate_sections';
 
 export interface CacheRecord<T> {
   key: string;
@@ -33,7 +34,7 @@ export interface OfflineCoverage {
 }
 
 const DB_NAME = 'kmobn_indexeddb_cache';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const METADATA_STORE_NAME = 'sync_metadata';
 export const OFFLINE_CACHE_SCHEMA_VERSION = 1;
 
@@ -44,6 +45,7 @@ export const OFFLINE_TABLES: readonly CacheTableKey[] = [
   'works',
   'bundles',
   'salary_calculations',
+  'estimate_sections',
 ];
 
 const STORE_NAMES: Record<CacheTableKey, string> = {
@@ -53,6 +55,7 @@ const STORE_NAMES: Record<CacheTableKey, string> = {
   works: 'works',
   bundles: 'bundles',
   salary_calculations: 'salary_calculations',
+  estimate_sections: 'estimate_sections',
 };
 
 const isBrowser = (): boolean => typeof window !== 'undefined';

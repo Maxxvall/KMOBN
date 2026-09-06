@@ -1,11 +1,11 @@
 import {
     CrewToolPlan,
     CrewToolRequirement,
-    EstimateCategory,
     EstimateItem,
     EstimateSubgroup,
     Work,
     WorkToolRequirement,
+    SectionId,
 } from '../types';
 
 export interface AggregatedToolRequirement {
@@ -42,7 +42,7 @@ export const normalizeToolKey = (value: string): string => value
     .toLocaleLowerCase('ru-RU')
     .replace(/\s+/g, ' ');
 
-const workLookupKey = (name: string, category: EstimateCategory): string =>
+const workLookupKey = (name: string, category: SectionId): string =>
     `${category}\u0000${normalizeToolKey(name)}`;
 
 const normalizedQuantity = (quantity: number): number =>

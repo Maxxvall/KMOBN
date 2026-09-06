@@ -7,6 +7,7 @@ export const OFFLINE_TABLES = [
   'works',
   'bundles',
   'salary_calculations',
+  'estimate_sections',
 ] as const;
 
 type OfflineTable = typeof OFFLINE_TABLES[number];
@@ -87,6 +88,17 @@ export const startMockSupabaseServer = async (port = 54329) => {
   rows.works.push({ id: 'seed-work', user_id: USER_ID, payload: { id: 'seed-work', name: 'Работа E2E', price: 200, category: 'ФУНДАМЕНТ' } });
   rows.bundles.push({ id: 'seed-bundle', user_id: USER_ID, payload: { id: 'seed-bundle', name: 'Комплект E2E', items: [], category: 'ФУНДАМЕНТ' } });
   rows.salary_calculations.push({ id: 'seed-salary', user_id: USER_ID, payload: { id: 'seed-salary', estimateId: 'seed-estimate', estimateNumber: 'KM-E2E-001', workers: [], workAllocations: [], createdDate: '2026-07-13' } });
+  rows.estimate_sections.push({
+    id: USER_ID,
+    user_id: USER_ID,
+    revision: 1,
+    payload: {
+      id: USER_ID,
+      schemaVersion: 1,
+      definitions: [],
+      order: ['ФУНДАМЕНТ', 'РОСТВЕРК, ЛАГИ, ПОЛЫ', 'СТЕНЫ', 'КРОВЛЯ/ПОТОЛОК', 'ДЕМОНТАЖ', 'ОКНА/ДВЕРИ', 'ЭЛЕКТРИКА', 'ВОДОСНАБЖЕНИЕ/САНТЕХНИКА', 'КАНАЛИЗАЦИЯ', 'ЛОГИСТИКА'],
+    },
+  });
 
   const server = createServer(async (request, response) => {
     const method = request.method ?? 'GET';
@@ -132,6 +144,31 @@ export const startMockSupabaseServer = async (port = 54329) => {
       }
       const body = await readBody(request);
       sendJson(response, 200, wantsObject ? { ...subscription, ...(body as object) } : [{ ...subscription, ...(body as object) }]);
+      return;
+    }
+
+    if (url.pathname === '/rest/v1/rpc/save_estimate_sections' && method === 'POST') {
+      const body = await readBody(request) as {
+        p_payload?: Record<string, unknown>;
+        p_expected_revision?: number;
+        p_operation_id?: string;
+      };
+      const current = rows.estimate_sections[0];
+      const currentRevision = Number(current?.revision ?? 0);
+      if (Number(body.p_expected_revision ?? 0) !== currentRevision) {
+        sendJson(response, 409, { code: '40001', message: 'ESTIMATE_SECTIONS_CONFLICT' });
+        return;
+      }
+      const next = {
+        id: USER_ID,
+        user_id: USER_ID,
+        payload: body.p_payload ?? {},
+        revision: currentRevision + 1,
+        last_operation_id: body.p_operation_id,
+        updated_at: new Date().toISOString(),
+      };
+      rows.estimate_sections = [next];
+      sendJson(response, 200, [next]);
       return;
     }
 

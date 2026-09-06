@@ -1,14 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { Estimate, EstimateCategory, EstimateItem } from '../types';
-import { getEstimateCategories } from '../services/estimateSections';
+import { Estimate, EstimateItem, SectionId } from '../types';
+import { getEstimateCategories, getSectionLabel } from '../services/estimateSections';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 interface PasteFromEstimateModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (items: EstimateItem[], targetCategory: EstimateCategory) => void;
+    onConfirm: (items: EstimateItem[], targetCategory: SectionId) => void;
     estimates: Estimate[];
     currentEstimateId: string;
-    targetCategory: EstimateCategory;
+    targetCategory: SectionId;
 }
 
 const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
@@ -19,8 +20,9 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
     currentEstimateId,
     targetCategory,
 }) => {
+    const sectionsContext = useOptionalEstimateSections();
     const [selectedEstimateId, setSelectedEstimateId] = useState('');
-    const [selectedSourceCategory, setSelectedSourceCategory] = useState<EstimateCategory | ''>('');
+    const [selectedSourceCategory, setSelectedSourceCategory] = useState<SectionId | ''>('');
     const [scaleFactor, setScaleFactor] = useState(1);
 
     const availableEstimates = useMemo(() =>
@@ -35,7 +37,7 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
 
     const availableCategories = useMemo(() => {
         if (!selectedEstimate) return [];
-        return getEstimateCategories(selectedEstimate.items ?? []);
+        return getEstimateCategories(selectedEstimate.items ?? [], selectedEstimate.selectedSections, selectedEstimate.sectionSnapshot);
     }, [selectedEstimate]);
 
     const previewItems = useMemo(() => {
@@ -75,7 +77,7 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
                 </div>
 
                 <div className="text-sm text-text-secondary mb-4">
-                    Целевой раздел: <span className="font-semibold text-text-primary">{targetCategory}</span>
+                    Целевой раздел: <span className="font-semibold text-text-primary">{getSectionLabel(targetCategory, [], sectionsContext?.document)}</span>
                 </div>
 
                 <div className="mb-4">
@@ -102,13 +104,13 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
                         <label className="block text-sm font-semibold text-text-secondary mb-2">Раздел-источник</label>
                         <select
                             value={selectedSourceCategory}
-                            onChange={e => setSelectedSourceCategory(e.target.value as EstimateCategory)}
+                            onChange={e => setSelectedSourceCategory(e.target.value as SectionId)}
                             className="w-full p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                         >
                             <option value="">— Раздел —</option>
                             {availableCategories.map(cat => {
                                 const count = (selectedEstimate.items ?? []).filter(i => i.category === cat).length;
-                                return <option key={cat} value={cat}>{cat} ({count} поз.)</option>;
+                                return <option key={cat} value={cat}>{getSectionLabel(cat, selectedEstimate.sectionSnapshot, sectionsContext?.document)} ({count} поз.)</option>;
                             })}
                         </select>
                     </div>

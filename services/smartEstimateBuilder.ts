@@ -10,6 +10,7 @@ import {
     AutoAddedSummary,
     SmartWizardWarning,
     Work,
+    SectionId,
     normalizeKey,
     safeNumber,
 } from '../types';
@@ -27,7 +28,7 @@ const median = (arr: number[]): number => {
 type ItemStats = {
     name: string;
     unit: string;
-    category: EstimateCategory;
+    category: SectionId;
     subgroup: EstimateSubgroup;
     frequency: number;
     medianQuantity: number;
@@ -123,7 +124,7 @@ function buildItemStats(
         {
             name: string;
             unit: string;
-            category: EstimateCategory;
+            category: SectionId;
             subgroup: EstimateSubgroup;
             count: number;
             quantities: number[];
@@ -316,7 +317,7 @@ function buildWizardItems(
 
     const items: EstimateItem[] = [];
     const addedKeys = new Set<string>();
-    const autoCategories = new Map<EstimateCategory, number>();
+    const autoCategories = new Map<SectionId, number>();
     let needsReviewCount = 0;
 
     const requiredItems = getRequiredItems(params);

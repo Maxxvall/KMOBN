@@ -10,6 +10,7 @@ import {
   type SalaryCalculation,
   type Work,
   type WorkBundle,
+  type EstimateSectionsDocument,
 } from '../types';
 import {
   addBundle,
@@ -26,12 +27,15 @@ import {
   loadMaterials,
   loadTemplates,
   loadWorks,
+  loadEstimateSections,
   saveEstimates,
   saveSalaryCalculation,
   updateBundle,
   updateMaterial,
   updateWork,
+  saveEstimateSections,
 } from './database';
+import { addUserEstimateSection, createEstimateSectionsDocument } from './estimateSections';
 import { closeIndexedDbCache, type CacheTableKey } from './indexedDbCache';
 import { offlineQueue } from './offlineQueue';
 
@@ -183,6 +187,29 @@ describe('database offline behavior', () => {
         recordId: localEstimate.id,
         operation: 'upsert',
         data: localEstimate,
+      }),
+    ]);
+  });
+
+  it('keeps custom estimate sections in IndexedDB and the offline outbox', async () => {
+    const localDocument: EstimateSectionsDocument = addUserEstimateSection(
+      createEstimateSectionsDocument(USER_A),
+      'Ландшафтные работы',
+      new Date('2026-09-06T10:00:00.000Z'),
+      'custom:44444444-4444-4444-8444-444444444444',
+    );
+
+    await saveEstimateSections(localDocument);
+    closeIndexedDbCache();
+
+    expect(await loadEstimateSections()).toEqual([localDocument]);
+    expect(await offlineQueue.getForTable(USER_A, 'estimate_sections')).toEqual([
+      expect.objectContaining({
+        userId: USER_A,
+        table: 'estimate_sections',
+        recordId: USER_A,
+        operation: 'upsert',
+        data: localDocument,
       }),
     ]);
   });

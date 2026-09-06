@@ -90,7 +90,7 @@ describe('IndexedDB cache invalidation', () => {
     expect((await getOfflineCoverage('another-user')).missingTables).toContain('materials');
   });
 
-  it('reports ready only after all six table snapshots are complete', async () => {
+  it('reports ready only after all seven table snapshots are complete', async () => {
     await Promise.all([
       syncCachedRecords('estimates', USER_ID, []),
       syncCachedRecords('templates', USER_ID, []),
@@ -98,6 +98,7 @@ describe('IndexedDB cache invalidation', () => {
       syncCachedRecords('works', USER_ID, []),
       syncCachedRecords('bundles', USER_ID, []),
       syncCachedRecords('salary_calculations', USER_ID, []),
+      syncCachedRecords('estimate_sections', USER_ID, []),
     ]);
 
     const coverage = await getOfflineCoverage(USER_ID);

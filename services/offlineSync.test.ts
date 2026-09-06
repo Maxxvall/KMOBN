@@ -133,7 +133,7 @@ describe('processOfflineQueue', () => {
     expect(await offlineQueue.getAll(TEST_USER)).toEqual([]);
   });
 
-  it('processes all six supported cache tables in FIFO order', async () => {
+  it('processes all seven supported cache tables in FIFO order', async () => {
     const tables: CacheTableKey[] = [
       'estimates',
       'templates',
@@ -141,6 +141,7 @@ describe('processOfflineQueue', () => {
       'works',
       'bundles',
       'salary_calculations',
+      'estimate_sections',
     ];
     for (const table of tables) {
       await offlineQueue.enqueueUpserts(TEST_USER, table, [{ id: `${table}-1` }]);

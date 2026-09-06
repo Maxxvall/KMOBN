@@ -1,4 +1,4 @@
-import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, GenerationParams, Material, Work, normalizeKey, safeNumber } from '../types';
+import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, GenerationParams, Material, Work, normalizeKey, safeNumber, SectionId } from '../types';
 import { aiCache } from './aiCache';
 import { AI_CONFIG, hasOpenRouterKey } from './aiConfig';
 import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, filterToLatestEstimateVersions, pickFewShotExamples, scoreEstimateQuality } from './estimateIntelligence';
@@ -27,7 +27,7 @@ export interface AIEstimateRequest {
   /** ID эталонной сметы, выбранной пользователем в визарде */
   referenceEstimateId?: string;
   /** Выбранные пользователем разделы (если не указаны — все) */
-  selectedSections?: EstimateCategory[];
+  selectedSections?: SectionId[];
   /** Кол-во окон, указанное пользователем в визарде */
   windowCount?: number;
   /** Кол-во дверей, указанное пользователем в визарде */
@@ -39,7 +39,7 @@ export type CatalogMismatchItem = {
   unit: string;
   quantity: number;
   price: number;
-  category: EstimateCategory;
+  category: SectionId;
   subgroup: EstimateSubgroup;
 };
 
@@ -831,7 +831,7 @@ export async function explainHouseCalculation(params: {
   return content;
 }
 
-const parseEstimateResponse = (rawText: string, fallbackCategory?: EstimateCategory): { items: any[]; suggestions: string[]; warnings: string[] } => {
+const parseEstimateResponse = (rawText: string, fallbackCategory?: SectionId): { items: any[]; suggestions: string[]; warnings: string[] } => {
   const normalized = normalizeJsonFromLLM(rawText);
   if (!normalized) {
     return { items: [], suggestions: [], warnings: ['AI вернул пустой ответ'] };
@@ -1213,7 +1213,7 @@ const estimateRoofArea = (floorArea: number, pitchFactor = 1.3): number => {
  * Get the appropriate coverage area for a material based on its category.
  * Walls use wall surface area, roof uses pitched roof area, others use floor area.
  */
-const getCoverageArea = (category: EstimateCategory, floorArea: number): number => {
+const getCoverageArea = (category: SectionId, floorArea: number): number => {
   switch (category) {
     case EstimateCategory.WALLS:
       return estimateWallArea(floorArea);
@@ -1252,7 +1252,7 @@ const generateItemsFromCatalog = (opts: {
   buildingType: string;
   materials: Material[];
   works: Work[];
-  selectedSections?: EstimateCategory[];
+  selectedSections?: SectionId[];
   existingItems?: EstimateItem[];
   /** Number of windows specified by user in wizard */
   windowCount?: number;
@@ -1464,7 +1464,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     req.projectTemplateId || null,
     req.projectTemplateName || null,
     req.referenceEstimateId || null,
-    req.selectedSections?.sort() || null,
+    req.selectedSections ? [...req.selectedSections].sort() : null,
     (req.existingItems || []).map(i => i.name).sort(),
   );
 
@@ -1487,10 +1487,10 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   });
 
   // Helper to bound catalogs per category (reduces token pressure)
-  const buildMaterialsCatalogForCategory = (cat: EstimateCategory): string => {
+  const buildMaterialsCatalogForCategory = (cat: SectionId): string => {
     return buildMaterialsCatalog((req.materials || []).filter(m => m.category === cat));
   };
-  const buildWorksCatalogForCategory = (cat: EstimateCategory): string => {
+  const buildWorksCatalogForCategory = (cat: SectionId): string => {
     return buildWorksCatalog((req.works || []).filter(w => w.category === cat));
   };
 
@@ -1531,7 +1531,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
     // Filter blocks to only selected sections if provided by wizard
     const sectionFiltered = (req.selectedSections && req.selectedSections.length > 0)
-      ? blocks.filter(b => req.selectedSections!.includes(b.category as EstimateCategory))
+      ? blocks.filter(b => req.selectedSections!.includes(b.category as SectionId))
       : blocks;
 
     const stage1Warnings = Array.isArray(s1Obj?.warnings) ? s1Obj.warnings.map(String) : [];
@@ -1556,7 +1556,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
     // --- Stage 2: detail per block (parallel) ---
     const stage2Results = await Promise.allSettled(chosenBlocks.map(async block => {
-      const cat = block.category as EstimateCategory;
+      const cat = block.category as SectionId;
 
       const catMaterials = buildMaterialsCatalogForCategory(cat);
       const catWorks = buildWorksCatalogForCategory(cat);
@@ -1742,7 +1742,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
 export async function aiAutocomplete(
   partialName: string,
-  category: EstimateCategory,
+  category: SectionId,
   existingItems: EstimateItem[],
   materials: Material[],
   works: Work[],
@@ -1788,7 +1788,7 @@ export async function analyzeMissingItems(
   similarEstimates: Estimate[],
   materials: Material[],
   works: Work[],
-  allowedCategories?: EstimateCategory[],
+  allowedCategories?: SectionId[],
   signal?: AbortSignal,
 ): Promise<{ missing: EstimateItem[]; optional: EstimateItem[]; reasoning: string[] }> {
   const allowed = (allowedCategories && allowedCategories.length > 0)
@@ -1819,7 +1819,7 @@ export async function analyzeMissingItems(
 
   const severityRank = (s: any) => (s === 'critical' ? 0 : s === 'important' ? 1 : 2);
 
-  const deterministicMissing: Array<{ name: string; severity: 'critical' | 'important' | 'optional'; reason: string; category?: EstimateCategory; unit?: string; qty?: number }> = [];
+  const deterministicMissing: Array<{ name: string; severity: 'critical' | 'important' | 'optional'; reason: string; category?: SectionId; unit?: string; qty?: number }> = [];
 
   // 1) Dependency-driven missing (works -> required materials)
   for (const it of currentEstimate.items || []) {
@@ -1891,7 +1891,7 @@ export async function analyzeMissingItems(
   }
 
   // De-duplicate and prioritize
-  const uniq = new Map<string, { name: string; severity: 'critical' | 'important' | 'optional'; reason: string; category?: EstimateCategory; unit?: string; qty?: number }>();
+  const uniq = new Map<string, { name: string; severity: 'critical' | 'important' | 'optional'; reason: string; category?: SectionId; unit?: string; qty?: number }>();
   for (const x of deterministicMissing) {
     const k = normalizeKey(x.name);
     const prev = uniq.get(k);

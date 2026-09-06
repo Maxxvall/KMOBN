@@ -81,7 +81,11 @@ test('persists an offline material across Electron restart and syncs push before
         request.onerror = () => reject(request.error);
       })));
     }, [...OFFLINE_TABLES]);
-    expect(offlineSeedIds.map(ids => ids.some(id => id.startsWith('seed-')))).toEqual(OFFLINE_TABLES.map(() => true));
+    expect(offlineSeedIds.map((ids, index) => (
+      OFFLINE_TABLES[index] === 'estimate_sections'
+        ? ids.includes(mock.user.id)
+        : ids.some(id => id.startsWith('seed-'))
+    ))).toEqual(OFFLINE_TABLES.map(() => true));
     await second.page.getByRole('button', { name: 'Материалы', exact: true }).first().click();
     await expect(second.page.getByText('Материал из оффлайна', { exact: true }).first()).toBeVisible();
     await expect(second.page.getByTestId('sync-pending-count')).toContainText('1');
@@ -127,13 +131,24 @@ test('persists empty engineering sections across an offline Electron restart and
     await expect(first.page.getByTestId('offline-readiness').first()).toContainText('Офлайн готово');
 
     await first.app.context().setOffline(true);
+    await first.page.getByRole('button', { name: 'Открыть меню' }).click();
+    await first.page.getByRole('button', { name: 'Разделы смет', exact: true }).click();
+    await first.page.getByRole('button', { name: 'Добавить раздел', exact: true }).click();
+    const sectionDialog = first.page.getByRole('dialog');
+    await sectionDialog.getByLabel('Название').fill('Ландшафтные работы');
+    await sectionDialog.getByRole('button', { name: 'Добавить', exact: true }).click();
+    await expect(first.page.getByText('Ландшафтные работы', { exact: true })).toBeVisible();
+
+    await first.page.getByRole('button', { name: 'Сметы', exact: true }).first().click();
     await first.page.getByRole('button', { name: 'Создать смету', exact: true }).click();
     await first.page.getByPlaceholder('Имя клиента').fill('Offline engineering sections');
     const sectionSelect = first.page.getByLabel('Добавить раздел');
     await sectionSelect.selectOption({ label: 'Водоснабжение/Сантехника' });
     await sectionSelect.selectOption({ label: 'Канализация' });
+    await sectionSelect.selectOption({ label: 'Ландшафтные работы' });
     await expect(first.page.getByRole('heading', { name: /Водоснабжение\/Сантехника/ })).toBeVisible();
     await expect(first.page.getByRole('heading', { name: /Канализация/ })).toBeVisible();
+    await expect(first.page.getByRole('heading', { name: /Ландшафтные работы/ })).toBeVisible();
 
     await first.page.getByRole('button', { name: 'Сохранить смету', exact: true }).click();
     const saveDialog = first.page.getByRole('dialog');
@@ -146,13 +161,19 @@ test('persists empty engineering sections across an offline Electron restart and
 
     const second = await launchApp(userDataDir, true);
     secondApp = second.app;
+    await second.page.getByRole('button', { name: 'Открыть меню' }).click();
+    await second.page.getByRole('button', { name: 'Разделы смет', exact: true }).click();
+    await expect(second.page.getByText('Ландшафтные работы', { exact: true })).toBeVisible();
+    await second.page.getByRole('button', { name: 'Сметы', exact: true }).first().click();
     await expect(second.page.getByText('Offline engineering sections', { exact: true }).first()).toBeVisible();
     await second.page.getByRole('button', { name: 'Открыть', exact: true }).first().click();
     await expect(second.page.getByRole('heading', { name: /Водоснабжение\/Сантехника/ })).toBeVisible();
     await expect(second.page.getByRole('heading', { name: /Канализация/ })).toBeVisible();
+    await expect(second.page.getByRole('heading', { name: /Ландшафтные работы/ })).toBeVisible();
 
     const reconnectLogStart = mock.logs.length;
     await second.app.context().setOffline(false);
+    await expect.poll(() => mock.logs.slice(reconnectLogStart).some(log => log.method === 'POST' && log.path.startsWith('/rest/v1/rpc/save_estimate_sections'))).toBe(true);
     await expect.poll(() => mock.logs.slice(reconnectLogStart).some(log => log.method === 'POST' && log.table === 'estimates')).toBe(true);
     await expect(second.page.getByTestId('sync-pending-count')).toHaveCount(0);
     expect(mock.rows.estimates.some(row => (
@@ -160,7 +181,11 @@ test('persists empty engineering sections across an offline Electron restart and
       && Array.isArray(row.payload?.selectedSections)
       && row.payload.selectedSections.includes('ВОДОСНАБЖЕНИЕ/САНТЕХНИКА')
       && row.payload.selectedSections.includes('КАНАЛИЗАЦИЯ')
+      && row.payload.selectedSections.some((section: unknown) => typeof section === 'string' && section.startsWith('custom:'))
     ))).toBe(true);
+    expect(mock.rows.estimate_sections[0]?.payload?.definitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: 'Ландшафтные работы', archived: false }),
+    ]));
   } finally {
     await firstApp?.close().catch(() => undefined);
     await secondApp?.close().catch(() => undefined);

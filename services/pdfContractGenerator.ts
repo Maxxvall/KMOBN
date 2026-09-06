@@ -2,7 +2,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateItem, EstimateSubgroup } from '../types';
-import { getEstimateCategories } from './estimateSections';
+import { getEstimateCategories, getSectionLabel } from './estimateSections';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
 
 const formatCurrency = (value: number) => `${value.toLocaleString('ru-RU')} ₽`;
@@ -150,13 +150,13 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
         EstimateSubgroup.DELIVERY,
     ];
 
-    getEstimateCategories(estimate.items).forEach((category) => {
+    getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot).forEach((category) => {
         const itemsInCategory = estimate.items.filter(item => item.category === category);
         if (itemsInCategory.length === 0) return;
 
         const categoryRow = [
             {
-                content: category,
+                content: getSectionLabel(category, estimate.sectionSnapshot),
                 colSpan: 5,
                 styles: {
                     halign: 'center',

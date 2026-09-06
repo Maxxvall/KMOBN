@@ -68,6 +68,7 @@ const DRAWER_NAV_ITEMS = [
     { view: View.ANALYTICS, label: 'Аналитика', icon: 'more-horizontal' },
     { view: View.CUTTING, label: 'Раскрой', icon: 'layers' },
     { view: View.WIKI, label: 'Wiki', icon: 'file-text' },
+    { view: View.SECTIONS, label: 'Разделы смет', icon: 'layers' },
 ] as const;
 
 const MORE_TABS = DRAWER_NAV_ITEMS.filter(({ view }) => view !== View.HOUSE_CALCULATOR);

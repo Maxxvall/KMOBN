@@ -1,16 +1,19 @@
 import React, { useState, useMemo, useCallback } from 'react';
-import { EstimateCategory, EstimateItem, EstimateSubgroup, Work, Material } from '../types';
+import { EstimateItem, EstimateSubgroup, Work, Material, SectionId } from '../types';
+import { getSectionLabel } from '../services/estimateSections';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 interface BundleItemPickerModalProps {
     isOpen: boolean;
     onClose: () => void;
     onConfirm: (items: EstimateItem[]) => void;
-    category: EstimateCategory;
+    category: SectionId;
     works: Work[];
     materials: Material[];
 }
 
 const BundleItemPickerModal: React.FC<BundleItemPickerModalProps> = ({ isOpen, onClose, onConfirm, category, works, materials }) => {
+    const sectionsContext = useOptionalEstimateSections();
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState('');
     const [tab, setTab] = useState<'works' | 'materials'>('works');
@@ -112,7 +115,7 @@ const BundleItemPickerModal: React.FC<BundleItemPickerModalProps> = ({ isOpen, o
                 </div>
 
                 <div className="text-sm text-text-secondary mb-3">
-                    Категория: <span className="font-semibold text-text-primary">{category}</span>
+                    Категория: <span className="font-semibold text-text-primary">{getSectionLabel(category, [], sectionsContext?.document)}</span>
                 </div>
 
                 <input

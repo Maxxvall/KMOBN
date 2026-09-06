@@ -1,16 +1,17 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import {
     Estimate,
-    EstimateCategory,
     EstimateStatus,
     Material,
     SmartWizardParams,
     SmartWizardResult,
     Work,
+    SectionId,
 } from '../types';
 import { generateEstimateNumber } from '../services/estimateNumber';
 import { buildSmartEstimate, WIZARD_OPTIONS } from '../services/smartEstimateBuilder';
 import { getSectionLabel } from '../services/estimateSections';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 interface SmartEstimateWizardProps {
     isOpen: boolean;
@@ -118,6 +119,7 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
     works,
     existingEstimateNumbers,
 }) => {
+    const sectionsContext = useOptionalEstimateSections();
     const [step, setStep] = useState<Step>(1);
     const [clientName, setClientName] = useState('');
     const [buildingType, setBuildingType] = useState(WIZARD_OPTIONS.buildingTypes[0]);
@@ -273,7 +275,7 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
     );
 
     const renderStep5 = () => {
-        const groupedItems = new Map<EstimateCategory, typeof result.items>();
+        const groupedItems = new Map<SectionId, typeof result.items>();
         for (const item of result.items) {
             const list = groupedItems.get(item.category) || [];
             list.push(item);
@@ -317,7 +319,7 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
                     {Array.from(groupedItems.entries()).map(([category, items]) => (
                         <div key={category}>
                             <div className="px-3 py-1.5 bg-background/80 text-xs font-semibold text-text-secondary border-b border-border">
-                                {getSectionLabel(category)}
+                                {getSectionLabel(category, [], sectionsContext?.document)}
                             </div>
                             {items.map(item => (
                                 <div key={item.id} className="flex items-center justify-between px-3 py-1.5 text-xs border-b border-border/50 last:border-b-0">

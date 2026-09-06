@@ -36,6 +36,7 @@ const SUPPORTED_TABLES = new Set<CacheTableKey>([
   'works',
   'bundles',
   'salary_calculations',
+  'estimate_sections',
 ]);
 
 const notifyListeners = (): void => {
