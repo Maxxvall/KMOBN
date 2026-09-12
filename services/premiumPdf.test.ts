@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { inflateSync } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
 import {
     Estimate,
@@ -106,10 +107,24 @@ describe('premium PDF model', () => {
     it('sanitizes Windows file names without losing the client identity', () => {
         expect(sanitizePremiumPdfFileName('Иванов: дом / этап 1')).toBe('Иванов_ дом _ этап 1');
         expect(premiumEstimateFileName(makeEstimate(1))).toMatch(/^Смета_КМ_2026_071_Александр_Сергеевич/);
+        expect(premiumEstimateFileName(makeEstimate(1), 'Дом: первый этап')).toMatch(/^Дом_первый_этап_Александр_Сергеевич/);
     });
 });
 
 describe('premium PDF document', () => {
+    it('prints the chosen client title instead of the internal estimate number', () => {
+        const estimate = makeEstimate(1);
+        estimate.estimateNumber = 'SM 2026/071';
+        const doc = createPremiumEstimatePdf(estimate, { fontBase64: null }, { title: 'Roof renovation' });
+        const pdf = Buffer.from(doc.output('arraybuffer')).toString('latin1');
+        const pageStreams = [...pdf.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)]
+            .map(match => inflateSync(Buffer.from(match[1], 'latin1')).toString('latin1'))
+            .join('\n');
+
+        expect(pageStreams).toContain('Roof renovation');
+        expect(pageStreams).not.toContain('SM 2026/071');
+    });
+
     it('keeps a one-position estimate compact', () => {
         const doc = createPremiumEstimatePdf(makeEstimate(1), { fontBase64: null, boldFontBase64: null });
 

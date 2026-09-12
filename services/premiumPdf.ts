@@ -21,6 +21,7 @@ export interface PremiumPdfAssets {
 
 export interface PremiumPdfOptions {
     materials?: readonly Pick<Material, 'id' | 'link'>[];
+    title?: string;
 }
 
 export interface PremiumEstimateSubgroup {
@@ -126,10 +127,10 @@ export const sanitizePremiumPdfFileName = (value: string): string => {
     return normalized || 'Без_названия';
 };
 
-export const premiumEstimateFileName = (estimate: Estimate): string => {
-    const number = sanitizePremiumPdfFileName(estimate.estimateNumber).replace(/\s+/g, '_');
+export const premiumEstimateFileName = (estimate: Estimate, title?: string): string => {
+    const number = sanitizePremiumPdfFileName(title?.trim() || estimate.estimateNumber).replace(/\s+/g, '_').replace(/_+/g, '_');
     const client = sanitizePremiumPdfFileName(estimate.client).replace(/\s+/g, '_');
-    return `Смета_${number}_${client}_премиум.pdf`;
+    return `${title?.trim() ? '' : 'Смета_'}${number}_${client}_премиум.pdf`;
 };
 
 const formatNumber = (value: number): string => value.toLocaleString('ru-RU', {
@@ -163,11 +164,13 @@ export const createPremiumEstimatePdf = (
     const fontName = assets.fontBase64 ? PDF_FONT_NAME : 'helvetica';
     const model = buildPremiumEstimateModel(estimate);
     const estimateDate = formatDate(estimate.date);
+    const pdfTitle = options.title?.trim() || `СМЕТА № ${safeText(estimate.estimateNumber)}`;
+    const shortTitle = pdfTitle.length > 45 ? `${pdfTitle.slice(0, 42)}…` : pdfTitle;
     let y = 0;
     let stripedRow = false;
 
     doc.setProperties({
-        title: `Смета № ${estimate.estimateNumber} — Каркас Мастер`,
+        title: pdfTitle,
         subject: `Премиальная клиентская смета для ${estimate.client}`,
         author: 'Каркас Мастер',
         creator: 'Каркас Мастер',
@@ -285,9 +288,13 @@ export const createPremiumEstimatePdf = (
         doc.text('КОММЕРЧЕСКОЕ ПРЕДЛОЖЕНИЕ', MARGIN, 28);
 
         setPdfFont('bold');
-        doc.setFontSize(21);
+        let titleFontSize = 21;
+        doc.setFontSize(titleFontSize);
+        while (titleFontSize > 11 && doc.getTextWidth(pdfTitle) > 145) {
+            doc.setFontSize(--titleFontSize);
+        }
         setText(doc, COLORS.white);
-        doc.text(`СМЕТА № ${safeText(estimate.estimateNumber)}`, MARGIN, 40);
+        doc.text(pdfTitle, MARGIN, 40, { maxWidth: 145 });
 
         setPdfFont('normal');
         doc.setFontSize(9);
@@ -305,7 +312,7 @@ export const createPremiumEstimatePdf = (
         setPdfFont('normal');
         doc.setFontSize(8);
         setText(doc, COLORS.muted);
-        doc.text(`Смета № ${safeText(estimate.estimateNumber)} · ${estimateDate}`, PAGE_WIDTH - MARGIN, 16, { align: 'right' });
+        doc.text(`${shortTitle} · ${estimateDate}`, PAGE_WIDTH - MARGIN, 16, { align: 'right', maxWidth: 110 });
         setDraw(doc, COLORS.line);
         doc.setLineWidth(0.35);
         doc.line(MARGIN, 23, PAGE_WIDTH - MARGIN, 23);
@@ -736,7 +743,7 @@ export const createPremiumEstimatePdf = (
         doc.setFontSize(7.2);
         setText(doc, COLORS.muted);
         drawLinkedText('KARKASMASTER.RU', MARGIN, FOOTER_TEXT_Y, PREMIUM_PDF_LINKS.website);
-        doc.text(`СМЕТА № ${safeText(estimate.estimateNumber)}`, PAGE_WIDTH / 2, FOOTER_TEXT_Y, { align: 'center' });
+        doc.text(shortTitle, PAGE_WIDTH / 2, FOOTER_TEXT_Y, { align: 'center', maxWidth: 95 });
         doc.text(`${String(pageNumber).padStart(2, '0')} / ${String(pageCount).padStart(2, '0')}`, PAGE_WIDTH - MARGIN, FOOTER_TEXT_Y, { align: 'right' });
     }
 

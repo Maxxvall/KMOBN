@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId } from '../types';
+import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
 import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
 import { generateEstimateWithAI } from '../services/geminiService';
@@ -13,6 +13,7 @@ import AIGenerationModal from './AIGenerationModal';
 import BundlePickerModal from './BundlePickerModal';
 import PasteFromEstimateModal from './PasteFromEstimateModal';
 import BoardMaterialSwitchModal from './BoardMaterialSwitchModal';
+import AddEstimateMaterialModal from './AddEstimateMaterialModal';
 import { aiAutocomplete, analyzeMissingItems, applySmartPackagingRules, sanitizeQuantities } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
@@ -330,6 +331,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setCollapsedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
     };
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
+    const [materialToAdd, setMaterialToAdd] = useState<EstimateItem | null>(null);
     // Typeahead / debounce state
     const TYPEAHEAD_THRESHOLD = 10; // show typeahead only if more than 10 items
     const DEBOUNCE_MS = 700; // increased to reduce AI calls and UI jank
@@ -775,6 +777,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const syncMaterialPrice = (itemId: string) => {
         setEstimate(prev => applyCatalogMaterialPrice(prev, itemId, materialsValue).estimate);
+    };
+
+    const handleMaterialAdded = (material: Material) => {
+        if (!materialToAdd) return;
+        updateItemFields(materialToAdd.id, {
+            name: material.name,
+            price: material.price,
+            catalogMaterialId: material.id,
+            catalogWorkId: undefined,
+        });
+        setMaterialToAdd(null);
     };
 
     // Try to apply material by exact name (used on blur / Enter) so user can type freely
@@ -1711,7 +1724,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                             <tr>
                                                                 <th className="p-2 text-center font-semibold text-sm text-text-secondary w-12">Связь</th>
                                                                 <th className="p-2 text-left font-semibold text-sm text-text-secondary w-1/3">Наименование</th>
-                                                                <th className="p-2 w-10"></th>
+                                                                <th className="p-2 w-24"></th>
                                                                 <th className="p-2 text-left font-semibold text-sm text-text-secondary">Ед. изм.</th>
                                                                 <th className="p-2 text-right font-semibold text-sm text-text-secondary">Кол-во</th>
                                                                 <th className="p-2 text-right font-semibold text-sm text-text-secondary">Цена</th>
@@ -1736,7 +1749,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                             {renderedSubItems.map((item) => {
                                                                 const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                                 const filteredWorks = filteredWorksByCategory.get(category) || [];
-                                                                const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
+                                                                const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterials.some(material => normalizeKey(material.name) === normalizeKey(item.name));
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                                 const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
                                                                 const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
@@ -1864,15 +1877,20 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             </div>
                                                                         )}
                                                                     </td>
-                                                                    <td className="p-1 w-10 text-center">
-                                                                        <button
-                                                                            onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                                                                            className="relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
-                                                                            title={item.note || 'Добавить примечание'}
-                                                                        >
-                                                                            📝
-                                                                            {item.note && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full inline-block" />}
-                                                                        </button>
+                                                                    <td className="p-1 text-center">
+                                                                        <div className="flex items-center justify-center gap-1">
+                                                                            <button
+                                                                                onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
+                                                                                className="relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
+                                                                                title={item.note || 'Добавить примечание'}
+                                                                            >
+                                                                                📝
+                                                                                {item.note && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full inline-block" />}
+                                                                            </button>
+                                                                            {itemSubgroup === EstimateSubgroup.MATERIALS && materialPriceCheck?.status === 'missing' && item.name.trim() && catalogContext?.onAddMaterial && (
+                                                                                <button type="button" onClick={() => setMaterialToAdd(item)} title="Добавить материал в базу" aria-label={`Добавить «${item.name}» в базу материалов`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">+</button>
+                                                                            )}
+                                                                        </div>
                                                                     </td>
                                                                     <td className="p-1 w-24">
                                                                         <select value={item.unit} onChange={e => updateItem(item.id, 'unit', e.target.value)} className={inputStyles + " text-sm"}>
@@ -1939,7 +1957,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     {renderedSubItems.map((item) => {
                                                         const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                         const filteredWorks = filteredWorksByCategory.get(category) || [];
-                                                        const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD;
+                                                        const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterials.some(material => normalizeKey(material.name) === normalizeKey(item.name));
                                                         const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
                                                         const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
                                                         const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
@@ -2105,6 +2123,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         <button onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9" title={item.note || 'Добавить примечание'}>
                                                                             📝{item.note && <span className="absolute w-2 h-2 bg-red-500 rounded-full" />}
                                                                         </button>
+                                                                        {itemSubgroup === EstimateSubgroup.MATERIALS && materialPriceCheck?.status === 'missing' && item.name.trim() && catalogContext?.onAddMaterial && (
+                                                                            <button type="button" onClick={() => setMaterialToAdd(item)} title="Добавить материал в базу" aria-label={`Добавить «${item.name}» в базу материалов`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50">+</button>
+                                                                        )}
                                                                         <button onClick={() => removeItem(item.id)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">✖</button>
                                                                     </div>
                                                                 </div>
@@ -2174,6 +2195,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </button>
                 </div>
             </div>
+
+            {materialToAdd && catalogContext?.onAddMaterial && (
+                <AddEstimateMaterialModal
+                    key={materialToAdd.id}
+                    item={materialToAdd}
+                    sectionLabel={getSectionLabel(materialToAdd.category, estimate.sectionSnapshot, sectionsContext?.document)}
+                    onClose={() => setMaterialToAdd(null)}
+                    onAdd={catalogContext.onAddMaterial}
+                    onSaved={handleMaterialAdded}
+                />
+            )}
 
             <AIMissingItemsModal
                 isOpen={aiAnalysisOpen}

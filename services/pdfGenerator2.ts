@@ -10,6 +10,7 @@ export { createPremiumEstimatePdf } from './premiumPdf';
 export const generatePdf = async (
     estimate: Estimate,
     materials: readonly Pick<Material, 'id' | 'link'>[] = [],
+    title?: string,
 ): Promise<void> => {
     const { fontBase64, boldFontBase64 } = await loadPremiumPdfResources();
 
@@ -20,7 +21,7 @@ export const generatePdf = async (
     const doc = createPremiumEstimatePdf(
         estimate,
         { fontBase64, boldFontBase64 },
-        { materials },
+        { materials, title },
     );
-    doc.save(premiumEstimateFileName(estimate));
+    doc.save(premiumEstimateFileName(estimate, title));
 };

@@ -5,7 +5,7 @@ import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
 import { getEstimateCategories, getSectionLabel, getSectionSubgroups } from './estimateSections';
 import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 
-export const generatePdf = async (estimate: Estimate) => {
+export const generatePdf = async (estimate: Estimate, title?: string) => {
     const doc = new jsPDF();
     const FONT_NAME = PDF_FONT_NAME;
     const { fontBase64, logoBase64 } = await loadPdfResources();
@@ -14,6 +14,8 @@ export const generatePdf = async (estimate: Estimate) => {
     const pageHeight = doc.internal.pageSize.getHeight();
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 14;
+    const pdfTitle = title?.trim();
+    if (pdfTitle) doc.setProperties({ title: pdfTitle });
 
     // We'll draw background/header/footer per page when the table is being drawn.
     // Keep track of which pages we've already decorated.
@@ -61,12 +63,16 @@ export const generatePdf = async (estimate: Estimate) => {
 
     // Add centered title under the line and client info only on the first page
     if (pageNumber === 1) {
-        doc.setFontSize(26);
         doc.setFont(FONT_NAME, 'normal');
-        doc.text('СМЕТА', pageWidth / 2, 50, { align: 'center' });
+        let titleFontSize = 26;
+        doc.setFontSize(titleFontSize);
+        while (pdfTitle && titleFontSize > 8 && doc.getTextWidth(pdfTitle) > pageWidth - margin * 2) {
+            doc.setFontSize(--titleFontSize);
+        }
+        doc.text(pdfTitle || 'СМЕТА', pageWidth / 2, 50, { align: 'center', maxWidth: pageWidth - margin * 2 });
         doc.setFontSize(10);
         doc.setFont(FONT_NAME, 'normal');
-        doc.text(`№ ${estimate.estimateNumber} от ${new Date(estimate.date).toLocaleDateString('ru-RU')}`, pageWidth / 2, 56, { align: 'center' });
+        doc.text(`${pdfTitle ? '' : `№ ${estimate.estimateNumber} `}от ${new Date(estimate.date).toLocaleDateString('ru-RU')}`, pageWidth / 2, 56, { align: 'center' });
 
         // --- Client Info ---
         doc.setFontSize(10);
@@ -359,5 +365,7 @@ export const generatePdf = async (estimate: Estimate) => {
     doc.text(totalText, totalX, totalY);
 
     // --- Save ---
-    doc.save(`Смета_${estimate.estimateNumber}_${estimate.client}.pdf`);
+    const fileTitle = (pdfTitle || `Смета_${estimate.estimateNumber}`).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_');
+    const fileClient = estimate.client.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+    doc.save(`${fileTitle}_${fileClient}.pdf`);
 };

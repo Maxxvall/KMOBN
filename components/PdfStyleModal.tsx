@@ -5,11 +5,12 @@ type PdfStyle = 'simple' | 'colored' | 'word-contract';
 
 interface PdfStyleModalProps {
     onClose: () => void;
-    onSelectStyle: (style: PdfStyle) => void | Promise<void>;
+    onSelectStyle: (style: PdfStyle, title: string) => void | Promise<void>;
 }
 
 const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle }) => {
     const [pendingStyle, setPendingStyle] = useState<PdfStyle | null>(null);
+    const [title, setTitle] = useState('Смета');
     const isGenerating = pendingStyle !== null;
 
     const handleKeyDown = (event: React.KeyboardEvent) => {
@@ -18,9 +19,10 @@ const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle })
 
     const handleSelect = async (style: PdfStyle) => {
         if (isGenerating) return;
+        if (style !== 'word-contract' && !title.trim()) return;
         setPendingStyle(style);
         try {
-            await onSelectStyle(style);
+            await onSelectStyle(style, title.trim());
         } finally {
             setPendingStyle(null);
         }
@@ -53,11 +55,17 @@ const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle })
                         </p>
                     </div>
 
+                    <label htmlFor="client-pdf-title" className="mb-5 block text-sm font-semibold text-text-primary">
+                        Название сметы в PDF
+                        <input id="client-pdf-title" type="text" value={title} onChange={event => setTitle(event.target.value)} maxLength={80} placeholder="Например: Смета на строительство дома" className="mt-2 min-h-11 w-full rounded-md border border-border bg-background px-3 text-text-primary focus:border-primary focus:outline-none" />
+                        <span className="mt-1 block text-xs font-normal text-text-secondary">Название появится в премиальном и простом PDF вместо внутреннего номера сметы.</span>
+                    </label>
+
                     <div className="space-y-3">
                         <button
                             type="button"
                             onClick={() => void handleSelect('colored')}
-                            disabled={isGenerating}
+                            disabled={isGenerating || !title.trim()}
                             className={`${optionClass} border-primary/50 bg-[#171b21] text-white hover:border-primary hover:bg-[#1d2229]`}
                         >
                             <div className="flex items-start justify-between gap-4">
@@ -81,7 +89,7 @@ const PdfStyleModal: React.FC<PdfStyleModalProps> = ({ onClose, onSelectStyle })
                         <button
                             type="button"
                             onClick={() => void handleSelect('simple')}
-                            disabled={isGenerating}
+                            disabled={isGenerating || !title.trim()}
                             className={`${optionClass} border-border bg-background text-text-primary hover:border-gray-500 hover:bg-gray-700/40`}
                         >
                             <div className="font-bold">Простой PDF</div>
