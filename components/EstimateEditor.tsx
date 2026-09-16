@@ -14,6 +14,7 @@ import BundlePickerModal from './BundlePickerModal';
 import PasteFromEstimateModal from './PasteFromEstimateModal';
 import BoardMaterialSwitchModal from './BoardMaterialSwitchModal';
 import AddEstimateMaterialModal from './AddEstimateMaterialModal';
+import AddEstimateWorkModal from './AddEstimateWorkModal';
 import { aiAutocomplete, analyzeMissingItems, applySmartPackagingRules, sanitizeQuantities } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
@@ -332,6 +333,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
     const [materialToAdd, setMaterialToAdd] = useState<EstimateItem | null>(null);
+    const [workToAdd, setWorkToAdd] = useState<EstimateItem | null>(null);
     // Typeahead / debounce state
     const TYPEAHEAD_THRESHOLD = 10; // show typeahead only if more than 10 items
     const DEBOUNCE_MS = 700; // increased to reduce AI calls and UI jank
@@ -788,6 +790,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             catalogWorkId: undefined,
         });
         setMaterialToAdd(null);
+    };
+
+    const handleWorkAdded = (work: Work) => {
+        if (!workToAdd) return;
+        updateItemFields(workToAdd.id, {
+            name: work.name,
+            price: work.price,
+            catalogWorkId: work.id,
+            catalogMaterialId: undefined,
+        });
+        setWorkToAdd(null);
     };
 
     // Try to apply material by exact name (used on blur / Enter) so user can type freely
@@ -1750,7 +1763,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                                 const filteredWorks = filteredWorksByCategory.get(category) || [];
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterials.some(material => normalizeKey(material.name) === normalizeKey(item.name));
-                                                                const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
+                                                                const workExistsInCatalog = worksValue.some(work => normalizeKey(work.name) === normalizeKey(item.name));
+                                                                const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD || !workExistsInCatalog;
                                                                 const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
                                                                 const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
                                                                     ? checkMaterialPrice(item, materialsValue)
@@ -1890,6 +1904,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             {itemSubgroup === EstimateSubgroup.MATERIALS && materialPriceCheck?.status === 'missing' && item.name.trim() && catalogContext?.onAddMaterial && (
                                                                                 <button type="button" onClick={() => setMaterialToAdd(item)} title="Добавить материал в базу" aria-label={`Добавить «${item.name}» в базу материалов`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">+</button>
                                                                             )}
+                                                                            {itemSubgroup === EstimateSubgroup.WORKS && !workExistsInCatalog && item.name.trim() && catalogContext?.onAddWork && (
+                                                                                <button type="button" onClick={() => setWorkToAdd(item)} title="Добавить работу в базу" aria-label={`Добавить «${item.name}» в базу работ`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">+</button>
+                                                                            )}
                                                                         </div>
                                                                     </td>
                                                                     <td className="p-1 w-24">
@@ -1958,7 +1975,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                         const filteredWorks = filteredWorksByCategory.get(category) || [];
                                                         const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterials.some(material => normalizeKey(material.name) === normalizeKey(item.name));
-                                                        const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD;
+                                                        const workExistsInCatalog = worksValue.some(work => normalizeKey(work.name) === normalizeKey(item.name));
+                                                        const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD || !workExistsInCatalog;
                                                         const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
                                                         const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
                                                             ? checkMaterialPrice(item, materialsValue)
@@ -2126,6 +2144,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         {itemSubgroup === EstimateSubgroup.MATERIALS && materialPriceCheck?.status === 'missing' && item.name.trim() && catalogContext?.onAddMaterial && (
                                                                             <button type="button" onClick={() => setMaterialToAdd(item)} title="Добавить материал в базу" aria-label={`Добавить «${item.name}» в базу материалов`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50">+</button>
                                                                         )}
+                                                                        {itemSubgroup === EstimateSubgroup.WORKS && !workExistsInCatalog && item.name.trim() && catalogContext?.onAddWork && (
+                                                                            <button type="button" onClick={() => setWorkToAdd(item)} title="Добавить работу в базу" aria-label={`Добавить «${item.name}» в базу работ`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50">+</button>
+                                                                        )}
                                                                         <button onClick={() => removeItem(item.id)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">✖</button>
                                                                     </div>
                                                                 </div>
@@ -2204,6 +2225,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     onClose={() => setMaterialToAdd(null)}
                     onAdd={catalogContext.onAddMaterial}
                     onSaved={handleMaterialAdded}
+                />
+            )}
+
+            {workToAdd && catalogContext?.onAddWork && (
+                <AddEstimateWorkModal
+                    key={workToAdd.id}
+                    item={workToAdd}
+                    sectionLabel={getSectionLabel(workToAdd.category, estimate.sectionSnapshot, sectionsContext?.document)}
+                    onClose={() => setWorkToAdd(null)}
+                    onAdd={catalogContext.onAddWork}
+                    onSaved={handleWorkAdded}
                 />
             )}
 

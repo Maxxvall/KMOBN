@@ -1638,9 +1638,9 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const handleAddWork = useCallback(async (name: string, category: SectionId, price: number) => {
+    const handleAddWork = useCallback(async (name: string, category: SectionId, price: number): Promise<Work | null> => {
         if (!canCreateWork(subscriptionUsage, subscriptionLimits)) {
-            return;
+            return null;
         }
 
         const normalizedInput = normalizeKey(name);
@@ -1656,12 +1656,14 @@ const App: React.FC = () => {
                     await updateWork(updated);
                     setWorks(prev => prev.map(w => w.id === existing.id ? updated : w));
                     markDraftEstimatesWithPriceChange({ workName: existing.name });
+                    return updated;
                 } catch (error) {
                     console.error('Failed to update work:', error);
                     alert('Не удалось обновить работу.');
+                    return null;
                 }
-                return;
             }
+            return null;
         }
 
         const newWork: Work = {
@@ -1674,9 +1676,11 @@ const App: React.FC = () => {
         try {
             await addWork(newWork);
             setWorks(prev => [...prev, newWork]);
+            return newWork;
         } catch (error) {
             console.error('Failed to add work:', error);
             alert('Не удалось добавить работу.');
+            return null;
         }
     }, [works, subscriptionUsage, subscriptionLimits, markDraftEstimatesWithPriceChange]);
 

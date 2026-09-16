@@ -10,7 +10,7 @@ import type { CatalogDuplicateDecision } from '../services/duplicateManagement';
 
 interface WorksProps {
     works?: Work[];
-    onAddWork?: (name: string, category: SectionId, price: number) => void | Promise<void>;
+    onAddWork?: (name: string, category: SectionId, price: number) => Work | null | Promise<Work | null>;
     onUpdateWork?: (work: Work) => void | Promise<void>;
     onDeleteWork?: (workId: string) => void | Promise<void>;
 }
