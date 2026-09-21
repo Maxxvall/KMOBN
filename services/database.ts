@@ -15,6 +15,7 @@ import { hashData } from './hashing';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
 import { normalizeEstimateSectionsDocument, prepareEstimateSectionsDocumentForSave } from './estimateSections';
+import { toClientEstimate } from './clientEstimate';
 import supabase, {
   isSupabaseConfigured,
   fetchEstimates,
@@ -602,7 +603,7 @@ const isObject = (value: unknown): value is Record<string, unknown> => (
 );
 
 export const createEstimateTransfer = (estimate: Estimate): string => {
-  const [exportableEstimate] = prepareEstimatesForExport([estimate]);
+  const [exportableEstimate] = prepareEstimatesForExport([toClientEstimate(estimate)]);
   const payload: EstimateTransferPayload = {
     format: ESTIMATE_TRANSFER_FORMAT,
     schemaVersion: ESTIMATE_TRANSFER_SCHEMA_VERSION,

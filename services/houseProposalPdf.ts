@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import type { HouseVariantResult } from './houseCalculator';
 import type { HouseProposalDocxInput } from './houseProposalDocx';
 import { loadPremiumPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
+import { HOUSE_SCOPE_STATUS_LABELS } from './houseScope';
 
 type Rgb = [number, number, number];
 type PdfWithTable = jsPDF & { lastAutoTable?: { finalY: number } };
@@ -22,6 +23,7 @@ export interface HouseProposalPdfModel {
     variants: Array<{ label: string; description: string; base: number; low: number; high: number; selected: boolean }>;
     sections: Array<{ label: string; total: number }>;
     financialRows: Array<{ label: string; value: number }>;
+    scope: Array<{ label: string; status: string }>;
     clientDescription: string;
     preliminaryText: string;
 }
@@ -93,6 +95,10 @@ export const buildHouseProposalPdfModel = (input: HouseProposalPdfInput): HouseP
             total: section.total,
         })),
         financialRows,
+        scope: (selected.result.scope || []).filter(item => item.required).map(item => ({
+            label: item.label,
+            status: HOUSE_SCOPE_STATUS_LABELS[item.status],
+        })),
         clientDescription: input.clientDescription?.trim() || '',
         preliminaryText: HOUSE_PROPOSAL_PRELIMINARY_TEXT,
     };
@@ -199,6 +205,7 @@ export const createHouseProposalPdf = (
         body: [
             ['ПЛОЩАДЬ', `${input.area} м²`, 'ЭТАЖНОСТЬ', String(input.floors)],
             ['ДВЕРИ', String(input.doors), 'КРЫША', input.roof],
+            ['РАСЧЁТ', input.calculationBasis || 'Предварительно по площади', 'ДОПОЛНЕНИЯ', input.additions?.join(', ') || 'Не выбраны'],
         ],
         theme: 'grid',
         styles: { font, fontSize: 8.5, cellPadding: { top: 3, right: 3, bottom: 3, left: 3 }, textColor: COLORS.text, lineColor: COLORS.line, lineWidth: 0.25, fillColor: COLORS.row },
@@ -268,7 +275,25 @@ export const createHouseProposalPdf = (
     doc.text(`Рабочий диапазон: ${money(model.selectedLow)} – ${money(model.selectedHigh)}`, PAGE_WIDTH - MARGIN - 7, y + 17.5, { align: 'right' });
 
     addSecondaryPage();
-    y = sectionTitle('Этапы и разделы строительства', 29);
+    y = sectionTitle('Состав выбранной комплектации', 29);
+    const scopeStartPage = doc.getCurrentPageInfo().pageNumber;
+    autoTable(doc, {
+        startY: y,
+        head: [['ЭЛЕМЕНТ', 'СТАТУС']],
+        body: model.scope.length ? model.scope.map(item => [item.label, item.status]) : [['Состав уточняется после выбора проекта', 'Нужно уточнить']],
+        theme: 'grid',
+        styles: { font, fontSize: 8.5, cellPadding: 3, textColor: COLORS.text, lineColor: COLORS.line, lineWidth: 0.25 },
+        headStyles: { fillColor: COLORS.graphite, textColor: COLORS.white, fontStyle: 'bold', fontSize: 7 },
+        bodyStyles: { fillColor: COLORS.row },
+        columnStyles: { 0: { cellWidth: 128 }, 1: { cellWidth: 54, halign: 'right', fontStyle: 'bold' } },
+        ...tableContinuation(scopeStartPage),
+    });
+    y = (doc.lastAutoTable?.finalY ?? y) + 11;
+    if (y > 235) {
+        addSecondaryPage();
+        y = 29;
+    }
+    y = sectionTitle('Этапы и разделы строительства', y);
     const sectionsStartPage = doc.getCurrentPageInfo().pageNumber;
     autoTable(doc, {
         startY: y,

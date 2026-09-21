@@ -83,6 +83,7 @@ const variant = (tier: HouseTier, label: string, base: number): HouseVariantResu
             'Расчёт требует проверки перед отправкой клиенту.',
             'Состав инженерии уточняется после согласования проекта.',
         ],
+        scope: [{ id: 'foundation', label: 'Фундамент', status: 'included', required: true, total: base * 0.2, itemCount: 2, details: [] }],
         sourceEstimate: {
             id: `source-${tier}`,
             estimateNumber: `КМ-${tier}`,
@@ -149,6 +150,8 @@ describe('house proposal DOCX', () => {
         expect(documentText).toContain('предварительная стоимость');
         expect(documentText).toContain('рабочий диапазон');
         expect(documentText).toContain('этапы и разделы строительства');
+        expect(documentText).toContain('состав выбранной комплектации');
+        expect(documentText).toContain('учтено');
         expect(documentText).toContain('за что производится оплата');
         expect(documentText).toContain('пожелания клиента');
         expect(documentText).toContain('предварительный расчёт');

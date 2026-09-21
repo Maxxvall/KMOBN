@@ -18,12 +18,15 @@ import {
     WidthType,
 } from 'docx';
 import { HouseTier, HouseVariantResult } from './houseCalculator';
+import { HOUSE_SCOPE_STATUS_LABELS } from './houseScope';
 
 export interface HouseProposalDocxInput {
     area: number;
     floors: number;
     doors: number;
     roof: string;
+    additions?: string[];
+    calculationBasis?: string;
     clientDescription?: string;
     selectedTier: HouseTier;
     variants: HouseVariantResult[];
@@ -165,6 +168,7 @@ const parameterTable = (input: HouseProposalDocxInput, _selected: HouseVariantRe
     return table(widths, [
         new TableRow({ cantSplit: true, children: [parameterCell('Площадь'), cell(`${input.area} м²`, 3543, { bold: true }), parameterCell('Этажность'), cell(`${input.floors}`, 3543, { bold: true })] }),
         new TableRow({ cantSplit: true, children: [parameterCell('Двери'), cell(`${input.doors}`, 3543), parameterCell('Крыша'), cell(input.roof, 3543)] }),
+        new TableRow({ cantSplit: true, children: [parameterCell('Расчёт'), cell(input.calculationBasis || 'Предварительно по площади', 3543), parameterCell('Дополнения'), cell(input.additions?.join(', ') || 'Не выбраны', 3543)] }),
     ]);
 };
 
@@ -334,6 +338,19 @@ export async function buildHouseProposalDocx(input: HouseProposalDocxInput): Pro
                 comparisonTable(input),
                 heading(`Выбранный вариант: ${selected.label}`),
                 ...selectedSummaryBlocks(selected),
+                ...(selected.result.scope?.length ? [
+                    heading('Состав выбранной комплектации'),
+                    table([6500, 3586], [
+                        new TableRow({ tableHeader: true, cantSplit: true, children: [
+                            cell('ЭЛЕМЕНТ', 6500, { bold: true, fill: COLORS.graphite, color: COLORS.white, size: 15 }),
+                            cell('СТАТУС', 3586, { bold: true, fill: COLORS.graphite, color: COLORS.white, align: AlignmentType.RIGHT, size: 15 }),
+                        ] }),
+                        ...selected.result.scope.filter(item => item.required).map(item => new TableRow({ cantSplit: true, children: [
+                            cell(item.label, 6500, { fill: COLORS.row }),
+                            cell(HOUSE_SCOPE_STATUS_LABELS[item.status], 3586, { bold: true, fill: COLORS.row, align: AlignmentType.RIGHT }),
+                        ] })),
+                    ]),
+                ] : []),
                 heading('Этапы и разделы строительства'),
                 twoColumnMoneyTable('Раздел', selected.result.sections.map(section => [String(section.category), section.total])),
                 heading('За что производится оплата'),

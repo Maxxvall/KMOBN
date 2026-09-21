@@ -59,6 +59,15 @@ describe('prepareEstimatesForExport', () => {
     expect(mergeImportedEstimate(sanitized, existing).explanation).toBe('дом под ключ');
     expect(mergeImportedEstimate({ ...sanitized, explanation: '' }, existing).explanation).toBe('');
   });
+
+  it('keeps internal house snapshots in account backup data', () => {
+    const estimate = { ...createEstimate('house'), houseProjectId: 'project-1', houseCalculationSnapshots: [] };
+
+    const [exported] = prepareEstimatesForExport([estimate]);
+
+    expect(exported.houseProjectId).toBe('project-1');
+    expect(exported.houseCalculationSnapshots).toEqual([]);
+  });
 });
 
 describe('estimate transfer', () => {
@@ -74,6 +83,11 @@ describe('estimate transfer', () => {
         { id: 'future', name: 'Будущая работа', unit: 'шт', quantity: 1, price: 30, total: 30, category: futureSection },
       ],
       total: 60,
+      houseProjectId: 'internal-house-project',
+      houseCalculationSnapshots: [],
+      houseExecutionStatus: 'actual-verified',
+      houseActualVerifiedAt: '2026-08-15T00:00:00.000Z',
+      houseActualBasis: 'cost',
     };
 
     const received = parseEstimateTransfer(createEstimateTransfer(source));
@@ -86,6 +100,9 @@ describe('estimate transfer', () => {
       futureSection,
     ]);
     expect(received).not.toHaveProperty('explanation');
+    expect(received).not.toHaveProperty('houseProjectId');
+    expect(received).not.toHaveProperty('houseCalculationSnapshots');
+    expect(received).not.toHaveProperty('houseExecutionStatus');
   });
 
   it('creates an independent estimate with new ids when importing a shared estimate', () => {

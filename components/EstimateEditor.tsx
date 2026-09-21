@@ -145,6 +145,9 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
     hash = hashText(hash, value.explanation || '');
     hash = hashNumber(hash, value.total || 0);
     hash = hashBoolean(hash, Boolean(value.needsPriceUpdate));
+    hash = hashText(hash, value.houseExecutionStatus || '');
+    hash = hashText(hash, value.houseActualBasis || '');
+    hash = hashText(hash, value.houseActualVerifiedAt || '');
     for (const category of value.selectedSections ?? []) {
         hash = hashText(hash, category);
     }
@@ -163,6 +166,7 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
         hash = hashNumber(hash, item.actual?.quantity ?? 0);
         hash = hashNumber(hash, item.actual?.price ?? 0);
         hash = hashText(hash, item.actual?.note || '');
+        hash = hashText(hash, item.actual?.source || '');
     }
 
     if (value.crewToolPlan) {
@@ -696,6 +700,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     actual: {
                         ...actual,
                         updatedAt: new Date().toISOString(),
+                        source: 'manual',
                     },
                 };
                 const actualTotal = calculateActualItemTotal(nextItem);
@@ -704,7 +709,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 }
                 return nextItem;
             });
-            return { ...prev, items: newItems };
+            return {
+                ...prev,
+                items: newItems,
+                houseExecutionStatus: prev.houseExecutionStatus === 'actual-verified' ? 'completed' : prev.houseExecutionStatus,
+                houseActualVerifiedAt: prev.houseExecutionStatus === 'actual-verified' ? undefined : prev.houseActualVerifiedAt,
+            };
         });
     };
 
@@ -712,7 +722,35 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setEstimate(prev => ({
             ...prev,
             items: prev.items.map(item => item.isActualOnly ? item : copyPlanToActual(item)),
+            houseExecutionStatus: prev.houseExecutionStatus === 'actual-verified' ? 'completed' : prev.houseExecutionStatus,
+            houseActualVerifiedAt: undefined,
         }));
+    };
+
+    const markHouseCompleted = () => {
+        setEstimate(prev => ({
+            ...prev,
+            houseExecutionStatus: 'completed',
+            houseActualVerifiedAt: undefined,
+        }));
+        setShowActuals(true);
+    };
+
+    const verifyHouseActuals = () => {
+        setEstimate(prev => {
+            const summary = calculateActualSummary(prev);
+            if (!prev.houseActualBasis || summary.filledItems !== summary.totalItems) return prev;
+            const verifiedAt = new Date().toISOString();
+            return {
+                ...prev,
+                items: prev.items.map(item => item.actual ? {
+                    ...item,
+                    actual: { ...item.actual, source: 'verified', updatedAt: verifiedAt },
+                } : item),
+                houseExecutionStatus: 'actual-verified',
+                houseActualVerifiedAt: verifiedAt,
+            };
+        });
     };
 
     const addItem = (category: SectionId, subgroup: EstimateSubgroup = EstimateSubgroup.WORKS) => {
@@ -746,6 +784,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 price: 0,
                 total: 0,
                 updatedAt: new Date().toISOString(),
+                source: 'manual',
             },
         };
         setEstimate(prev => ({ ...prev, items: [...prev.items, newItem] }));
@@ -1615,7 +1654,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 )}
 
                 {showActuals && (
-                    <div className="mt-2 flex flex-col gap-2 border-t border-border/60 pt-2 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="mt-2 space-y-3 border-t border-border/60 pt-2">
+                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs tabular-nums">
                             <span className="whitespace-nowrap text-text-secondary">План: <span className="font-semibold text-text-primary">{actualSummary.planTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
                             <span className="whitespace-nowrap text-text-secondary">Факт: <span className="font-semibold text-text-primary">{actualSummary.actualFilledTotal.toLocaleString('ru-RU')}&nbsp;₽</span></span>
@@ -1647,6 +1687,29 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                 Заполнить факт планом
                             </button>
                         </div>
+                    </div>
+                    {estimate.houseProjectId && <div className="rounded-lg border border-border bg-background p-3">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                            <div>
+                                <p className="text-sm font-semibold text-text-primary">Факт по объекту</p>
+                                <p className="mt-1 text-xs leading-5 text-text-secondary">Статус: {estimate.houseExecutionStatus === 'actual-verified' ? 'факт проверен' : estimate.houseExecutionStatus === 'completed' ? 'объект завершён, факт не подтверждён' : 'объект в работе'}.</p>
+                                {estimate.houseActualVerifiedAt && <p className="text-xs text-text-secondary">Подтверждено: {new Date(estimate.houseActualVerifiedAt).toLocaleString('ru-RU')}</p>}
+                            </div>
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                                <label className="text-xs text-text-secondary">Основание факта
+                                    <select value={estimate.houseActualBasis || ''} onChange={event => setEstimate(prev => ({ ...prev, houseActualBasis: event.target.value as Estimate['houseActualBasis'], houseExecutionStatus: prev.houseExecutionStatus === 'actual-verified' ? 'completed' : prev.houseExecutionStatus, houseActualVerifiedAt: undefined }))} className="mt-1 min-h-[44px] rounded-md border border-border bg-surface px-3 text-sm text-text-primary md:min-h-9">
+                                        <option value="">Выберите</option>
+                                        <option value="client-price">Клиентская стоимость</option>
+                                        <option value="cost">Себестоимость</option>
+                                    </select>
+                                </label>
+                                {estimate.houseExecutionStatus === 'in-progress' && <button type="button" onClick={markHouseCompleted} className="min-h-[44px] rounded-md border border-border px-3 text-xs font-semibold text-text-primary hover:border-primary md:min-h-9">Объект завершён</button>}
+                                {estimate.houseExecutionStatus !== 'actual-verified' && <button type="button" onClick={verifyHouseActuals} disabled={!estimate.houseActualBasis || actualSummary.filledItems !== actualSummary.totalItems} className="min-h-[44px] rounded-md bg-primary px-3 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40 md:min-h-9">Подтвердить факт</button>}
+                            </div>
+                        </div>
+                        {actualSummary.filledItems !== actualSummary.totalItems && <p className="mt-2 text-xs text-amber-300">Для подтверждения заполните фактические количество и цену во всех {actualSummary.totalItems} позициях.</p>}
+                        {estimate.houseActualBasis === 'cost' && <p className="mt-2 text-xs leading-5 text-amber-300">Себестоимость сохраняется, но не сравнивается с первоначальной клиентской ценой калькулятора.</p>}
+                    </div>}
                     </div>
                 )}
 

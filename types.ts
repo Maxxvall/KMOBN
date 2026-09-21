@@ -93,6 +93,51 @@ export interface EstimateItemActual {
     total?: number;
     note?: string;
     updatedAt?: string;
+    source?: 'manual' | 'copied-plan' | 'verified';
+}
+
+export interface HouseCalculationSnapshot {
+    schemaVersion: 1;
+    id: string;
+    createdAt: string;
+    calculationRulesVersion: 1;
+    scopeRulesVersion: 1;
+    input: {
+        area: number;
+        floors: number;
+        glazingArea: number;
+        doors: number;
+        roofShape: 'single-slope' | 'gable' | 'hip' | 'flat' | 'mansard';
+        package: 'box' | 'warm-shell' | 'rough-finish' | 'turnkey' | 'turnkey-engineering';
+        additions: string[];
+        geometry?: Record<string, unknown>;
+        rates: {
+            overheadPercent: number;
+            marginPercent: number;
+            reservePercent: number;
+            taxPercent: number;
+            discountPercent: number;
+        };
+    };
+    result: {
+        low: number;
+        base: number;
+        high: number;
+        confidence: 'low' | 'medium' | 'high';
+        sourceEstimateId: string;
+        sourceEstimateNumber: string;
+        items: EstimateItem[];
+        warnings: string[];
+        scope: Array<{
+            id: string;
+            label: string;
+            status: 'included' | 'partial' | 'needs-clarification' | 'not-included';
+            required: boolean;
+            total: number;
+            itemCount: number;
+            details: string[];
+        }>;
+    };
 }
 
 export interface Estimate {
@@ -116,6 +161,11 @@ export interface Estimate {
     created_at?: string | null;
     updated_at?: string | null;
     crewToolPlan?: CrewToolPlan;
+    houseProjectId?: string;
+    houseCalculationSnapshots?: HouseCalculationSnapshot[];
+    houseExecutionStatus?: 'in-progress' | 'completed' | 'actual-verified';
+    houseActualVerifiedAt?: string;
+    houseActualBasis?: 'client-price' | 'cost';
 }
 
 export enum EstimateStatus {

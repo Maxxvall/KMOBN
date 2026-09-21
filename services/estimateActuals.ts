@@ -119,13 +119,14 @@ export const calculateActualSummary = (estimate: Estimate): ActualSummary => {
 
 export const copyPlanToActual = (item: EstimateItem): EstimateItem => ({
   ...item,
-  actual: {
+    actual: {
     ...item.actual,
     unit: item.unit,
     quantity: safeNumber(item.quantity, 0),
     price: safeNumber(item.price, 0),
     total: calculatePlanItemTotal(item),
     updatedAt: new Date().toISOString(),
+    source: 'copied-plan',
   },
 });
 

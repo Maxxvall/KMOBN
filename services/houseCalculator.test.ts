@@ -282,6 +282,74 @@ describe('houseCalculator reference and packages', () => {
             { name: 'Установка межкомнатных дверей', quantity: 5, price: 6_000, total: 30_000 },
         ]);
     });
+
+    it('does not include water supply or sewerage in warm shell when the row name is generic', () => {
+        const source = estimate({
+            items: [
+                item({ id: 'frame', total: 100 }),
+                item({ id: 'water', name: 'Монтаж', total: 200, category: EstimateCategory.WATER_SUPPLY }),
+                item({ id: 'sewerage', name: 'Материалы', total: 300, category: EstimateCategory.SEWERAGE }),
+            ],
+        });
+
+        const warm = calculateHouseEstimate(input({ estimates: [source], package: 'warm-shell', doors: 0 }));
+        const premium = calculateHouseEstimate(input({ estimates: [source], package: 'turnkey-engineering', doors: 0 }));
+
+        expect(warm.items.map(value => value.id)).not.toEqual(expect.arrayContaining([
+            expect.stringContaining('water'),
+            expect.stringContaining('sewerage'),
+        ]));
+        expect(premium.items.map(value => value.name)).toEqual(expect.arrayContaining(['Монтаж', 'Материалы']));
+    });
+
+    it('excludes additions inherited from a reference estimate until the user selects them explicitly', () => {
+        const source = estimate({
+            items: [
+                item({ id: 'frame', total: 100 }),
+                item({ id: 'terrace', name: 'Терраса', total: 300 }),
+                item({ id: 'porch', name: 'Крыльцо', total: 200 }),
+            ],
+        });
+
+        const result = calculateHouseEstimate(input({ estimates: [source], package: 'warm-shell', doors: 0 }));
+
+        expect(result.items.map(value => value.name)).toEqual(['Пиломатериал каркаса', 'Входная дверь']);
+        expect(result.base).toBe(50_100);
+    });
+
+    it('includes an addition only after explicit selection and can take it from another confirmed estimate', () => {
+        const base = estimate({ id: 'base', estimateNumber: 'BASE', items: [item({ id: 'frame', total: 100 })] });
+        const withTerrace = estimate({
+            id: 'terrace-source',
+            estimateNumber: 'TERRACE',
+            items: [item({ id: 'terrace', name: 'Терраса', total: 300 })],
+        });
+
+        const result = calculateHouseEstimate(input({
+            estimates: [base, withTerrace],
+            package: 'warm-shell',
+            doors: 0,
+            additions: ['terrace'],
+        }));
+
+        expect(result.items.map(value => value.name)).toContain('Терраса');
+        expect(result.base).toBe(50_400);
+    });
+
+    it('removes actual-only rows and actual metadata from a new planned calculation', () => {
+        const source = estimate({
+            items: [
+                item({ id: 'frame', actual: { quantity: 2, price: 120 } }),
+                item({ id: 'actual-only', name: 'Фактическая закупка', isActualOnly: true, actual: { quantity: 1, price: 500 } }),
+            ],
+        });
+
+        const result = calculateHouseEstimate(input({ estimates: [source], package: 'box' }));
+
+        expect(result.items).toHaveLength(1);
+        expect(result.items[0]).not.toHaveProperty('actual');
+        expect(result.items[0]).not.toHaveProperty('isActualOnly');
+    });
 });
 
 describe('houseCalculator financials and failures', () => {

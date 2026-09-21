@@ -44,6 +44,7 @@ const variant = (tier: HouseTier, label: string, base: number): HouseVariantResu
         ],
         items: [],
         warnings: [WARNING_SENTINEL],
+        scope: [{ id: 'foundation', label: 'Фундамент', status: 'included', required: true, total: base * 0.2, itemCount: 2, details: [] }],
         sourceEstimate: {
             id: `source-${tier}`,
             estimateNumber: `КМ-${tier}`,
@@ -100,6 +101,7 @@ describe('house proposal PDF', () => {
 
         expect(model.selectedLabel).toBe('Премиум');
         expect(model.preliminaryText).toBe(HOUSE_PROPOSAL_PRELIMINARY_TEXT);
+        expect(model.scope).toEqual([{ label: 'Фундамент', status: 'Учтено' }]);
         expect(model.financialRows.some(row => row.label === 'Налог')).toBe(false);
         expect(model.financialRows.find(row => row.label === 'Скидка')?.value).toBeLessThan(0);
         expect(content).not.toContain(INTERNAL_EXPLANATION_SENTINEL);

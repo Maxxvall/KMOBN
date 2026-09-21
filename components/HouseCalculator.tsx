@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ESTIMATE_EXPLANATION_MAX_LENGTH, Estimate, EstimateCategory, EstimateItem, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
 import {
-    calculateHouseEstimate,
     calculateHouseVariants,
     HouseCalculatorInput,
     HouseCalculatorResult,
+    HOUSE_ADDITION_OPTIONS,
     HOUSE_TIER_CONFIG,
+    HouseAdditionType,
     HouseTier,
     HouseVariantResult,
     HousePackage,
@@ -13,8 +14,12 @@ import {
     parseHouseDescription,
     selectEligibleHouseHistory,
 } from '../services/houseCalculator';
+import type { HouseGeometryInput } from '../services/houseGeometry';
+import { HOUSE_SCOPE_STATUS_LABELS } from '../services/houseScope';
 import { explainHouseCalculation } from '../services/openRouterService';
 import { buildCrewToolPlan } from '../services/toolPlanning';
+import { createHouseCalculationSnapshot } from '../services/houseCalculationSnapshot';
+import { buildHouseAccuracyReport } from '../services/houseCalibration';
 
 interface HouseCalculatorProps {
     estimates: Estimate[];
@@ -73,11 +78,26 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
 
     const [area, setArea] = useState(79);
     const [floors, setFloors] = useState(1);
+    const [calculationMode, setCalculationMode] = useState<'area' | 'geometry'>('area');
+    const [houseLength, setHouseLength] = useState(10);
+    const [houseWidth, setHouseWidth] = useState(8);
+    const [floorHeight, setFloorHeight] = useState(2.8);
+    const [partitionLength, setPartitionLength] = useState(20);
+    const [wallOpeningsArea, setWallOpeningsArea] = useState(10);
+    const [roofPitchDegrees, setRoofPitchDegrees] = useState(30);
+    const [roofOverhang, setRoofOverhang] = useState(0.5);
+    const [foundationType, setFoundationType] = useState<'slab' | 'strip' | 'piles'>('slab');
+    const [slabThickness, setSlabThickness] = useState(0.25);
+    const [stripWidth, setStripWidth] = useState(0.4);
+    const [stripDepth, setStripDepth] = useState(0.8);
+    const [stripInternalLength, setStripInternalLength] = useState(0);
+    const [pileCount, setPileCount] = useState(20);
     const [crewSize, setCrewSize] = useState(4);
     const [glazingArea, setGlazingArea] = useState(10);
     const [interiorDoors, setInteriorDoors] = useState(3);
     const [roofShape, setRoofShape] = useState<RoofShape>('gable');
     const [selectedPackage, setSelectedPackage] = useState<HousePackage>('warm-shell');
+    const [additions, setAdditions] = useState<HouseAdditionType[]>([]);
     const [rates, setRates] = useState({ overheadPercent: 0, marginPercent: 0, reservePercent: 0, taxPercent: 0, discountPercent: 0 });
     const [result, setResult] = useState<HouseCalculatorResult | null>(null);
     const [error, setError] = useState('');
@@ -95,17 +115,45 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         works,
         crewSize,
     }) : null, [crewSize, result, works]);
+    const accuracyReport = useMemo(() => buildHouseAccuracyReport(estimates), [estimates]);
+
+    const geometryInput = useMemo<HouseGeometryInput | undefined>(() => {
+        if (calculationMode !== 'geometry') return undefined;
+        const foundation: HouseGeometryInput['foundation'] = foundationType === 'slab'
+            ? { type: 'slab', thickness: slabThickness }
+            : foundationType === 'strip'
+                ? { type: 'strip', width: stripWidth, depth: stripDepth, internalLength: stripInternalLength }
+                : { type: 'piles', count: pileCount };
+        return {
+            length: houseLength,
+            width: houseWidth,
+            floors,
+            floorHeight,
+            partitionLength,
+            openingsArea: wallOpeningsArea,
+            roofShape,
+            roofPitchDegrees,
+            roofOverhang,
+            foundation,
+        };
+    }, [calculationMode, floorHeight, floors, foundationType, houseLength, houseWidth, partitionLength, pileCount, roofOverhang, roofPitchDegrees, roofShape, slabThickness, stripDepth, stripInternalLength, stripWidth, wallOpeningsArea]);
+
+    const effectiveArea = calculationMode === 'geometry'
+        ? Math.round(houseLength * houseWidth * floors * 100) / 100
+        : area;
 
     const calculationInput = useMemo<HouseCalculatorInput>(() => ({
         estimates,
-        area,
+        area: effectiveArea,
         floors,
         glazingArea,
         doors: interiorDoors,
         roofShape,
         package: selectedPackage,
+        additions,
+        geometry: geometryInput,
         rates,
-    }), [estimates, area, floors, glazingArea, interiorDoors, roofShape, selectedPackage, rates]);
+    }), [estimates, effectiveArea, floors, glazingArea, interiorDoors, roofShape, selectedPackage, additions, geometryInput, rates]);
 
     const applyVariants = useCallback((input: HouseCalculatorInput, tier: HouseTier = selectedTier) => {
         const nextVariants = calculateHouseVariants(input);
@@ -147,9 +195,9 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         try {
             const parsed = parseHouseDescription(clientDescription);
             const requestedTier: HouseTier = parsed.package === 'turnkey' || parsed.package === 'turnkey-engineering'
-                ? 'premium' : parsed.package === 'box' || parsed.package === 'warm-shell' ? 'economy' : 'optimal';
-            const effectiveArea = parsed.area || area;
-            const effectiveInput = { ...calculationInput, area: effectiveArea };
+                ? 'premium' : parsed.package === 'box' || parsed.package === 'warm-shell' ? 'economy' : parsed.package === 'rough-finish' ? 'optimal' : selectedTier;
+            const requestedArea = calculationMode === 'area' && parsed.area ? parsed.area : calculationInput.area;
+            const effectiveInput = { ...calculationInput, area: requestedArea };
             let estimatesUsed = effectiveInput.estimates;
             let calculation: ReturnType<typeof applyVariants>;
             try {
@@ -159,7 +207,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                 estimatesUsed = refreshedEstimates;
                 calculation = applyVariants({ ...effectiveInput, estimates: refreshedEstimates }, requestedTier);
             }
-            if (parsed.area) setArea(parsed.area);
+            if (calculationMode === 'area' && parsed.area) setArea(parsed.area);
 
             if (clientDescription.trim()) {
                 setIsAiLoading(true);
@@ -168,12 +216,17 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                     .map(estimate => `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}; внутреннее пояснение: ${internalExplanation(estimate)}.`)
                     .join('\n') || 'Подходящие сметы выбраны резервным алгоритмом.';
                 const deterministicSummary = [
-                    `Каркасный дом: ${effectiveArea} м², ${floors} эт.`,
+                    `Каркасный дом: ${requestedArea} м², ${floors} эт.`,
                     `Выбранный вариант: ${calculation.selected.label}.`,
                     `Предварительная стоимость: ${money(reviewed.base)}; диапазон: ${money(reviewed.low)}—${money(reviewed.high)}.`,
                     `Основание: ${reviewed.evidence.approvedCount} согласованных смет; ${reviewed.evidence.sourceReason}`,
                 ].join('\n');
-                setAiExplanation(await explainHouseCalculation({ deterministicSummary, historicalSummary, clientDescription }));
+                try {
+                    setAiExplanation(await explainHouseCalculation({ deterministicSummary, historicalSummary, clientDescription }));
+                } catch (reason) {
+                    setAiExplanation('');
+                    setAiError(reason instanceof Error ? reason.message : 'Расчёт готов, но AI-пояснение временно недоступно.');
+                }
             }
         } catch (reason) {
             setVariants([]);
@@ -189,13 +242,23 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         setRates(current => ({ ...current, [key]: Math.min(100, Math.max(0, Number.isFinite(value) ? value : 0)) }));
     };
 
+    const toggleAddition = (addition: HouseAdditionType) => {
+        setAdditions(current => current.includes(addition)
+            ? current.filter(value => value !== addition)
+            : [...current, addition]);
+    };
+
     const explainWithAi = async () => {
         if (!result) return;
         setIsAiLoading(true);
         setAiError('');
         try {
             const refreshedEstimates = await onRefreshEstimates();
-            const reviewedResult = calculateHouseEstimate({ ...calculationInput, estimates: refreshedEstimates });
+            const reviewedVariants = calculateHouseVariants({ ...calculationInput, estimates: refreshedEstimates });
+            const reviewedVariant = reviewedVariants.find(variant => variant.tier === selectedTier) || reviewedVariants[1];
+            const reviewedResult = reviewedVariant.result;
+            setVariants(reviewedVariants);
+            setSelectedPackage(reviewedVariant.package);
             setResult(reviewedResult);
             const historicalSummary = selectEligibleHouseHistory(refreshedEstimates)
                 .map(estimate => {
@@ -204,13 +267,13 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                 })
                 .join('\n') || 'Подходящих смет не найдено.';
             const summary = [
-                `Дом: каркасный, ${area} м², ${floors} эт.`,
+                `Дом: каркасный, ${calculationInput.area} м², ${floors} эт.`,
                 `Остекление: ${glazingArea} м²; входная дверь: 1; межкомнатные двери: ${interiorDoors}.`,
                 `Крыша: ${roofOptions.find(option => option.value === roofShape)?.label || roofShape}.`,
-                `Комплектация: ${packageOptions.find(option => option.value === selectedPackage)?.label || selectedPackage}.`,
-                `Итог расчёта: ${money(result.base)}; диапазон: ${money(result.low)}—${money(result.high)}.`,
-                `Источник: ${result.evidence.approvedCount} согласованных, ${result.evidence.draftCount} черновиков; ${result.evidence.sourceReason}`,
-                `Предупреждения: ${result.warnings.join('; ') || 'нет'}.`,
+                `Комплектация: ${packageOptions.find(option => option.value === reviewedVariant.package)?.label || reviewedVariant.package}.`,
+                `Итог расчёта: ${money(reviewedResult.base)}; диапазон: ${money(reviewedResult.low)}—${money(reviewedResult.high)}.`,
+                `Источник: ${reviewedResult.evidence.approvedCount} согласованных, ${reviewedResult.evidence.draftCount} черновиков; ${reviewedResult.evidence.sourceReason}`,
+                `Предупреждения: ${reviewedResult.warnings.join('; ') || 'нет'}.`,
             ].join('\n');
             setAiExplanation(await explainHouseCalculation({ deterministicSummary: summary, historicalSummary, clientDescription }));
         } catch (reason) {
@@ -230,10 +293,12 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     };
 
     const proposalInput = () => ({
-        area,
+        area: calculationInput.area,
         floors,
         doors: interiorDoors + 1,
         roof: roofOptions.find(option => option.value === roofShape)?.label || roofShape,
+        additions: additions.map(value => HOUSE_ADDITION_OPTIONS.find(option => option.value === value)?.label || value),
+        calculationBasis: calculationMode === 'geometry' ? 'По геометрии' : 'Предварительно по площади',
         clientDescription: clientDescription.trim(),
         selectedTier,
         variants,
@@ -270,6 +335,8 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
     const createDraft = () => {
         if (!result) return;
         const timestamp = Date.now();
+        const createdAt = new Date(timestamp).toISOString();
+        const houseProjectId = `house-project-${timestamp}`;
         const financialRows: Array<[string, number]> = [
             ['Накладные расходы', result.financials.overhead],
             ['Наценка компании', result.financials.margin],
@@ -322,15 +389,25 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             items: [...discountedItems, ...taxItem],
             total: result.base,
             buildingType: 'Каркасный дом',
-            area,
+            area: calculationInput.area,
             explanation: clientDescription.trim().slice(0, ESTIMATE_EXPLANATION_MAX_LENGTH),
             crewToolPlan: houseToolPlanning?.plan,
+            houseProjectId,
+            houseCalculationSnapshots: [createHouseCalculationSnapshot(
+                { ...calculationInput, package: selectedPackage },
+                result,
+                createdAt,
+                `house-calculation-${timestamp}`,
+                [...discountedItems, ...taxItem],
+            )],
+            houseExecutionStatus: 'in-progress',
             needsPriceUpdate: false,
             sortOrder: timestamp,
         });
     };
 
     const confidence = result?.confidence === 'high' ? 'Высокая' : result?.confidence === 'medium' ? 'Средняя' : 'Низкая';
+    const incompleteScope = result?.scope?.some(item => item.required && item.status !== 'included') ?? false;
 
     return (
         <section className="mx-auto w-full max-w-[1500px] px-3 py-4 sm:px-5 lg:px-8 lg:py-7">
@@ -346,13 +423,36 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                         <legend className="mb-4 text-lg font-bold">1. Размер и конструкция</legend>
                         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                             <div className="sm:col-span-2 lg:col-span-3">
+                                <span className="mb-2 block text-sm font-medium text-text-secondary">Основание объёмов</span>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <Choice active={calculationMode === 'area'} label="Быстро по площади" onClick={() => setCalculationMode('area')} />
+                                    <Choice active={calculationMode === 'geometry'} label="Точно по геометрии" onClick={() => setCalculationMode('geometry')} />
+                                </div>
+                            </div>
+                            {calculationMode === 'area' ? <div className="sm:col-span-2 lg:col-span-3">
                                 <div className="mb-2 flex items-end justify-between gap-4">
                                     <label htmlFor="house-area" className="text-sm font-medium text-text-secondary">Общая площадь по смете</label>
                                     <div className="flex items-center gap-2"><input id="house-area-number" aria-label="Площадь числом" type="number" min={20} max={500} value={area} onChange={e => setArea(Math.min(500, Math.max(20, Number(e.target.value) || 20)))} className={`${inputClass} w-24 text-right font-semibold`} /><span className="text-sm text-text-secondary">м²</span></div>
                                 </div>
                                 <input id="house-area" type="range" min={20} max={500} step={1} value={area} onChange={e => setArea(Number(e.target.value))} className="h-11 w-full cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
                                 <div className="flex justify-between text-xs text-text-secondary"><span>20 м²</span><span>500 м²</span></div>
-                            </div>
+                            </div> : <div className="grid gap-4 sm:col-span-2 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-4">
+                                <label className="text-sm text-text-secondary">Длина дома<span className="relative mt-2 block"><input type="number" min={1} step={0.1} value={houseLength} onChange={event => setHouseLength(Math.max(1, Number(event.target.value) || 1))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label>
+                                <label className="text-sm text-text-secondary">Ширина дома<span className="relative mt-2 block"><input type="number" min={1} step={0.1} value={houseWidth} onChange={event => setHouseWidth(Math.max(1, Number(event.target.value) || 1))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label>
+                                <label className="text-sm text-text-secondary">Высота этажа<span className="relative mt-2 block"><input type="number" min={2} step={0.1} value={floorHeight} onChange={event => setFloorHeight(Math.max(2, Number(event.target.value) || 2))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label>
+                                <div className="rounded-lg border border-border bg-background p-3"><span className="block text-xs text-text-secondary">Расчётная площадь</span><strong className="mt-1 block text-lg text-text-primary">{effectiveArea.toLocaleString('ru-RU')} м²</strong></div>
+                                <label className="text-sm text-text-secondary">Длина перегородок<span className="relative mt-2 block"><input type="number" min={0} step={0.1} value={partitionLength} onChange={event => setPartitionLength(Math.max(0, Number(event.target.value) || 0))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label>
+                                <label className="text-sm text-text-secondary">Проёмы в стенах<span className="relative mt-2 block"><input type="number" min={0} step={0.1} value={wallOpeningsArea} onChange={event => setWallOpeningsArea(Math.max(0, Number(event.target.value) || 0))} className={`${inputClass} pr-10`} /><span className="pointer-events-none absolute right-3 top-3">м²</span></span></label>
+                                <label className="text-sm text-text-secondary">Уклон крыши<span className="relative mt-2 block"><input type="number" min={0} max={74} step={1} value={roofPitchDegrees} onChange={event => setRoofPitchDegrees(Math.min(74, Math.max(0, Number(event.target.value) || 0)))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">°</span></span></label>
+                                <label className="text-sm text-text-secondary">Свес крыши<span className="relative mt-2 block"><input type="number" min={0} step={0.1} value={roofOverhang} onChange={event => setRoofOverhang(Math.max(0, Number(event.target.value) || 0))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label>
+                                <div className="sm:col-span-2 lg:col-span-4">
+                                    <span className="mb-2 block text-sm font-medium text-text-secondary">Тип фундамента</span>
+                                    <div className="grid grid-cols-3 gap-2"><Choice active={foundationType === 'slab'} label="Плита" onClick={() => setFoundationType('slab')} /><Choice active={foundationType === 'strip'} label="Лента" onClick={() => setFoundationType('strip')} /><Choice active={foundationType === 'piles'} label="Сваи" onClick={() => setFoundationType('piles')} /></div>
+                                </div>
+                                {foundationType === 'slab' && <label className="text-sm text-text-secondary">Толщина плиты<span className="relative mt-2 block"><input type="number" min={0.1} step={0.05} value={slabThickness} onChange={event => setSlabThickness(Math.max(0.1, Number(event.target.value) || 0.1))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label>}
+                                {foundationType === 'strip' && <><label className="text-sm text-text-secondary">Ширина ленты<span className="relative mt-2 block"><input type="number" min={0.1} step={0.05} value={stripWidth} onChange={event => setStripWidth(Math.max(0.1, Number(event.target.value) || 0.1))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label><label className="text-sm text-text-secondary">Глубина ленты<span className="relative mt-2 block"><input type="number" min={0.1} step={0.1} value={stripDepth} onChange={event => setStripDepth(Math.max(0.1, Number(event.target.value) || 0.1))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label><label className="text-sm text-text-secondary">Внутренняя лента<span className="relative mt-2 block"><input type="number" min={0} step={0.1} value={stripInternalLength} onChange={event => setStripInternalLength(Math.max(0, Number(event.target.value) || 0))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label></>}
+                                {foundationType === 'piles' && <label className="text-sm text-text-secondary">Количество свай<span className="relative mt-2 block"><input type="number" min={1} step={1} value={pileCount} onChange={event => setPileCount(Math.max(1, Math.round(Number(event.target.value) || 1)))} className={`${inputClass} pr-10`} /><span className="pointer-events-none absolute right-3 top-3">шт</span></span></label>}
+                            </div>}
                             <div>
                                 <span className="mb-2 block text-sm font-medium text-text-secondary">Этажность</span>
                                 <div className="grid grid-cols-2 gap-2">{[1, 2].map(value => <Choice key={value} active={floors === value} label={`${value} этаж${value === 1 ? '' : 'а'}`} onClick={() => setFloors(value)} />)}</div>
@@ -363,6 +463,11 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                             <div className="sm:col-span-2">
                                 <span className="mb-2 block text-sm font-medium text-text-secondary">Форма крыши</span>
                                 <div className="grid grid-cols-2 gap-2 md:grid-cols-3">{roofOptions.map(option => <Choice key={option.value} active={roofShape === option.value} label={option.label} onClick={() => setRoofShape(option.value)} />)}</div>
+                            </div>
+                            <div className="sm:col-span-2 lg:col-span-3">
+                                <span className="mb-2 block text-sm font-medium text-text-secondary">Дополнительные сооружения</span>
+                                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">{HOUSE_ADDITION_OPTIONS.map(option => <Choice key={option.value} active={additions.includes(option.value)} label={option.label} onClick={() => toggleAddition(option.value)} />)}</div>
+                                <span className="mt-2 block text-xs leading-5 text-text-secondary">В стоимость попадут только выбранные дополнения, если для них найдены позиции в подтверждённых сметах.</span>
                             </div>
                         </div>
                     </fieldset>
@@ -408,7 +513,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                 <aside className="min-w-0 xl:sticky xl:top-6">
                     <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-2xl">
                         <div className="border-b border-border p-5 sm:p-6">
-                            <p className="text-xs font-bold uppercase tracking-wider text-text-secondary">Предварительная стоимость</p>
+                            <p className="text-xs font-bold uppercase tracking-wider text-text-secondary">{incompleteScope ? 'Стоимость учтённого состава' : 'Предварительная стоимость'}</p>
                             {isCalculating ? <div aria-label="Расчёт выполняется" className="mt-4 space-y-3 animate-pulse"><div className="h-9 w-3/4 rounded bg-border" /><div className="h-5 w-full rounded bg-border/70" /></div> : error ? <div role="alert" className="mt-4 rounded-lg border border-red-500/40 bg-red-950/30 p-4 text-sm leading-6 text-red-200"><strong className="block text-red-100">Расчёт пока недоступен</strong>{error}</div> : result ? <>
                                 <p className="mt-3 text-3xl font-bold tracking-tight text-white sm:text-4xl">{money(result.base)}</p>
                                 <p className="mt-2 text-sm text-text-secondary">Диапазон: <span className="font-semibold text-text-primary">{money(result.low)} — {money(result.high)}</span></p>
@@ -438,6 +543,34 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                                 <button type="button" onClick={() => void exportProposalWord()} disabled={proposalExport !== null} className={`mt-2 min-h-[44px] w-full rounded-lg border border-border px-4 text-sm font-semibold text-text-secondary transition hover:border-gray-500 hover:text-text-primary disabled:cursor-wait disabled:opacity-60 ${buttonFocus}`}>{proposalExport === 'word' ? 'Формируем Word…' : 'Скачать Word-версию'}</button>
                                 {proposalError && <p role="alert" className="mt-3 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">{proposalError}</p>}
                             </div>}
+                            {result.scope && <details className="p-5 sm:p-6" open>
+                                <summary className={`min-h-[44px] cursor-pointer font-bold ${buttonFocus}`}>Полнота комплектации</summary>
+                                <p className="mb-3 text-xs leading-5 text-text-secondary">Сумма учитывает только позиции с определённым объёмом и ценой. Раскройте строки с замечаниями перед отправкой предложения.</p>
+                                <div className="space-y-2">{result.scope.filter(item => item.required).map(item => {
+                                    const tone = item.status === 'included'
+                                        ? 'border-emerald-500/30 bg-emerald-950/15 text-emerald-200'
+                                        : item.status === 'partial'
+                                            ? 'border-amber-500/30 bg-amber-950/15 text-amber-200'
+                                            : 'border-red-500/30 bg-red-950/15 text-red-200';
+                                    return <div key={item.id} className={`rounded-lg border p-3 ${tone}`}>
+                                        <div className="flex items-start justify-between gap-3 text-sm"><span className="font-semibold">{item.label}</span><span className="whitespace-nowrap text-xs font-bold">{HOUSE_SCOPE_STATUS_LABELS[item.status]}</span></div>
+                                        {item.total > 0 && <p className="mt-1 text-xs opacity-80">Учтено: {money(item.total)} · позиций: {item.itemCount}</p>}
+                                        {item.details.map(detail => <p key={detail} className="mt-1 text-xs leading-5 opacity-90">{detail}</p>)}
+                                    </div>;
+                                })}</div>
+                            </details>}
+                            {result.geometry && <details className="p-5 sm:p-6">
+                                <summary className={`min-h-[44px] cursor-pointer font-bold ${buttonFocus}`}>Основание объёмов по геометрии</summary>
+                                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 pt-2 text-sm">
+                                    <div><dt className="text-text-secondary">Пятно дома</dt><dd className="font-semibold text-text-primary">{result.geometry.footprintArea.toLocaleString('ru-RU')} м²</dd></div>
+                                    <div><dt className="text-text-secondary">Периметр</dt><dd className="font-semibold text-text-primary">{result.geometry.externalPerimeter.toLocaleString('ru-RU')} м</dd></div>
+                                    <div><dt className="text-text-secondary">Наружные стены</dt><dd className="font-semibold text-text-primary">{result.geometry.netExternalWallArea.toLocaleString('ru-RU')} м²</dd></div>
+                                    <div><dt className="text-text-secondary">Перегородки</dt><dd className="font-semibold text-text-primary">{result.geometry.partitionArea.toLocaleString('ru-RU')} м²</dd></div>
+                                    <div><dt className="text-text-secondary">Кровля</dt><dd className="font-semibold text-text-primary">{result.geometry.roofArea === null ? 'По аналогу' : `${result.geometry.roofArea.toLocaleString('ru-RU')} м²`}</dd></div>
+                                    <div><dt className="text-text-secondary">Бетон фундамента</dt><dd className="font-semibold text-text-primary">{result.geometry.foundationConcreteVolume === null ? 'Не применяется' : `${result.geometry.foundationConcreteVolume.toLocaleString('ru-RU')} м³`}</dd></div>
+                                </dl>
+                                <p className="mt-3 text-xs leading-5 text-text-secondary">Строки с однозначной единицей измерения рассчитаны по этим объёмам. Остальные позиции сохраняют оценку по подтверждённому аналогу.</p>
+                            </details>}
                             <div className="p-5 sm:p-6">
                                 <h2 className="mb-3 font-bold">За что идёт оплата</h2>
                                 <dl className="space-y-2 text-sm">{([
@@ -469,6 +602,20 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                                 <p className="mt-2 text-xs text-text-secondary">Согласованных: {result.evidence.approvedCount} · Отправленных: {result.evidence.sentCount} · Черновиков: {result.evidence.draftCount}</p>
                                 {result.warnings.length > 0 && <div className="mt-4 space-y-2">{result.warnings.map((warning, index) => <p key={`${warning}-${index}`} role="status" className="rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">{warning}</p>)}</div>}
                             </div>
+                            <details className="p-5 sm:p-6">
+                                <summary className={`min-h-[44px] cursor-pointer font-bold ${buttonFocus}`}>Точность прошлых расчётов · {accuracyReport.eligibleProjectCount}</summary>
+                                {accuracyReport.eligibleProjectCount === 0 ? <p className="pt-2 text-sm leading-6 text-text-secondary">Пока нет завершённых объектов с подтверждённой клиентской стоимостью и сохранённым исходным прогнозом. Такие объекты появятся здесь после подтверждения факта в редакторе сметы.</p> : <div className="space-y-3 pt-2">
+                                    {accuracyReport.overall && <div className="rounded-lg border border-border bg-background p-3">
+                                        <p className="text-sm font-semibold text-text-primary">Общее отклонение: {accuracyReport.overall.medianDifferencePercent > 0 ? '+' : ''}{accuracyReport.overall.medianDifferencePercent}%</p>
+                                        <p className="mt-1 text-xs text-text-secondary">Медиана по {accuracyReport.overall.sampleCount} независимым объектам.</p>
+                                        {accuracyReport.overall.lowDifferencePercent !== null && accuracyReport.overall.highDifferencePercent !== null && <p className="mt-1 text-xs text-text-secondary">Наблюдаемый диапазон 10–90%: {accuracyReport.overall.lowDifferencePercent > 0 ? '+' : ''}{accuracyReport.overall.lowDifferencePercent}% … {accuracyReport.overall.highDifferencePercent > 0 ? '+' : ''}{accuracyReport.overall.highDifferencePercent}%.</p>}
+                                    </div>}
+                                    <div className="space-y-2">{accuracyReport.sections.map(section => <div key={section.category} className="flex items-start justify-between gap-3 text-sm">
+                                        <span className="min-w-0 text-text-secondary">{section.category}<span className="block text-xs">Объектов: {section.sampleCount}</span></span>
+                                        <span className="text-right font-semibold text-text-primary">{section.medianDifferencePercent > 0 ? '+' : ''}{section.medianDifferencePercent}%{section.recommendationPercent === null ? <span className="block text-xs font-normal text-text-secondary">Нужно минимум 10</span> : <span className="block text-xs font-normal text-amber-300">Можно рассмотреть поправку {section.recommendationPercent > 0 ? '+' : ''}{section.recommendationPercent}%</span>}</span>
+                                    </div>)}</div>
+                                </div>}
+                            </details>
                             <div className="p-5 sm:p-6">
                                 <h2 className="font-bold">AI-перепроверка</h2>
                                 <p className="mt-2 text-sm leading-6 text-text-secondary">AI повторно сопоставляет параметры и пожелания с вашими актуальными сметами и формирует финальный вывод.</p>

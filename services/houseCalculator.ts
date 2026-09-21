@@ -6,6 +6,13 @@ import {
     EstimateSubgroup,
     SectionId,
 } from '../types';
+import { detectHouseScopeId, evaluateHouseScope, getRequiredHouseScopeIds, HouseScopeCheck } from './houseScope';
+import {
+    calculateHouseGeometry,
+    HouseGeometryInput,
+    HouseGeometryResult,
+    resolveHouseGeometryQuantity,
+} from './houseGeometry';
 
 export type HousePackage =
     | 'box'
@@ -32,9 +39,23 @@ export interface HouseCalculatorInput {
     doors: number;
     roofShape: RoofShape;
     package: HousePackage;
+    additions?: HouseAdditionType[];
+    geometry?: HouseGeometryInput;
     rates: HouseFinancialRates;
     now?: Date;
 }
+
+export type HouseAdditionType = 'terrace' | 'porch' | 'veranda' | 'canopy' | 'garage' | 'balcony' | 'gazebo';
+
+export const HOUSE_ADDITION_OPTIONS: Array<{ value: HouseAdditionType; label: string }> = [
+    { value: 'terrace', label: 'Терраса' },
+    { value: 'porch', label: 'Крыльцо' },
+    { value: 'veranda', label: 'Веранда' },
+    { value: 'canopy', label: 'Навес' },
+    { value: 'garage', label: 'Гараж' },
+    { value: 'balcony', label: 'Балкон' },
+    { value: 'gazebo', label: 'Беседка' },
+];
 
 export const GLAZING_MATERIAL_PRICE_PER_SQM = 14_000;
 export const GLAZING_INSTALLATION_PRICE_PER_SQM = 2_000;
@@ -82,6 +103,8 @@ export interface HouseCalculatorResult {
     sourceEstimate: Estimate;
     rates: HouseFinancialRates;
     financials: HouseFinancialBreakdown;
+    scope?: HouseScopeCheck[];
+    geometry?: HouseGeometryResult;
 }
 
 export interface ParsedHouseDescription {
@@ -244,6 +267,8 @@ const itemKind = (item: EstimateItem): ItemKind => {
         || hasAny(text, ['достав', 'разгруз', 'транспорт', 'логист'])) return 'logistics';
     if (hasAny(text, ['аренд', 'техник', 'манипулятор', 'кран', 'экскаватор', 'бурени'])) return 'equipment';
     if (item.category === EstimateCategory.ELECTRICAL
+        || item.category === EstimateCategory.WATER_SUPPLY
+        || item.category === EstimateCategory.SEWERAGE
         || hasAny(text, ['электр', 'отоплен', 'водоснаб', 'канализ', 'септик', 'вентиляц', 'сантех', 'котельн'])) return 'engineering';
     if (hasAny(text, ['террас', 'веранд', 'крыльц', 'бесед', 'балкон', 'навес', 'гараж'])) return 'addition';
     if (hasAny(text, ['гипсокарт', 'гкл', 'предчист', 'черновая отделка', 'шпаклев', 'стяжк'])) return 'rough-finish';
@@ -254,7 +279,20 @@ const itemKind = (item: EstimateItem): ItemKind => {
     return 'structure';
 };
 
+const additionType = (item: EstimateItem): HouseAdditionType | null => {
+    const text = normalize(`${item.name} ${item.note || ''}`);
+    if (text.includes('террас')) return 'terrace';
+    if (text.includes('крыльц')) return 'porch';
+    if (text.includes('веранд')) return 'veranda';
+    if (text.includes('навес')) return 'canopy';
+    if (text.includes('гараж')) return 'garage';
+    if (text.includes('балкон')) return 'balcony';
+    if (text.includes('бесед')) return 'gazebo';
+    return null;
+};
+
 const packageAllows = (kind: ItemKind, selected: HousePackage): boolean => {
+    if (kind === 'addition') return true;
     if (kind === 'warm-shell') return selected !== 'box';
     if (kind === 'rough-finish') return selected === 'rough-finish' || selected === 'turnkey' || selected === 'turnkey-engineering';
     if (kind === 'finish') return selected === 'turnkey' || selected === 'turnkey-engineering';
@@ -342,19 +380,34 @@ export function scaleReferenceItems(source: Estimate, input: HouseCalculatorInpu
     const sourceArea = source.area > 0 ? source.area : input.area;
     const areaFactor = input.area / sourceArea;
     const floorFactor = Math.max(1, input.floors);
+    const geometry = input.geometry ? calculateHouseGeometry(input.geometry) : null;
     return source.items.flatMap((item, index) => {
+        if (item.isActualOnly) return [];
         const kind = itemKind(item);
         if (!packageAllows(kind, input.package)) return [];
+        if (kind === 'addition') {
+            const type = additionType(item);
+            if (!type || !input.additions?.includes(type)) return [];
+        }
         if (isOpeningItem(item)) return [];
         let factor = areaFactor;
         if (kind === 'roof') factor *= roofFactor[input.roofShape];
         if (kind === 'logistics' || kind === 'equipment') factor = 1;
         if (kind === 'structure' && input.floors > 1) factor *= 1 + (floorFactor - 1) * 0.35;
-        const quantity = money(Math.max(0, item.quantity) * Math.max(0, factor));
         const sourceTotal = Number.isFinite(item.total) ? Math.max(0, item.total) : Math.max(0, item.quantity * item.price);
-        const total = money(sourceTotal * Math.max(0, factor));
+        const geometryQuantity = geometry ? resolveHouseGeometryQuantity(item, geometry) : null;
+        const quantity = geometryQuantity
+            ? money(Math.max(0, geometryQuantity.quantity))
+            : money(Math.max(0, item.quantity) * Math.max(0, factor));
+        const sourceUnitPrice = item.quantity > 0 ? sourceTotal / item.quantity : Math.max(0, item.price);
+        const total = geometryQuantity
+            ? money(quantity * sourceUnitPrice)
+            : money(sourceTotal * Math.max(0, factor));
         const price = quantity > 0 ? money(total / quantity) : Math.max(0, item.price);
-        return [{ ...item, id: `house-${index}-${item.id}`, quantity, price, total }];
+        const { actual: _actual, isActualOnly: _isActualOnly, ...plannedItem } = item;
+        const geometryNote = geometryQuantity ? `Количество по геометрии: ${geometryQuantity.basis}` : '';
+        const note = [plannedItem.note, geometryNote].filter(Boolean).join('. ');
+        return [{ ...plannedItem, id: `house-${index}-${item.id}`, quantity, price, total, note: note || undefined }];
     });
 }
 
@@ -410,6 +463,37 @@ const scalePackageScope = (primary: Estimate, history: Estimate[], input: HouseC
         if (!scopeItems.length) continue;
         items.push(...scopeItems);
         supplements.push(`${scopeKindLabel[kind]}: ${source.estimateNumber}`);
+    }
+
+    for (const scopeId of getRequiredHouseScopeIds(input.package)) {
+        if (items.some(item => detectHouseScopeId(item) === scopeId)) continue;
+        const source = history
+            .filter(candidate => candidate.id !== primary.id && candidate.items.some(item => detectHouseScopeId(item) === scopeId))
+            .sort((left, right) => statusPriority[left.status] - statusPriority[right.status]
+                || Math.abs(left.area - input.area) - Math.abs(right.area - input.area))[0];
+        if (!source) continue;
+        const scopeItems = scaleReferenceItems(source, input)
+            .filter(item => detectHouseScopeId(item) === scopeId)
+            .map((item, index) => ({ ...item, id: `house-supplement-${scopeId}-${source.id}-${index}-${item.id}` }));
+        if (!scopeItems.length) continue;
+        items.push(...scopeItems);
+        supplements.push(`${scopeId}: ${source.estimateNumber}`);
+    }
+
+    for (const addition of input.additions || []) {
+        if (items.some(item => additionType(item) === addition)) continue;
+        const source = history
+            .filter(candidate => candidate.items.some(item => additionType(item) === addition))
+            .sort((left, right) => statusPriority[left.status] - statusPriority[right.status]
+                || Math.abs(left.area - input.area) - Math.abs(right.area - input.area))[0];
+        if (!source) continue;
+        const additionItems = scaleReferenceItems(source, input)
+            .filter(item => additionType(item) === addition)
+            .map((item, index) => ({ ...item, id: `house-addition-${addition}-${source.id}-${index}-${item.id}` }));
+        if (!additionItems.length) continue;
+        items.push(...additionItems);
+        const label = HOUSE_ADDITION_OPTIONS.find(option => option.value === addition)?.label || addition;
+        supplements.push(`${label}: ${source.estimateNumber}`);
     }
 
     return { items, supplements };
@@ -490,6 +574,8 @@ export function createAiHouseEstimateResult(
         sourceEstimate: source,
         rates: { ...input.rates },
         financials,
+        scope: evaluateHouseScope(pricedItems, input.package),
+        geometry: input.geometry ? calculateHouseGeometry(input.geometry) : undefined,
     };
 }
 
@@ -507,6 +593,19 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     const { items, supplements } = scalePackageScope(source, history, input);
     if (input.package !== 'box') items.push(...glazingItems(input.glazingArea), ...doorItems(input.doors));
     const warnings: string[] = [];
+    const geometry = input.geometry ? calculateHouseGeometry(input.geometry) : undefined;
+    if (geometry) {
+        warnings.push(...geometry.warnings);
+        if (Math.abs(geometry.totalFloorArea - input.area) > 0.01) {
+            warnings.push(`Площадь по геометрии ${geometry.totalFloorArea} м² отличается от площади расчёта ${input.area} м².`);
+        }
+    }
+    for (const addition of input.additions || []) {
+        if (!items.some(item => additionType(item) === addition)) {
+            const label = HOUSE_ADDITION_OPTIONS.find(option => option.value === addition)?.label || addition;
+            warnings.push(`${label}: в подтверждённых сметах не найдены позиции, дополнение не включено в стоимость.`);
+        }
+    }
     if (!eligible.length && broaderApproved.length) {
         warnings.push('Тип объекта не распознан автоматически: использована ближайшая согласованная смета из личной базы.');
     }
@@ -536,6 +635,11 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
         const sectionItems = items.filter(item => item.category === category);
         return { category, total: money(sum(sectionItems)), items: sectionItems };
     });
+    const scope = evaluateHouseScope(items, input.package);
+    const incompleteScope = scope.filter(item => item.required && item.status !== 'included');
+    if (incompleteScope.length) {
+        warnings.push(`Комплектация требует проверки: ${incompleteScope.map(item => `${item.label} — ${item.status === 'partial' ? 'частично' : 'нужно уточнить'}`).join('; ')}.`);
+    }
     const approvedCount = history.filter(item => item.status === EstimateStatus.APPROVED).length;
     const sentCount = history.filter(item => item.status === EstimateStatus.SENT).length;
     const draftCount = history.filter(item => item.status === EstimateStatus.DRAFT).length;
@@ -556,6 +660,8 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
                     : 'Ближайшая по площади подтверждённая смета.',
         },
         sections, items, warnings, sourceEstimate: source, rates: { ...input.rates }, financials,
+        scope,
+        geometry,
     };
 }
 
