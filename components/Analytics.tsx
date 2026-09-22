@@ -34,6 +34,17 @@ const STORAGE_KEY = 'kmobn:analytics:filters:v1';
 
 // Современная палитра (без добавления новых theme primitives — это обычные CSS-цвета для графиков)
 const CHART_COLORS = ['#7C3AED', '#06B6D4', '#22C55E', '#F59E0B', '#EF4444', '#3B82F6', '#A855F7', '#14B8A6'];
+const CHART_TICK_STYLE = { fill: '#CBD5E1', fontSize: 11 };
+const CHART_AXIS_STYLE = { stroke: '#64748B' };
+const CHART_TOOLTIP_STYLE = {
+    backgroundColor: '#1F2937',
+    border: '1px solid #475569',
+    borderRadius: 8,
+    color: '#F8FAFC',
+};
+const CHART_TOOLTIP_LABEL_STYLE = { color: '#F8FAFC', fontWeight: 600 };
+const CHART_TOOLTIP_ITEM_STYLE = { color: '#E2E8F0' };
+const CHART_LEGEND_STYLE = { color: '#CBD5E1' };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -1376,8 +1387,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                     <ResponsiveContainer width="100%" height={320}>
                                         <BarChart data={comparisonAnalytics.waterfallData} margin={{ top: 8, right: 12, left: 0, bottom: 30 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
-                                            <XAxis dataKey="name" angle={-18} textAnchor="end" interval={0} height={64} tick={{ fontSize: 11 }} />
-                                            <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
+                                            <XAxis dataKey="name" angle={-18} textAnchor="end" interval={0} height={64} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                            <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
                                             <Tooltip
                                                 content={({ active, payload, label }) => {
                                                     if (!active || !payload?.length) return null;
@@ -1416,9 +1427,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         <ResponsiveContainer width="100%" height={320}>
                                             <BarChart data={comparisonAnalytics.divergingData} layout="vertical" margin={{ top: 8, right: 24, left: 18, bottom: 8 }}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
-                                                <XAxis type="number" tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} />
-                                                <YAxis type="category" dataKey="category" width={130} tick={{ fontSize: 11 }} />
-                                                <Tooltip formatter={(value: any) => [formatSignedRub(Number(value || 0)), 'Разница']} />
+                                                <XAxis type="number" tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                                <YAxis type="category" dataKey="category" width={130} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                                <Tooltip formatter={(value: any) => [formatSignedRub(Number(value || 0)), 'Разница']} contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
                                                 <Bar dataKey="diff" radius={[0, 8, 8, 0]} isAnimationActive animationDuration={700}>
                                                     {comparisonAnalytics.divergingData.map((entry, index) => (
                                                         <Cell key={`diverging-${index}`} fill={entry.diff >= 0 ? '#EF4444' : '#10B981'} />
@@ -1597,9 +1608,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                 </linearGradient>
                             </defs>
                             <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
-                            <XAxis dataKey="day" tickFormatter={(v) => formatDateRu(String(v))} tick={{ fontSize: 11 }} />
-                            <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={{ fontSize: 11 }} />
-                            <Tooltip labelFormatter={(v) => formatDateRu(String(v))} formatter={(value: any) => [formatRub(Number(value || 0)), 'Расходы']} />
+                            <XAxis dataKey="day" tickFormatter={(v) => formatDateRu(String(v))} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                            <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                            <Tooltip labelFormatter={(v) => formatDateRu(String(v))} formatter={(value: any) => [formatRub(Number(value || 0)), 'Расходы']} contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
                             <Line
                                 type="monotone"
                                 dataKey="total"
@@ -1625,11 +1636,14 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                         <ResponsiveContainer width="100%" height={320}>
                             <LineChart data={marginData}>
                                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
-                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} tick={{ fontSize: 11 }} />
-                                <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
+                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                <YAxis domain={[0, 100]} unit="%" tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
                                 <Tooltip
                                     labelFormatter={(v) => formatDateRu(String(v))}
                                     formatter={(value: any) => [`${value}%`, 'Маржа']}
+                                    contentStyle={CHART_TOOLTIP_STYLE}
+                                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                                    itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                                 />
                                 <Line type="monotone" dataKey="margin" name="Маржа %" stroke="#F59E0B" strokeWidth={3} dot={{ r: 3 }} isAnimationActive animationDuration={650} />
                             </LineChart>
@@ -1648,11 +1662,14 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                         <ResponsiveContainer width="100%" height={320}>
                             <LineChart data={costPerSqmData}>
                                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
-                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} tick={{ fontSize: 11 }} />
-                                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={{ fontSize: 11 }} />
+                                <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                <YAxis tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
                                 <Tooltip
                                     labelFormatter={(v) => formatDateRu(String(v))}
                                     formatter={(value: any) => [formatRub(Number(value || 0)), 'За м²']}
+                                    contentStyle={CHART_TOOLTIP_STYLE}
+                                    labelStyle={CHART_TOOLTIP_LABEL_STYLE}
+                                    itemStyle={CHART_TOOLTIP_ITEM_STYLE}
                                 />
                                 <Line type="monotone" dataKey="costPerSqm" name="₽/м²" stroke="#EF4444" strokeWidth={3} dot={{ r: 3 }} isAnimationActive animationDuration={650} />
                             </LineChart>
@@ -1680,10 +1697,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                             <ResponsiveContainer width="100%" height={320}>
                                 <BarChart data={stackedComparisonData} margin={{ bottom: 10 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                                    <XAxis dataKey="name" />
-                                    <YAxis />
-                                    <Tooltip formatter={(value: any, name: string) => [formatRub(Number(value || 0)), name]} />
-                                    <Legend />
+                                    <XAxis dataKey="name" tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                    <YAxis tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                    <Tooltip formatter={(value: any, name: string) => [formatRub(Number(value || 0)), name]} contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
+                                    <Legend wrapperStyle={CHART_LEGEND_STYLE} />
                                     {stackedCategoryMeta.stacked.map((category) => (
                                         <Bar
                                             key={category}
@@ -1708,10 +1725,10 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         </linearGradient>
                                     </defs>
                                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
-                                    <XAxis dataKey="name" />
-                                    <YAxis />
-                                    <Tooltip formatter={(value: any) => [formatRub(Number(value || 0)), 'Стоимость']} />
-                                    <Legend />
+                                    <XAxis dataKey="name" tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                    <YAxis tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
+                                    <Tooltip formatter={(value: any) => [formatRub(Number(value || 0)), 'Стоимость']} contentStyle={CHART_TOOLTIP_STYLE} labelStyle={CHART_TOOLTIP_LABEL_STYLE} itemStyle={CHART_TOOLTIP_ITEM_STYLE} />
+                                    <Legend wrapperStyle={CHART_LEGEND_STYLE} />
                                     <Bar dataKey="total" fill="url(#barFill)" name="Стоимость" isAnimationActive animationDuration={650} radius={[10, 10, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
