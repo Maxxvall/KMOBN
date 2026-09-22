@@ -111,8 +111,7 @@ function findSimilarEstimates(
         return typeMatch && areaMatch;
     });
 
-    if (similar.length >= 3) return similar;
-    return approved;
+    return similar;
 }
 
 function buildItemStats(

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Estimate, Worker, WorkAllocation, SalaryCalculation, EstimateSubgroup, SalaryMode } from '../types';
 import { saveSalaryCalculation, loadSalaryCalculationByEstimateId } from '../services/database';
 
@@ -21,30 +21,61 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
     const [newWorkerName, setNewWorkerName] = useState('');
     const [workAllocations, setWorkAllocations] = useState<WorkAllocation[]>([]);
     const [mode, setMode] = useState<SalaryMode>('percent');
+    const [loadedEstimateId, setLoadedEstimateId] = useState<string | null>(null);
+    const loadRequestRef = useRef(0);
 
     const activeEstimates = useMemo(() => estimates.filter(e => !e.isArchived), [estimates]);
+    const activeEstimatesRef = useRef(activeEstimates);
+    activeEstimatesRef.current = activeEstimates;
     const selectedEstimate = useMemo(() => activeEstimates.find(e => e.id === selectedEstimateId), [activeEstimates, selectedEstimateId]);
     const workItems = useMemo(() => selectedEstimate?.items.filter(item => item.subgroup === EstimateSubgroup.WORKS) || [], [selectedEstimate]);
 
     // Load saved calculation
     useEffect(() => {
+        const requestId = ++loadRequestRef.current;
+        setLoadedEstimateId(null);
+        setWorkers([]);
+        setWorkAllocations([]);
+        setMode('percent');
+
         const loadSavedCalculation = async () => {
-            if (selectedEstimateId) {
-                const saved = await loadSalaryCalculationByEstimateId(selectedEstimateId);
-                if (saved) {
-                    setWorkers(saved.workers);
-                    setWorkAllocations(saved.workAllocations);
-                    if (saved.mode) setMode(saved.mode);
-                }
+            if (!selectedEstimateId) return;
+            const estimate = activeEstimatesRef.current.find(item => item.id === selectedEstimateId);
+            if (!estimate) return;
+            let saved: SalaryCalculation | undefined;
+            try {
+                saved = await loadSalaryCalculationByEstimateId(selectedEstimateId);
+            } catch (error) {
+                console.error('Не удалось загрузить расчёт зарплаты:', error);
+                return;
             }
+            if (loadRequestRef.current !== requestId) return;
+            if (saved) {
+                setWorkers(saved.workers);
+                setWorkAllocations(saved.workAllocations);
+                setMode(saved.mode || 'percent');
+            } else {
+                const works = estimate.items.filter(item => item.subgroup === EstimateSubgroup.WORKS);
+                setWorkAllocations(works.map(work => ({
+                    workItemId: work.id,
+                    workItemName: work.name,
+                    workItemTotal: work.total,
+                    allocations: {},
+                    hours: {},
+                })));
+            }
+            setLoadedEstimateId(selectedEstimateId);
         };
-        loadSavedCalculation();
+        void loadSavedCalculation();
+        return () => {
+            if (loadRequestRef.current === requestId) loadRequestRef.current += 1;
+        };
     }, [selectedEstimateId]);
 
     // Auto-save
     useEffect(() => {
         const saveCalculation = async () => {
-            if (selectedEstimateId && selectedEstimate && (workers.length > 0 || workAllocations.length > 0)) {
+            if (loadedEstimateId === selectedEstimateId && selectedEstimateId && selectedEstimate && (workers.length > 0 || workAllocations.length > 0)) {
                 const calculation: SalaryCalculation = {
                     id: `salary-${selectedEstimateId}`,
                     estimateId: selectedEstimateId,
@@ -58,22 +89,10 @@ const SalaryCalculator: React.FC<SalaryCalculatorProps> = ({ estimates }) => {
             }
         };
         saveCalculation();
-    }, [selectedEstimateId, selectedEstimate, workers, workAllocations, mode]);
+    }, [loadedEstimateId, selectedEstimateId, selectedEstimate, workers, workAllocations, mode]);
 
     const handleEstimateChange = (estimateId: string) => {
         setSelectedEstimateId(estimateId);
-        const estimate = activeEstimates.find(e => e.id === estimateId);
-        if (estimate) {
-            const works = estimate.items.filter(item => item.subgroup === EstimateSubgroup.WORKS);
-            const initialAllocations: WorkAllocation[] = works.map(work => ({
-                workItemId: work.id,
-                workItemName: work.name,
-                workItemTotal: work.total,
-                allocations: {},
-                hours: {},
-            }));
-            setWorkAllocations(initialAllocations);
-        }
     };
 
     const handleAddWorker = () => {

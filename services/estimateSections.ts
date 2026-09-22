@@ -227,13 +227,23 @@ const validateNewLabel = (document: EstimateSectionsDocument, label: string, exc
     return clean;
 };
 
-const touchDocument = (document: EstimateSectionsDocument): EstimateSectionsDocument => ({
+const snapshotDocument = (
+    document: EstimateSectionsDocument,
+): Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'> => ({
+    definitions: document.definitions,
+    order: document.order,
+    serverRevision: document.serverRevision,
+});
+
+const touchDocument = (
+    document: EstimateSectionsDocument,
+    sourceBeforeMutation: EstimateSectionsDocument = document,
+): EstimateSectionsDocument => ({
     ...document,
-    baseDocument: document.baseDocument ?? {
-        definitions: document.definitions,
-        order: document.order,
-        serverRevision: document.serverRevision,
-    },
+    // The merge base must describe the document before the first local edit.
+    // Using the already-mutated document makes a concurrent local change look
+    // unchanged and can silently choose the remote value.
+    baseDocument: sourceBeforeMutation.baseDocument ?? snapshotDocument(sourceBeforeMutation),
     operationId: createUuid(),
     syncConflict: undefined,
 });
@@ -255,7 +265,7 @@ export const addUserEstimateSection = (
         ...document,
         definitions: [...document.definitions, { id, label: clean, archived: false, createdAt: timestamp, updatedAt: timestamp }],
         order: [...document.order, id],
-    });
+    }, document);
 };
 
 export const renameUserEstimateSection = (
@@ -271,7 +281,7 @@ export const renameUserEstimateSection = (
         definitions: document.definitions.map(section => section.id === id
             ? { ...section, label: clean, updatedAt: now.toISOString() }
             : section),
-    });
+    }, document);
 };
 
 export const setUserEstimateSectionArchived = (
@@ -287,7 +297,7 @@ export const setUserEstimateSectionArchived = (
             ? { ...section, archived, updatedAt: now.toISOString() }
             : section),
         order: archived ? document.order.filter(sectionId => sectionId !== id) : [...document.order.filter(sectionId => sectionId !== id), id],
-    });
+    }, document);
 };
 
 export const reorderEstimateSections = (
@@ -298,7 +308,7 @@ export const reorderEstimateSections = (
     if (order.length !== activeIds.length || new Set(order).size !== activeIds.length || order.some(id => !activeIds.includes(id))) {
         throw new Error('Порядок разделов содержит пропущенные или неизвестные значения.');
     }
-    return touchDocument({ ...document, order: [...order] });
+    return touchDocument({ ...document, order: [...order] }, document);
 };
 
 export const captureEstimateSectionSnapshot = (

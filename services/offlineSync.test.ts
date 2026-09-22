@@ -72,11 +72,38 @@ describe('processOfflineQueue', () => {
 
     await expect(processOfflineQueue(TEST_USER, async () => {
       throw rejection;
-    })).rejects.toMatchObject({ retryable: false });
+    })).resolves.toMatchObject({ syncedCount: 0, pendingCount: 1 });
 
     const [failed] = await offlineQueue.getAll(TEST_USER);
     expect(failed).toMatchObject({ failureKind: 'permanent', retryCount: 1 });
     expect(failed.nextRetryAt).toBeUndefined();
+  });
+
+  it('continues with independent changes after a permanent rejection', async () => {
+    await enqueueMaterial('material-invalid', 100);
+    await enqueueMaterial('material-valid', 200);
+    const executed: string[] = [];
+
+    const result = await processOfflineQueue(TEST_USER, async change => {
+      executed.push(change.recordId);
+      if (change.recordId === 'material-invalid') {
+        throw Object.assign(new Error('invalid payload'), { status: 422 });
+      }
+    });
+
+    expect(executed).toEqual(['material-invalid', 'material-valid']);
+    expect(result).toMatchObject({ syncedCount: 1, pendingCount: 1 });
+    expect((await offlineQueue.getAll(TEST_USER))[0]).toMatchObject({
+      recordId: 'material-invalid',
+      failureKind: 'permanent',
+    });
+
+    await enqueueMaterial('material-later', 300);
+    const followUp = vi.fn(async (_change: PendingChange) => undefined);
+    await processOfflineQueue(TEST_USER, followUp);
+
+    expect(followUp).toHaveBeenCalledTimes(1);
+    expect(followUp.mock.calls[0][0].recordId).toBe('material-later');
   });
 
   it('does not delete a newer change enqueued while its older sequence is syncing', async () => {

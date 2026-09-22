@@ -1,0 +1,92 @@
+// Audit evidence, 2026-09-21. Copy to services/offlineAudit.repro.test.ts
+// and run: npm run test -- services/offlineAudit.repro.test.ts
+// All four tests assert the required behavior and failed during the audit.
+// Uses synthetic data, fake-indexeddb, and mocked Supabase only.
+import 'fake-indexeddb/auto';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import type { CustomSectionId, EstimateSectionsDocument } from '../types';
+import { createEstimateSectionsDocument, addUserEstimateSection, renameUserEstimateSection, tryMergeEstimateSectionsDocuments } from './estimateSections';
+import { offlineQueue } from './offlineQueue';
+import { closeIndexedDbCache, getCachedRecords, upsertCachedRecords } from './indexedDbCache';
+import { processOfflineQueue } from './offlineSync';
+import { saveMaterials } from './database';
+
+const remote = vi.hoisted(() => ({
+  save: vi.fn(), fetch: vi.fn(), getSession: vi.fn(),
+}));
+vi.mock('./supabase', () => ({
+  default: { auth: { getSession: remote.getSession } },
+  isSupabaseConfigured: () => true,
+  fetchEstimates: vi.fn(), fetchTemplates: vi.fn(), fetchMaterials: vi.fn(),
+  fetchWorks: vi.fn(), fetchBundles: vi.fn(), fetchSalaryCalculations: vi.fn(),
+  fetchEstimateSections: remote.fetch, saveEstimateSectionsRemote: remote.save,
+  upsertTable: vi.fn(), deleteTableRecords: vi.fn(),
+}));
+const user = 'audit-user';
+const id: CustomSectionId = 'custom:99999999-9999-4999-8999-999999999999';
+const serverDocument = (): EstimateSectionsDocument => ({
+  ...addUserEstimateSection(createEstimateSectionsDocument(user), 'Original', new Date(), id),
+  serverRevision: 1, baseDocument: undefined, operationId: undefined,
+});
+const extraQueues: Array<{ close(): void }> = [];
+beforeEach(async () => {
+  vi.stubGlobal('window', { dispatchEvent: vi.fn() });
+  vi.stubGlobal('navigator', { onLine: true });
+  const entries = new Map<string, string>();
+  entries.set('kmobn:offlineIdentity', JSON.stringify({ user: { id: user } }));
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => entries.set(key, value),
+    removeItem: (key: string) => entries.delete(key),
+    get length() { return entries.size; },
+    key: (index: number) => [...entries.keys()][index] ?? null,
+  });
+  await offlineQueue.clearUser(user);
+  await offlineQueue.clearUser('anon');
+});
+afterEach(async () => {
+  extraQueues.splice(0).forEach(queue => queue.close());
+  await offlineQueue.clearUser(user);
+  await offlineQueue.clearUser('anon');
+  offlineQueue.close();
+  closeIndexedDbCache();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+it('detects conflicting first renames of a document loaded from the server', () => {
+  const original = serverDocument();
+  const local = renameUserEstimateSection(original, id, 'Local');
+  const changedRemote = { ...renameUserEstimateSection(original, id, 'Remote'), serverRevision: 2, baseDocument: undefined };
+  expect(tryMergeEstimateSectionsDocuments(local, changedRemote)).toBeNull();
+});
+
+it('updates the cached server revision after a successful sections sync', async () => {
+  const local = renameUserEstimateSection(serverDocument(), id, 'Local');
+  await upsertCachedRecords('estimate_sections', user, [local]);
+  await offlineQueue.enqueueUpserts(user, 'estimate_sections', [local]);
+  remote.save.mockResolvedValue({ data: [{ ...local, serverRevision: 2 }], error: null });
+  await processOfflineQueue(user);
+  const [cached] = await getCachedRecords<EstimateSectionsDocument>('estimate_sections', user);
+  expect(cached.serverRevision).toBe(2);
+});
+
+it('does not acknowledge a different tab change created in the same millisecond', async () => {
+  vi.spyOn(Date, 'now').mockReturnValue(1800000000000);
+  vi.resetModules();
+  const tabA = (await import('./offlineQueue')).offlineQueue;
+  extraQueues.push(tabA);
+  await tabA.enqueueUpserts(user, 'materials', [{ id: 'same-record', price: 100 }]);
+  const [sent] = await tabA.getAll(user);
+  vi.resetModules();
+  const tabB = (await import('./offlineQueue')).offlineQueue;
+  extraQueues.push(tabB);
+  await tabB.enqueueUpserts(user, 'materials', [{ id: 'same-record', price: 200 }]);
+  expect(await tabA.acknowledge(sent.id, sent.sequence)).toBe(false);
+});
+
+it('never routes an authenticated workspace edit into an anonymous outbox', async () => {
+  remote.getSession.mockResolvedValue({ data: { session: null }, error: null });
+  await saveMaterials([{ id: 'material-auth-gap', name: 'Audit', price: 100 } as never]);
+  expect(await offlineQueue.count('anon')).toBe(0);
+});

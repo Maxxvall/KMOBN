@@ -1,6 +1,6 @@
 import type { CacheTableKey } from './indexedDbCache';
 import { offlineQueue, type PendingChange } from './offlineQueue';
-import { deleteTableRecords, upsertTable } from './supabase';
+import { deleteOfflineRecord, saveOfflineRecord } from './supabase';
 import { fetchEstimateSections, saveEstimateSectionsRemote } from './supabase';
 import { upsertCachedRecords } from './indexedDbCache';
 import type { EstimateSectionsDocument } from '../types';
@@ -16,7 +16,15 @@ const SUPPORTED_TABLES: ReadonlySet<CacheTableKey> = new Set<CacheTableKey>([
   'estimate_sections',
 ]);
 
-export type ExecutePendingChange = (change: PendingChange, userId: string) => Promise<void>;
+type ExecutePendingChangeResult = {
+  confirmedSections?: EstimateSectionsDocument;
+  confirmedRecord?: { table: CacheTableKey; data: { id: string; serverRevision?: number } };
+};
+
+export type ExecutePendingChange = (
+  change: PendingChange,
+  userId: string,
+) => Promise<void | ExecutePendingChangeResult>;
 
 export type OfflineSyncResult = {
   syncedCount: number;
@@ -38,12 +46,13 @@ export class OfflineSyncError extends Error {
 
 export const isRetryableSyncError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') return true;
-  const value = error as { status?: unknown; statusCode?: unknown; code?: unknown };
+  const value = error as { status?: unknown; statusCode?: unknown; code?: unknown; message?: unknown };
   const numericStatus = Number(value.status ?? value.statusCode);
   if (Number.isFinite(numericStatus)) {
     return numericStatus === 408 || numericStatus === 429 || numericStatus >= 500;
   }
   const code = typeof value.code === 'string' ? value.code : '';
+  if (code === '40001' && /OFFLINE_RECORD_CONFLICT/.test(String(value.message ?? ''))) return false;
   if (/^(22|23|42|PGRST)/.test(code)) return false;
   return true;
 };
@@ -54,6 +63,9 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
   }
   if (!SUPPORTED_TABLES.has(change.table)) {
     throw new Error(`Unsupported offline table: ${change.table}`);
+  }
+  if (!change.operationId) {
+    throw new Error('Offline change is missing an operation id');
   }
 
   if (change.operation === 'upsert') {
@@ -92,17 +104,45 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
       }
       if (error) throw error;
       if (!Array.isArray(data) || data.length !== 1) throw new Error('Supabase did not acknowledge estimate_sections');
-      return;
+      const confirmed = data[0] as EstimateSectionsDocument;
+      return {
+        confirmedSections: {
+          ...confirmed,
+          baseDocument: {
+            definitions: confirmed.definitions,
+            order: confirmed.order,
+            serverRevision: confirmed.serverRevision,
+          },
+          operationId: undefined,
+          syncConflict: undefined,
+        },
+      };
     }
-    const { data, error } = await upsertTable(change.table, [change.data], userId);
+    const { data, error } = await saveOfflineRecord(
+      change.table,
+      change.data as Record<string, unknown>,
+      userId,
+      change.operationId,
+    );
     if (error) throw error;
-    if (!Array.isArray(data) || data.length !== 1) {
+    if (!data || typeof data !== 'object' || typeof (data as { id?: unknown }).id !== 'string') {
       throw new Error(`Supabase did not acknowledge ${change.table}:${change.recordId}`);
     }
-    return;
+    return {
+      confirmedRecord: {
+        table: change.table,
+        data: data as { id: string; serverRevision?: number },
+      },
+    };
   }
 
-  const { error } = await deleteTableRecords(change.table, [change.recordId], userId);
+  const { error } = await deleteOfflineRecord(
+    change.table,
+    change.recordId,
+    userId,
+    change.baseRevision ?? 0,
+    change.operationId,
+  );
   if (error) throw error;
 };
 
@@ -114,20 +154,74 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
   const changes = await offlineQueue.getAll(userId);
 
   for (const change of changes) {
+    if (change.failureKind === 'permanent') continue;
     try {
-      await executeChange(change, userId);
-      const acknowledged = await offlineQueue.acknowledge(change.id, change.sequence);
+      const result = await executeChange(change, userId);
+      const acknowledged = await offlineQueue.acknowledge(change.id, change.sequence, change.operationId);
       if (acknowledged) {
+        if (result && result.confirmedSections) {
+          await upsertCachedRecords('estimate_sections', userId, [result.confirmedSections]);
+          if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
+              detail: { key: 'estimate_sections', data: [result.confirmedSections] },
+            }));
+          }
+        }
+        if (result && result.confirmedRecord) {
+          await upsertCachedRecords(
+            result.confirmedRecord.table,
+            userId,
+            [result.confirmedRecord.data],
+          );
+          if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
+              detail: {
+                key: result.confirmedRecord.table,
+                data: [result.confirmedRecord.data],
+              },
+            }));
+          }
+        }
         syncedCount += 1;
         syncedTables.add(change.table);
+      } else if (result) {
+        const confirmed = result.confirmedSections ?? result.confirmedRecord?.data;
+        if (confirmed) {
+          const rebased = await offlineQueue.rebaseAfterConfirmation(
+            change.id,
+            change.sequence,
+            change.operationId,
+            confirmed,
+          );
+          if (rebased?.operation === 'upsert' && rebased.data && typeof rebased.data === 'object') {
+            await upsertCachedRecords(
+              rebased.table,
+              userId,
+              [rebased.data as { id: string }],
+            );
+            if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
+                detail: { key: rebased.table, data: [rebased.data] },
+              }));
+            }
+          }
+        }
       }
     } catch (error) {
       const retryable = isRetryableSyncError(error);
-      const stillCurrent = await offlineQueue.markFailed(change.id, change.sequence, error, retryable);
+      const stillCurrent = await offlineQueue.markFailed(
+        change.id,
+        change.sequence,
+        error,
+        retryable,
+        change.operationId,
+      );
       // The failed snapshot may already have been replaced by a newer local
       // version. Do not block that newer version behind a stale failure.
       if (!stillCurrent) continue;
-      throw new OfflineSyncError(change, error, retryable);
+      if (retryable) throw new OfflineSyncError(change, error, true);
+      // Keep a permanently invalid record for repair without blocking
+      // independent changes later in the queue.
     }
   }
 
@@ -136,6 +230,16 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
     syncedTables: [...syncedTables],
     pendingCount: await offlineQueue.count(userId),
   };
+};
+
+const runWithCrossContextLock = async (
+  userId: string,
+  executeChange: ExecutePendingChange,
+): Promise<OfflineSyncResult> => {
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request(`kmobn-offline-sync:${userId}`, () => runQueue(userId, executeChange));
+  }
+  return runQueue(userId, executeChange);
 };
 
 export const processOfflineQueue = async (
@@ -149,7 +253,7 @@ export const processOfflineQueue = async (
   const existing = inFlightByUser.get(userId);
   if (existing) return existing;
 
-  const promise = runQueue(userId, executeChange).finally(() => {
+  const promise = runWithCrossContextLock(userId, executeChange).finally(() => {
     if (inFlightByUser.get(userId) === promise) inFlightByUser.delete(userId);
   });
   inFlightByUser.set(userId, promise);

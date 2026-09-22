@@ -80,9 +80,9 @@ const Section: React.FC<{ title: string; description?: string; children: React.R
     </section>
 );
 
-const Cutting: React.FC = () => {
+const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
     const inputRef = useRef<HTMLInputElement>(null);
-    const [initialDraft] = useState(loadCuttingDraft);
+    const [initialDraft] = useState(() => loadCuttingDraft(userId));
     const [importResult, setImportResult] = useState<CuttingImportResult | null>(() => initialDraft ? {
         fileName: initialDraft.fileName,
         items: initialDraft.items,
@@ -144,7 +144,7 @@ const Cutting: React.FC = () => {
 
     useEffect(() => {
         if (!importResult?.items.length) return;
-        saveCuttingDraft({
+        saveCuttingDraft(userId, {
             fileName: importResult.fileName,
             items: importResult.items,
             settings,
@@ -152,7 +152,7 @@ const Cutting: React.FC = () => {
             skippedDetails: importResult.skippedDetails,
             updatedAt: new Date().toISOString(),
         });
-    }, [importResult, settings]);
+    }, [importResult, settings, userId]);
 
     const hasBlockingErrors = errorIssues.length > 0 || settingsErrors.length > 0;
     const canCalculate = boardItems.length > 0 && !hasBlockingErrors && !isReading;
@@ -162,10 +162,10 @@ const Cutting: React.FC = () => {
         setSettings(DEFAULT_CUTTING_SETTINGS);
         setFileError('');
         setShowSkippedRows(false);
-        clearCuttingDraft();
+        clearCuttingDraft(userId);
         clearPlan();
         if (inputRef.current) inputRef.current.value = '';
-    }, [clearPlan]);
+    }, [clearPlan, userId]);
 
     const readFile = useCallback(async (file: File) => {
         const extension = file.name.split('.').pop()?.toLocaleLowerCase('ru-RU');
@@ -181,7 +181,7 @@ const Cutting: React.FC = () => {
         try {
             const text = decodeCuttingFile(await file.arrayBuffer());
             const result = parseCuttingText(text, file.name, settings);
-            const mappings = loadCuttingStageMappings();
+            const mappings = loadCuttingStageMappings(userId);
             setImportResult({
                 ...result,
                 items: result.items.map(item => ({
@@ -196,7 +196,7 @@ const Cutting: React.FC = () => {
         } finally {
             setIsReading(false);
         }
-    }, [clearPlan, settings]);
+    }, [clearPlan, settings, userId]);
 
     const updateItems = useCallback((updater: (items: CuttingItem[]) => CuttingItem[]) => {
         setImportResult(current => current ? { ...current, items: updater(current.items) } : current);
@@ -204,7 +204,7 @@ const Cutting: React.FC = () => {
     }, [clearPlan]);
 
     const updateConstructionStage = (construction: string, stage: CuttingStageId) => {
-        saveCuttingStageMapping(construction, stage);
+        saveCuttingStageMapping(userId, construction, stage);
         updateItems(items => items.map(item => item.construction === construction ? { ...item, stage } : item));
     };
 
@@ -476,7 +476,7 @@ const Cutting: React.FC = () => {
                 </>
             )}
 
-            {activeSubgroup === 'sheets' && <SheetRoomPlanner detectedMaterials={sheetMaterials} />}
+            {activeSubgroup === 'sheets' && <SheetRoomPlanner userId={userId} detectedMaterials={sheetMaterials} />}
 
             {activeSubgroup === 'boards' && plan && importResult && (
                 <section id="cutting-result" tabIndex={-1} aria-label="Результат раскроя" className="space-y-4 outline-none">

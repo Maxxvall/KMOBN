@@ -29,6 +29,7 @@ import { EstimateSectionsProvider } from './contexts/EstimateSectionsContext';
 import { loadEstimates, refreshEstimatesFromRemote, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, deleteMaterials, loadWorks, saveWorks, addWork, updateWork, deleteWork, deleteWorks, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle, loadEstimateSections, saveEstimateSections } from './services/database';
 import { addUserEstimateSection, createEstimateSectionsDocument, getResolvedEstimateSections, normalizeEstimateSectionsDocument, preserveEstimateSectionSnapshot, renameUserEstimateSection, reorderEstimateSections, resolveEstimateSectionsConflict, setUserEstimateSectionArchived } from './services/estimateSections';
 import type { CacheTableKey } from './services/indexedDbCache';
+import type { PendingChange } from './services/offlineQueue';
 import supabase, { isSupabaseConfigured } from './services/supabase';
 import { useDebouncedSave } from './hooks/useDebouncedSave';
 import { useEstimateCrud } from './hooks/useEstimateCrud';
@@ -120,6 +121,18 @@ type SaveState = {
     isSaving: boolean;
     lastSaved: Date | null;
     saveError: string | null;
+};
+
+const formatOfflineSyncError = (change: PendingChange | undefined): string | null => {
+    if (!change?.lastError) return null;
+    const target = `${change.table}/${change.recordId}`;
+    if (/OFFLINE_RECORD_CONFLICT/i.test(change.lastError)) {
+        return `Конфликт данных (${target}). Локальная версия сохранена на устройстве; выберите, какую версию оставить после обновления данных.`;
+    }
+    if (/authentication required|not authenticated|42501/i.test(change.lastError)) {
+        return `Для отправки ${target} требуется снова войти в аккаунт.`;
+    }
+    return `${target}: ${change.lastError}`;
 };
 
 
@@ -1221,17 +1234,12 @@ const App: React.FC = () => {
     }, [showToast]);
 
     useEffect(() => {
-        const handleOnline = () => {
-            if (supabaseUser) setOfflineMode(false);
-        };
         const handleOffline = () => setOfflineMode(true);
-        window.addEventListener('online', handleOnline);
         window.addEventListener('offline', handleOffline);
         return () => {
-            window.removeEventListener('online', handleOnline);
             window.removeEventListener('offline', handleOffline);
         };
-    }, [setOfflineMode, supabaseUser]);
+    }, [setOfflineMode]);
 
     useEffect(() => {
         return () => {
@@ -2111,6 +2119,11 @@ const App: React.FC = () => {
         );
     }
 
+    const pendingSyncError = offlineSync.pendingChanges.find(change => Boolean(change.lastError));
+    const syncErrorMessage = sectionsDocument.syncConflict
+        ? 'Конфликт разделов: откройте «Разделы смет» и выберите вариант.'
+        : formatOfflineSyncError(pendingSyncError);
+
     return (
         <ErrorBoundary>
         <SubscriptionProvider value={subscriptionContextValue}>
@@ -2132,6 +2145,7 @@ const App: React.FC = () => {
                     <StatusIndicators
                         compact
                         isOnline={offlineSync.isOnline}
+                        isAppShellReady={offlineSync.isAppShellReady}
                         isSupabaseConnected={offlineSync.isSupabaseConnected}
                         isGoogleAuthOk={offlineSync.isGoogleAuthOk}
                         pendingCount={offlineSync.pendingChanges.length}
@@ -2140,11 +2154,7 @@ const App: React.FC = () => {
                         missingTableCount={offlineSync.missingTables.length}
                         lastPreparedAt={offlineSync.lastPreparedAt}
                         retryAt={offlineSync.retryAt}
-                        syncError={sectionsDocument.syncConflict
-                            ? 'Конфликт разделов: откройте «Разделы смет» и выберите вариант.'
-                            : offlineSync.pendingChanges[0]?.lastError
-                            ? `${offlineSync.pendingChanges[0].table}/${offlineSync.pendingChanges[0].recordId}: ${offlineSync.pendingChanges[0].lastError}`
-                            : null}
+                        syncError={syncErrorMessage}
                         onSync={offlineSync.syncNow}
                     />
                 )}
@@ -2166,6 +2176,7 @@ const App: React.FC = () => {
             <div className="fixed bottom-4 left-4 z-50 hidden lg:block">
                 <StatusIndicators
                     isOnline={offlineSync.isOnline}
+                    isAppShellReady={offlineSync.isAppShellReady}
                     isSupabaseConnected={offlineSync.isSupabaseConnected}
                     isGoogleAuthOk={offlineSync.isGoogleAuthOk}
                     pendingCount={offlineSync.pendingChanges.length}
@@ -2174,11 +2185,7 @@ const App: React.FC = () => {
                     missingTableCount={offlineSync.missingTables.length}
                     lastPreparedAt={offlineSync.lastPreparedAt}
                     retryAt={offlineSync.retryAt}
-                    syncError={sectionsDocument.syncConflict
-                        ? 'Конфликт разделов: откройте «Разделы смет» и выберите вариант.'
-                        : offlineSync.pendingChanges[0]?.lastError
-                        ? `${offlineSync.pendingChanges[0].table}/${offlineSync.pendingChanges[0].recordId}: ${offlineSync.pendingChanges[0].lastError}`
-                        : null}
+                    syncError={syncErrorMessage}
                     onSync={offlineSync.syncNow}
                 />
             </div>
@@ -2228,7 +2235,7 @@ const App: React.FC = () => {
                             />
                         )}
                         {view === View.CUTTING && (
-                            <Cutting />
+                            <Cutting key={supabaseUser?.id ?? 'no-user'} userId={supabaseUser?.id ?? ''} />
                         )}
                         {view === View.WIKI && (
                             <Suspense fallback={<WikiSkeleton />}>

@@ -1,4 +1,4 @@
-import { Estimate, EstimateItem, EstimateSubgroup, Material, Work, normalizeKey, safeNumber, SectionId } from '../types';
+import { Estimate, EstimateItem, EstimateStatus, EstimateSubgroup, Material, Work, normalizeKey, safeNumber, SectionId } from '../types';
 import { hashData } from './hashing';
 
 export type DependencySeverity = 'critical' | 'important' | 'optional';
@@ -184,7 +184,8 @@ export function analyzeHistoricalPatterns(
     if (!e?.area || area <= 0) return false;
     const areaClose = Math.abs(e.area - area) / area < 0.2;
     const typeOk = buildingType ? normalizeKey(e.buildingType) === buildingType : true;
-    const regionOk = region ? normalizeKey((e as any).region || '') === region : true;
+    const estimateRegion = normalizeKey(e.region || '');
+    const regionOk = region && estimateRegion ? estimateRegion === region : true;
     return areaClose && typeOk && regionOk;
   });
 
@@ -299,6 +300,16 @@ export function scoreEstimateQuality(
 ): QualityScore {
   const notes: string[] = [];
   const list = items || [];
+
+  if (list.length === 0) {
+    return {
+      score: 0,
+      completeness: 0,
+      anomaly: 0,
+      balance: 0,
+      notes: ['Смета пуста и не может использоваться как качественный пример.'],
+    };
+  }
 
   const byName = new Map<string, EstimateItem>();
   for (const it of list) {
@@ -420,13 +431,16 @@ export function pickFewShotExamples(
   params: { area: number; region?: string; buildingType?: string },
   graph: DependencyGraph,
 ): Array<{ title: string; example: any; qualityScore?: number }>{
-  const latestOnly = filterToLatestEstimateVersions(estimates || []);
+  const latestOnly = filterToLatestEstimateVersions(estimates || [])
+    .filter(estimate => estimate.status === EstimateStatus.APPROVED && (estimate.items || []).length > 0);
   const patterns = analyzeHistoricalPatterns(latestOnly, params);
   const similar = (latestOnly || []).filter(e => {
     if (!e?.area || !params.area) return false;
     const areaClose = Math.abs(e.area - params.area) / params.area < 0.25;
     const typeOk = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
-    const regionOk = params.region ? normalizeKey((e as any).region || '') === normalizeKey(params.region) : true;
+    const estimateRegion = normalizeKey(e.region || '');
+    const requestedRegion = normalizeKey(params.region || '');
+    const regionOk = requestedRegion && estimateRegion ? estimateRegion === requestedRegion : true;
     return areaClose && typeOk && regionOk;
   });
 

@@ -22,10 +22,12 @@ const createRoom = (material: SheetMaterialKind, index = 1): SheetRoom => ({
     width: 0,
 });
 
-const loadRooms = (): SheetRoom[] => {
+const getStorageKey = (userId: string): string => `${STORAGE_KEY}:${encodeURIComponent(userId)}`;
+
+const loadRooms = (userId: string): SheetRoom[] => {
     if (typeof window === 'undefined') return [createRoom('osb')];
     try {
-        const stored = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? '[]') as SheetRoom[];
+        const stored = JSON.parse(window.localStorage.getItem(getStorageKey(userId)) ?? '[]') as SheetRoom[];
         return stored.length ? stored : [createRoom('osb')];
     } catch {
         return [createRoom('osb')];
@@ -38,19 +40,19 @@ const materialKindFromName = (name: string): SheetMaterialKind | null => {
     return null;
 };
 
-const SheetRoomPlanner: React.FC<{ detectedMaterials: string[] }> = ({ detectedMaterials }) => {
-    const [rooms, setRooms] = useState<SheetRoom[]>(loadRooms);
+const SheetRoomPlanner: React.FC<{ userId: string; detectedMaterials: string[] }> = ({ userId, detectedMaterials }) => {
+    const [rooms, setRooms] = useState<SheetRoom[]>(() => loadRooms(userId));
     const [isExporting, setIsExporting] = useState(false);
     const [exportError, setExportError] = useState('');
     const detectedKey = detectedMaterials.join('|');
 
     useEffect(() => {
         try {
-            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(rooms));
+            window.localStorage.setItem(getStorageKey(userId), JSON.stringify(rooms));
         } catch (error) {
             console.error('Не удалось сохранить помещения для раскроя листов:', error);
         }
-    }, [rooms]);
+    }, [rooms, userId]);
 
     useEffect(() => {
         const kinds = new Set(detectedKey.split('|').map(materialKindFromName).filter((kind): kind is SheetMaterialKind => kind !== null));

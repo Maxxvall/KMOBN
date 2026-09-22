@@ -65,9 +65,9 @@ class AICache {
       return null;
     }
 
-    // Move to end for LRU ordering (Map preserves insertion order)
+    // Move to end for LRU ordering without extending the absolute TTL.
     this.cache.delete(key);
-    this.cache.set(key, { ...entry, timestamp: Date.now() });
+    this.cache.set(key, entry);
 
     return entry.result as T;
   }

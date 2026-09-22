@@ -122,6 +122,16 @@ const getAuthenticatedUserId = async (): Promise<string | null> => {
   return null;
 };
 
+const getWorkspaceUserId = (): string | null => getOfflineUserId() ?? findCachedUserId();
+
+const requireWorkspaceUserId = (): string => {
+  const userId = getWorkspaceUserId();
+  if (!userId || userId === 'anon') {
+    throw new Error('Не удалось определить владельца локальных данных. Войдите в аккаунт повторно.');
+  }
+  return userId;
+};
+
 const dispatchCacheUpdate = <T>(key: CacheTableKey, data: T[]): void => {
   if (typeof window === 'undefined') return;
   try {
@@ -277,12 +287,14 @@ const readTableCached = async <T extends { id: string }>(
   fetcher: (userId: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
   options?: LoadTableOptions,
 ): Promise<T[]> => {
-  const userId = await getAuthenticatedUserId();
+  const userId = getWorkspaceUserId();
   const cacheUserId = getCacheUserId(userId);
   const pending = await offlineQueue.getForTable(cacheUserId, key);
   const cached = normalizeStableOrder(applyPendingChanges(await getCachedRecords<T>(key, cacheUserId), pending));
   const hasCompleteSnapshot = await isTableSnapshotComplete(key, cacheUserId);
-  const canFetch = isSupabaseConfigured() && !!userId;
+  const canFetch = isSupabaseConfigured()
+    && !!userId
+    && (typeof navigator === 'undefined' || navigator.onLine);
   const limitedCached = typeof options?.limit === 'number' ? cached.slice(0, options.limit) : cached;
   const hasLocalConflict = key === 'estimate_sections'
     && cached.some(record => Boolean((record as unknown as EstimateSectionsDocument).syncConflict));
@@ -416,7 +428,7 @@ const saveLocalRecords = async <T extends { id: string }>(table: CacheTableKey, 
   const knownOwnerId = getOfflineUserId();
   const knownMutationKey = knownOwnerId ? getRefreshKey(table, knownOwnerId) : null;
   if (knownMutationKey) bumpMutationGeneration(knownMutationKey);
-  const ownerId = getCacheUserId(await getAuthenticatedUserId());
+  const ownerId = requireWorkspaceUserId();
   const mutationKey = getRefreshKey(table, ownerId);
   if (mutationKey !== knownMutationKey) bumpMutationGeneration(mutationKey);
   await withTableMutationLock(mutationKey, async () => {
@@ -436,17 +448,28 @@ const deleteLocalRecords = async (table: CacheTableKey, recordIds: string[]): Pr
   const knownOwnerId = getOfflineUserId();
   const knownMutationKey = knownOwnerId ? getRefreshKey(table, knownOwnerId) : null;
   if (knownMutationKey) bumpMutationGeneration(knownMutationKey);
-  const ownerId = getCacheUserId(await getAuthenticatedUserId());
+  const ownerId = requireWorkspaceUserId();
   const mutationKey = getRefreshKey(table, ownerId);
   if (mutationKey !== knownMutationKey) bumpMutationGeneration(mutationKey);
   await withTableMutationLock(mutationKey, async () => {
-    await offlineQueue.enqueueDeletes(ownerId, table, recordIds);
+    const [cached, pending] = await Promise.all([
+      getCachedRecords<{ id: string; serverRevision?: number }>(table, ownerId),
+      offlineQueue.getForTable(ownerId, table),
+    ]);
+    const cachedById = new Map(cached.map(record => [record.id, record]));
+    const pendingById = new Map(pending.map(change => [change.recordId, change]));
+    const baseRevisions = Object.fromEntries(recordIds.map(recordId => {
+      const pendingData = pendingById.get(recordId)?.data as { serverRevision?: unknown } | null;
+      const revision = Number(pendingData?.serverRevision ?? cachedById.get(recordId)?.serverRevision ?? 0);
+      return [recordId, Number.isInteger(revision) && revision >= 0 ? revision : 0];
+    }));
+    await offlineQueue.enqueueDeletes(ownerId, table, recordIds, baseRevisions);
     await deleteCachedRecords(table, ownerId, recordIds);
   });
 };
 
 export const deleteEstimatesByNumber = async (estimateNumber: string | number): Promise<void> => {
-  const ownerId = getCacheUserId(await getAuthenticatedUserId());
+  const ownerId = requireWorkspaceUserId();
   const estimates = applyPendingChanges(
     await getCachedRecords<Estimate>('estimates', ownerId),
     await offlineQueue.getForTable(ownerId, 'estimates'),
@@ -558,8 +581,7 @@ export const saveEstimateSections = async (document: EstimateSectionsDocument): 
 
 export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
   // Try to find in local cache first for fast path
-  const userId = await getAuthenticatedUserId();
-  const cacheUserId = getCacheUserId(userId);
+  const cacheUserId = requireWorkspaceUserId();
   const cached = applyPendingChanges(
     await getCachedRecords<SalaryCalculation>('salary_calculations', cacheUserId),
     await offlineQueue.getForTable(cacheUserId, 'salary_calculations'),
@@ -1054,7 +1076,7 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     };
 
     if (rawEstimateSections) {
-      const userId = await getAuthenticatedUserId();
+      const userId = getWorkspaceUserId();
       if (userId) {
         await saveEstimateSections({
           ...normalizeEstimateSectionsDocument(rawEstimateSections, userId),

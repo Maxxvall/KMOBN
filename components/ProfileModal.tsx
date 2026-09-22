@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { getActiveUsageMs } from '../services/appUsage';
+import { exportData } from '../services/database';
+import { closeIndexedDbCache } from '../services/indexedDbCache';
+import { offlineQueue } from '../services/offlineQueue';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -34,9 +37,6 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   onClose,
   user,
   estimates,
-  materials,
-  works,
-  bundles,
   updateAvailableVersion,
   updateDownloadedVersion,
   updateProgress,
@@ -44,6 +44,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [updateStatus, setUpdateStatus] = useState('');
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [exportStatus, setExportStatus] = useState('');
   const [appVersion, setAppVersion] = useState('');
   const [usageNow, setUsageNow] = useState(() => Date.now());
 
@@ -78,30 +79,54 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     return () => window.clearInterval(interval);
   }, [activeTab, isOpen]);
 
-  const handleExportData = () => {
-    const data = {
-      estimates,
-      materials,
-      works,
-      bundles,
-      exportDate: new Date().toISOString(),
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `karkas-master-export-${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const handleExportData = async () => {
+    setExportStatus('');
+    try {
+      const data = await exportData();
+      const blob = new Blob([data], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `karkas-master-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setExportStatus('Экспорт подготовлен');
+    } catch (error) {
+      setExportStatus(error instanceof Error ? error.message : 'Не удалось подготовить экспорт');
+    }
   };
 
-  const handleClearCache = () => {
-    if (!confirm('Удалить локальный кеш и данные на этом устройстве? Облачные данные останутся без изменений.')) return;
-    localStorage.clear();
-    indexedDB.deleteDatabase('kmobn_indexeddb_cache');
-    window.location.reload();
+  const deleteDatabase = (name: string): Promise<void> => new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(name);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error ?? new Error(`Не удалось удалить ${name}`));
+    request.onblocked = () => reject(new Error(`Закройте другие вкладки приложения и повторите удаление (${name}).`));
+  });
+
+  const handleClearCache = async () => {
+    const pendingCount = user?.id ? await offlineQueue.count(user.id).catch(() => 0) : 0;
+    const pendingWarning = pendingCount > 0
+      ? `\n\nНесинхронизированных изменений: ${pendingCount}. Они будут безвозвратно удалены.`
+      : '';
+    if (!confirm(`Удалить все локальные данные на этом устройстве? Облачные данные останутся без изменений.${pendingWarning}`)) return;
+    try {
+      offlineQueue.close();
+      closeIndexedDbCache();
+      await Promise.all([
+        deleteDatabase('kmobn_indexeddb_cache'),
+        deleteDatabase('kmobn_offline_queue'),
+      ]);
+      if (typeof caches !== 'undefined') {
+        const names = await caches.keys();
+        await Promise.all(names.filter(name => name === 'supabase-api').map(name => caches.delete(name)));
+      }
+      localStorage.clear();
+      window.location.reload();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : 'Не удалось полностью удалить локальные данные.');
+    }
   };
 
   const handleCheckUpdates = async () => {
@@ -207,6 +232,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                 <p className="font-semibold text-text-primary">Экспорт данных</p>
                 <p className="mt-1 text-sm leading-6 text-text-secondary">Сохраните сметы, материалы, работы и наборы в JSON-файл.</p>
                 <button type="button" onClick={handleExportData} className={`${secondaryButton} mt-4 w-full sm:w-auto`}>Экспортировать JSON</button>
+                {exportStatus && <p className={`mt-2 text-sm ${exportStatus === 'Экспорт подготовлен' ? 'text-emerald-400' : 'text-red-300'}`}>{exportStatus}</p>}
               </div>
 
               {window.electronAPI?.isElectron && (

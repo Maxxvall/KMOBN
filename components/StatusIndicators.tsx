@@ -3,6 +3,7 @@ import type { SyncStatus, WorkspaceStatus } from '../hooks/useOfflineSync';
 
 type Props = {
   isOnline: boolean;
+  isAppShellReady: boolean;
   isSupabaseConnected: boolean;
   isGoogleAuthOk: boolean;
   pendingCount: number;
@@ -26,6 +27,7 @@ const formatTime = (value: string | null): string => {
 
 const StatusIndicators: React.FC<Props> = ({
   isOnline,
+  isAppShellReady,
   isSupabaseConnected,
   isGoogleAuthOk,
   pendingCount,
@@ -40,8 +42,11 @@ const StatusIndicators: React.FC<Props> = ({
 }) => {
   const lastPreparedTime = formatTime(lastPreparedAt);
   const retryTime = formatTime(retryAt);
+  const offlineReady = workspaceStatus === 'ready' && isAppShellReady;
   const statusText = workspaceStatus === 'ready'
-    ? `Офлайн готово${lastPreparedTime ? ` · ${lastPreparedTime}` : ''}`
+    ? isAppShellReady
+      ? `Офлайн готово${lastPreparedTime ? ` · ${lastPreparedTime}` : ''}`
+      : 'Данные готовы · приложение ещё не готово офлайн'
     : workspaceStatus === 'downloading'
       ? 'Загрузка данных для офлайн…'
       : workspaceStatus === 'syncing'
@@ -53,7 +58,7 @@ const StatusIndicators: React.FC<Props> = ({
             : retryTime
               ? `Повтор синхронизации в ${retryTime}`
               : 'Ошибка синхронизации';
-  const statusStyle = workspaceStatus === 'ready'
+  const statusStyle = offlineReady
     ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
     : workspaceStatus === 'error'
       ? 'border-red-500/40 bg-red-500/15 text-red-300'

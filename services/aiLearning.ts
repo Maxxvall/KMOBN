@@ -2,6 +2,7 @@ import { Estimate, EstimateItem, normalizeKey, safeNumber } from '../types';
 import { aiCache } from './aiCache';
 
 export type LearningContext = {
+  accountId?: string;
   area: number;
   region?: string;
   buildingType?: string;
@@ -36,14 +37,23 @@ export type AggregatedLearning = {
 
 const STORAGE_KEY = 'kmobn:aiLearning:v1';
 
-const ctxSignature = (ctx: LearningContext): string => {
+export const getLearningContextSignature = (ctx: LearningContext): string => {
   const parts = [
+    normalizeKey(ctx.accountId || 'local'),
     normalizeKey(ctx.buildingType || ''),
     normalizeKey(ctx.region || ''),
     normalizeKey(ctx.projectTemplateId || ''),
     normalizeKey(ctx.projectTemplateName || ''),
+    normalizeKey(ctx.scopeDescription || ''),
   ].filter(Boolean);
   return parts.join('|') || 'default';
+};
+
+export const getQuantityCorrectionFactor = (change: CorrectionEvent['changed'][number]): number | null => {
+  if (normalizeKey(change.fromUnit) !== normalizeKey(change.toUnit)) return null;
+  const from = Math.max(0.0001, safeNumber(change.fromQty, 0));
+  const to = Math.max(0, safeNumber(change.toQty, 0));
+  return Math.max(0.2, Math.min(5, to / from));
 };
 
 const load = (): AggregatedLearning => {
@@ -117,7 +127,7 @@ export function diffItems(before: EstimateItem[], after: EstimateItem[]) {
 
 export function recordCorrectionEvent(ev: CorrectionEvent) {
   const data = load();
-  const sig = ctxSignature(ev.context);
+  const sig = getLearningContextSignature(ev.context);
   if (!data.byContext[sig]) {
     data.byContext[sig] = {
       additions: {},
@@ -142,9 +152,8 @@ export function recordCorrectionEvent(ev: CorrectionEvent) {
   for (const c of ev.changed) {
     const k = normalizeKey(c.name);
     if (!k) continue;
-    const from = Math.max(0.0001, safeNumber(c.fromQty, 0));
-    const to = Math.max(0, safeNumber(c.toQty, 0));
-    const factor = Math.max(0.2, Math.min(5, to / from));
+    const factor = getQuantityCorrectionFactor(c);
+    if (factor === null) continue;
     bucket.qtyFactorSum[k] = (bucket.qtyFactorSum[k] || 0) + factor;
     bucket.qtyFactorCount[k] = (bucket.qtyFactorCount[k] || 0) + 1;
   }
@@ -188,7 +197,7 @@ export function isCacheKeyBad(cacheKey: string): boolean {
 
 export function getLearningHints(ctx: LearningContext): string[] {
   const data = load();
-  const sig = ctxSignature(ctx);
+  const sig = getLearningContextSignature(ctx);
   const bucket = data.byContext[sig];
   if (!bucket) return [];
 
@@ -247,6 +256,7 @@ export function maybeRecordCorrectionFromSession(opts: {
 
 export function buildLearningContextFromEstimate(e: Estimate, extra?: Partial<LearningContext>): LearningContext {
   return {
+    accountId: extra?.accountId,
     area: e.area,
     buildingType: e.buildingType,
     region: (e as any).region || extra?.region,

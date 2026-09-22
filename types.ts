@@ -153,6 +153,7 @@ export interface Estimate {
     isArchived?: boolean;
     buildingType: string;
     area: number;
+    region?: string;
     explanation?: string;
     needsPriceUpdate?: boolean;
     selectedSections?: SectionId[];

@@ -17,6 +17,9 @@ const retryDelay = (change: PendingChange | undefined): number | null => {
 
 export const useOfflineSync = (userId: string | null) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [isAppShellReady, setIsAppShellReady] = useState(
+    Boolean(window.electronAPI?.isElectron || navigator.serviceWorker?.controller),
+  );
   const [serviceStatus, setServiceStatus] = useState<ServiceStatus>({
     supabase: false,
     googleAuth: false,
@@ -68,6 +71,29 @@ export const useOfflineSync = (userId: string | null) => {
       setSyncStatus('error');
     }
   }, [userId]);
+
+  useEffect(() => {
+    if (window.electronAPI?.isElectron) {
+      setIsAppShellReady(true);
+      return;
+    }
+    if (!('serviceWorker' in navigator)) {
+      setIsAppShellReady(false);
+      return;
+    }
+    let active = true;
+    const markControlled = () => {
+      if (active) setIsAppShellReady(Boolean(navigator.serviceWorker.controller));
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', markControlled);
+    void navigator.serviceWorker.ready.then(() => {
+      if (active) setIsAppShellReady(true);
+    });
+    return () => {
+      active = false;
+      navigator.serviceWorker.removeEventListener('controllerchange', markControlled);
+    };
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => {
@@ -189,7 +215,12 @@ export const useOfflineSync = (userId: string | null) => {
     setRetryAt(null);
     if (!isOnline || !userId || userId === 'anon' || syncingRef.current) return;
 
-    const firstPending = pendingChanges[0];
+    const firstPending = pendingChanges.find(change => change.failureKind !== 'permanent');
+    const hasPermanentFailure = pendingChanges.some(change => change.failureKind === 'permanent');
+    if (!firstPending && hasPermanentFailure) {
+      setWorkspaceStatus('error');
+      return;
+    }
     const delay = firstPending
       ? retryDelay(firstPending)
       : workspaceRetryAtRef.current
@@ -224,6 +255,7 @@ export const useOfflineSync = (userId: string | null) => {
 
   return {
     isOnline,
+    isAppShellReady,
     isSupabaseConnected: serviceStatus.supabase,
     isGoogleAuthOk: serviceStatus.googleAuth,
     pendingChanges,

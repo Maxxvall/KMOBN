@@ -1,4 +1,5 @@
 import { EstimateCategory, EstimateItem, EstimateSubgroup, Material, Work, normalizeKey, safeNumber } from '../types';
+import { coverageQuantitySqM, normalizeMeasurementUnit } from './aiMeasurements';
 
 export type NormRule = {
   id: string;
@@ -158,16 +159,24 @@ export function checkNormAnomalies(opts: {
   for (const e of exp) {
     const it = byName.get(normalizeKey(e.materialName));
     if (!it) continue;
-    const q = safeNumber(it.quantity, 0);
+    const expectedUnit = normalizeMeasurementUnit(e.unit);
+    const itemUnit = normalizeMeasurementUnit(it.unit);
+    const coverage = expectedUnit === 'м2' ? coverageQuantitySqM(it) : null;
+    if (expectedUnit !== itemUnit && coverage === null) {
+      warnings.push(`Нельзя сопоставить единицы для "${e.materialName}": в смете ${it.unit}, ориентир задан в ${e.unit}.`);
+      continue;
+    }
+    const q = coverage ?? safeNumber(it.quantity, 0);
+    const displayUnit = coverage === null ? it.unit : 'м2 покрытия';
 
     if (q < e.expectedMin) {
       warnings.push(
-        `${e.severity === 'critical' ? 'КРИТИЧНО' : e.severity === 'important' ? 'ВАЖНО' : 'ОПЦИОНАЛЬНО'}: похоже, мало материала "${e.materialName}" (кол-во ${q} ${it.unit}). Ожидалось порядка ${e.expectedMin.toFixed(1)}–${e.expectedMax.toFixed(1)} ${e.unit}.` +
+        `${e.severity === 'critical' ? 'КРИТИЧНО' : e.severity === 'important' ? 'ВАЖНО' : 'ОПЦИОНАЛЬНО'}: похоже, мало материала "${e.materialName}" (эквивалент ${q} ${displayUnit}). Ожидалось порядка ${e.expectedMin.toFixed(1)}–${e.expectedMax.toFixed(1)} ${e.unit}.` +
         (e.note ? ` ${e.note}` : ''),
       );
     } else if (q > e.expectedMax) {
       warnings.push(
-        `Аномалия: возможно, слишком много "${e.materialName}" (кол-во ${q} ${it.unit}). Ожидалось порядка ${e.expectedMin.toFixed(1)}–${e.expectedMax.toFixed(1)} ${e.unit}.`,
+        `Аномалия: возможно, слишком много "${e.materialName}" (эквивалент ${q} ${displayUnit}). Ожидалось порядка ${e.expectedMin.toFixed(1)}–${e.expectedMax.toFixed(1)} ${e.unit}.`,
       );
     }
   }

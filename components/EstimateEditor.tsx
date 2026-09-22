@@ -18,7 +18,6 @@ import AddEstimateWorkModal from './AddEstimateWorkModal';
 import { aiAutocomplete, analyzeMissingItems, applySmartPackagingRules, sanitizeQuantities } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
-import { aiCache } from '../services/aiCache';
 import { generateEstimateNumber } from '../services/estimateNumber';
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
@@ -187,6 +186,20 @@ const buildEstimateDirtySignature = (value: Estimate): number => {
     return hash;
 };
 
+const buildEstimateItemsSignature = (items: EstimateItem[]): number => {
+    let hash = 17;
+    for (const item of items) {
+        hash = hashText(hash, item.id);
+        hash = hashText(hash, item.name);
+        hash = hashText(hash, item.unit);
+        hash = hashNumber(hash, item.quantity || 0);
+        hash = hashNumber(hash, item.price || 0);
+        hash = hashText(hash, item.category);
+        hash = hashText(hash, item.subgroup || '');
+    }
+    return hash;
+};
+
 const groupCatalogByCategory = <T extends Material | Work>(items: T[], categories: readonly SectionId[]): Map<SectionId, T[]> => {
     const grouped = new Map<SectionId, T[]>();
     const generalItems: T[] = [];
@@ -284,9 +297,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     }), []);
     const baselineEstimate = useMemo(() => initialEstimateValue ?? createEmptyEstimate(), [initialEstimateValue, createEmptyEstimate]);
     const [estimate, setEstimate] = useState<Estimate>(baselineEstimate);
+    const estimateRef = useRef(estimate);
     useEffect(() => {
         setEstimate(baselineEstimate);
     }, [baselineEstimate]);
+    useEffect(() => {
+        estimateRef.current = estimate;
+    }, [estimate]);
     const [genParams, setGenParams] = useState<GenerationParams>({
         area: 120,
         projectTemplateId: '3',
@@ -349,13 +366,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const scheduledAutocompleteTasksRef = useRef<Record<string, NonUrgentTaskHandle>>({});
     const autocompleteAbortControllerRef = useRef<AbortController | null>(null);
     const generationAbortControllerRef = useRef<AbortController | null>(null);
+    const generationRequestIdRef = useRef(0);
     const analysisAbortControllerRef = useRef<AbortController | null>(null);
     const [loadingPrices, _setLoadingPrices] = useState<Record<string, boolean>>({});
 
     const aiSessionRef = useRef<null | {
         baselineItems: EstimateItem[];
-        cacheKey: string;
-        context: { area: number; region?: string; buildingType?: string; projectTemplateId?: string; projectTemplateName?: string; scopeDescription?: string };
+        cacheKey?: string;
+        context: { accountId?: string; area: number; region?: string; buildingType?: string; projectTemplateId?: string; projectTemplateName?: string; scopeDescription?: string };
     }>(null);
 
     useEffect(() => {
@@ -935,7 +953,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             return;
         }
         if (!hasOpenRouterKey()) {
-            alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
+            alert('AI не настроен: укажите защищённый AI gateway или локальный ключ для разработки.');
             return;
         }
         // Apply wizard overrides to the current estimate
@@ -961,6 +979,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         generationAbortControllerRef.current?.abort();
         const generationController = new AbortController();
         generationAbortControllerRef.current = generationController;
+        const requestId = ++generationRequestIdRef.current;
+        const startingItemsSignature = buildEstimateItemsSignature(estimate.items);
         setIsLoading(true);
         setAiBusyMessage('Генерирую смету с помощью AI');
         setAiWarnings([]);
@@ -1016,7 +1036,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 ? opts.enableAiPriceSearch
                 : aiGenEnableAiPriceSearch;
 
-            const { items: aiItems, suggestions, warnings, notInDbItems: generatedNotInDb } = await generateEstimateWithAI(
+            const { status, items: aiItems, suggestions, warnings, notInDbItems: generatedNotInDb, cacheKey } = await generateEstimateWithAI(
                 callParams,
                 latestOnlyEstimates,
                 materialsValue,
@@ -1036,6 +1056,18 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     doorCount: opts?.doorCount,
                 },
             );
+
+            if (
+                generationController.signal.aborted
+                || generationRequestIdRef.current !== requestId
+                || generationAbortControllerRef.current !== generationController
+            ) {
+                return;
+            }
+            if (buildEstimateItemsSignature(estimateRef.current.items) !== startingItemsSignature) {
+                setAiWarnings(['Смета была изменена во время генерации. Результат AI не применён; запустите генерацию ещё раз.']);
+                return;
+            }
 
             const existingNames = new Set(baseItems.map(i => i.name.trim().toLowerCase()).filter(Boolean));
             const merged = [...baseItems];
@@ -1060,22 +1092,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             }));
 
             // Save baseline for learning on future user edits.
-            // Cache key must match openRouterService.ts logic.
-            const cacheKey = aiCache.generateKey(
-                'estimate',
-                wizardArea,
-                genParams.region,
-                wizardBuildingType,
-                selectedTemplate?.id || genParams.projectTemplateId || null,
-                selectedTemplate?.name || null,
-                opts?.referenceEstimateId || null,
-                opts?.selectedSections ? [...opts.selectedSections].sort() : null,
-                (baseItems || []).map(i => i.name).sort(),
-            );
             aiSessionRef.current = {
                 baselineItems: merged,
                 cacheKey,
                 context: {
+                    accountId: subscriptionContext?.subscription?.user_id,
                     area: wizardArea,
                     region: genParams.region,
                     buildingType: wizardBuildingType,
@@ -1089,7 +1110,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             if (warnings && warnings.length > 0) setAiWarnings(warnings);
 
             // Warn user if AI generated 0 items
-            if (aiItems.length === 0 && baseItems.length === 0) {
+            if (status === 'needs_clarification') {
+                setAiWarnings(prev => [...prev, 'AI остановил генерацию: сначала уточните противоречивые условия задания.']);
+            } else if (status === 'unavailable' && aiItems.length === 0 && baseItems.length === 0) {
                 setAiWarnings(prev => [...prev, 'AI не смог сгенерировать позиции сметы. Попробуйте изменить параметры (тип объекта, площадь, описание) или добавить больше материалов/работ в справочники.']);
             }
 
@@ -1116,7 +1139,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, onUpgradeRequest]);
+    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, estimate.items, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, onUpgradeRequest, subscriptionContext?.subscription?.user_id]);
 
     const handleAnalyzeEstimate = useCallback(async () => {
         if (aiAccessValue && !aiAccessValue.canUseAi) {
@@ -1382,6 +1405,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     context: aiSessionRef.current.context,
                     cacheKey: aiSessionRef.current.cacheKey,
                 });
+                aiSessionRef.current.baselineItems = finalEstimate.items.map(item => ({ ...item }));
             } catch (e) {
                 console.debug('[EstimateEditor] learning capture failed', e);
             }
@@ -1530,7 +1554,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                     return;
                                 }
                                 if (!hasOpenRouterKey()) {
-                                    alert('AI не настроен: заполните VITE_OPENROUTER_API_KEY в .env');
+                                    alert('AI не настроен: укажите защищённый AI gateway или локальный ключ для разработки.');
                                     return;
                                 }
                                 if (!estimate.buildingType || !estimate.buildingType.trim()) {

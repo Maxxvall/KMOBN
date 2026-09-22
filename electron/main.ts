@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { app, BrowserWindow, ipcMain, nativeTheme, dialog, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, shell, session } = require('electron');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require('path');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -297,11 +297,14 @@ ipcMain.handle('close-window', () => {
   if (mainWindow) mainWindow.close();
 });
 
-ipcMain.handle('check-for-updates', () => {
-  if (autoUpdater) {
-    autoUpdater.checkForUpdates().catch((e) => {
-      log('Manual update check failed:', e.message);
-    });
+ipcMain.handle('check-for-updates', async () => {
+  if (!autoUpdater) throw new Error('Проверка обновлений недоступна');
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log('Manual update check failed:', message);
+    throw new Error(message);
   }
 });
 

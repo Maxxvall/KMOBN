@@ -164,6 +164,45 @@ export const deleteTableRecords = async (table: string, recordIds: string[], use
   return { data: [], error: null };
 };
 
+export const saveOfflineRecord = async (
+  table: string,
+  record: Record<string, unknown>,
+  userId: string,
+  operationId: string,
+) => {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+  if (!userId) return { data: null, error: new Error('User is not authenticated') };
+  const payload = { ...record };
+  const expectedRevision = Number(payload.serverRevision ?? 0);
+  delete payload.serverRevision;
+  const { data, error } = await supabase.rpc('save_offline_record', {
+    p_table: table,
+    p_record_id: String(record.id ?? ''),
+    p_payload: payload,
+    p_expected_revision: Number.isInteger(expectedRevision) && expectedRevision >= 0 ? expectedRevision : 0,
+    p_operation_id: operationId,
+  });
+  if (error || !data || typeof data !== 'object') return { data: null, error: error ?? new Error('Invalid save response') };
+  return { data: normalizeFetchedRows([data as Record<string, unknown>])[0], error: null };
+};
+
+export const deleteOfflineRecord = async (
+  table: string,
+  recordId: string,
+  userId: string,
+  expectedRevision: number,
+  operationId: string,
+) => {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+  if (!userId) return { data: null, error: new Error('User is not authenticated') };
+  return supabase.rpc('delete_offline_record', {
+    p_table: table,
+    p_record_id: recordId,
+    p_expected_revision: Number.isInteger(expectedRevision) && expectedRevision >= 0 ? expectedRevision : 0,
+    p_operation_id: operationId,
+  });
+};
+
 export const fetchTable = async (table: string, userId?: string, options?: FetchTableOptions) => {
   if (!supabase) return { data: null, error: new Error('Supabase not configured') };
   if (!userId) return { data: null, error: new Error('User is not authenticated') };

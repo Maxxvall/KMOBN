@@ -12,6 +12,8 @@ export interface PendingChange {
   operation: PendingOperation;
   data: unknown;
   sequence: number;
+  operationId?: string;
+  baseRevision?: number;
   timestamp: string;
   retryCount: number;
   lastError?: string;
@@ -21,7 +23,7 @@ export interface PendingChange {
 }
 
 const QUEUE_DB_NAME = 'kmobn_offline_queue';
-const QUEUE_DB_VERSION = 3;
+const QUEUE_DB_VERSION = 4;
 const STORE_NAME = 'pending_changes';
 const QUARANTINE_STORE_NAME = 'quarantined_changes';
 
@@ -48,6 +50,22 @@ const nextSequence = (): number => {
   lastSequence = Math.max(fromClock, lastSequence + 1);
   return lastSequence;
 };
+
+const createOperationId = (): string => {
+  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
+    const random = Math.floor(Math.random() * 16);
+    return (token === 'x' ? random : (random & 0x3) | 0x8).toString(16);
+  });
+};
+
+const isSameSnapshot = (
+  current: PendingChange | undefined,
+  sequence: number,
+  operationId?: string,
+): current is PendingChange => isScopedChange(current)
+  && current.sequence === sequence
+  && (!operationId || current.operationId === operationId);
 
 const buildChangeId = (userId: string, table: CacheTableKey, recordId: string): string =>
   JSON.stringify([userId, table, recordId]);
@@ -79,12 +97,24 @@ const openQueueDb = (): Promise<IDBDatabase> => {
     }
 
     const request = indexedDB.open(QUEUE_DB_NAME, QUEUE_DB_VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = event => {
       const db = request.result;
       const store = db.objectStoreNames.contains(STORE_NAME)
         ? request.transaction!.objectStore(STORE_NAME)
         : db.createObjectStore(STORE_NAME, { keyPath: 'id' });
       ensureIndexes(store);
+      if ((event as IDBVersionChangeEvent).oldVersion < 4) {
+        const cursorRequest = store.openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const value = cursor.value as Partial<PendingChange>;
+          if (typeof value.userId === 'string' && typeof value.sequence === 'number' && !value.operationId) {
+            cursor.update({ ...value, operationId: createOperationId() });
+          }
+          cursor.continue();
+        };
+      }
       if (!db.objectStoreNames.contains(QUARANTINE_STORE_NAME)) {
         db.createObjectStore(QUARANTINE_STORE_NAME, { keyPath: 'id' });
       }
@@ -222,7 +252,7 @@ const enqueue = async (
   userId: string,
   table: CacheTableKey,
   operation: PendingOperation,
-  items: Array<{ recordId: string; data: unknown }>,
+  items: Array<{ recordId: string; data: unknown; baseRevision?: number }>,
 ): Promise<void> => {
   if (!userId) throw new Error('Offline change requires a userId');
   if (!items.length) return;
@@ -242,6 +272,8 @@ const enqueue = async (
       operation,
       data: item.data,
       sequence: nextSequence(),
+      operationId: createOperationId(),
+      baseRevision: item.baseRevision,
       timestamp: now,
       retryCount: 0,
     };
@@ -257,8 +289,17 @@ export const offlineQueue = {
     await enqueue(userId, table, 'upsert', records.map(record => ({ recordId: record.id, data: record })));
   },
 
-  async enqueueDeletes(userId: string, table: CacheTableKey, recordIds: string[]): Promise<void> {
-    await enqueue(userId, table, 'delete', recordIds.map(recordId => ({ recordId, data: null })));
+  async enqueueDeletes(
+    userId: string,
+    table: CacheTableKey,
+    recordIds: string[],
+    baseRevisions: Readonly<Record<string, number>> = {},
+  ): Promise<void> {
+    await enqueue(userId, table, 'delete', recordIds.map(recordId => ({
+      recordId,
+      data: null,
+      baseRevision: baseRevisions[recordId],
+    })));
   },
 
   async getAll(userId: string): Promise<PendingChange[]> {
@@ -279,12 +320,12 @@ export const offlineQueue = {
     return changes.filter(change => change.table === table);
   },
 
-  async acknowledge(id: string, sequence: number): Promise<boolean> {
+  async acknowledge(id: string, sequence: number, operationId?: string): Promise<boolean> {
     const db = await openQueueDb();
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const current = await requestToPromise(store.get(id)) as PendingChange | undefined;
-    const shouldDelete = isScopedChange(current) && current.sequence === sequence;
+    const shouldDelete = isSameSnapshot(current, sequence, operationId);
     if (shouldDelete) store.delete(id);
     await waitForTransaction(tx);
     if (shouldDelete) notifyListeners();
@@ -296,12 +337,13 @@ export const offlineQueue = {
     sequence: number,
     error: unknown,
     retryable = true,
+    operationId?: string,
   ): Promise<boolean> {
     const db = await openQueueDb();
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
     const current = await requestToPromise(store.get(id)) as PendingChange | undefined;
-    const shouldUpdate = isScopedChange(current) && current.sequence === sequence;
+    const shouldUpdate = isSameSnapshot(current, sequence, operationId);
     if (shouldUpdate) {
       const retryCount = current.retryCount + 1;
       const now = new Date();
@@ -318,6 +360,48 @@ export const offlineQueue = {
     await waitForTransaction(tx);
     if (shouldUpdate) notifyListeners();
     return shouldUpdate;
+  },
+
+  async rebaseAfterConfirmation(
+    id: string,
+    sentSequence: number,
+    sentOperationId: string | undefined,
+    confirmed: { serverRevision?: number; definitions?: unknown; order?: unknown },
+  ): Promise<PendingChange | null> {
+    const revision = Number(confirmed.serverRevision);
+    if (!Number.isInteger(revision) || revision < 0) return null;
+    const db = await openQueueDb();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const current = await requestToPromise(store.get(id)) as PendingChange | undefined;
+    const isSuccessor = isScopedChange(current)
+      && current.sequence >= sentSequence
+      && (!sentOperationId || current.operationId !== sentOperationId);
+    let rebased: PendingChange | null = null;
+    if (isSuccessor) {
+      if (current.operation === 'upsert' && current.data && typeof current.data === 'object') {
+        const nextData: Record<string, unknown> = {
+          ...(current.data as Record<string, unknown>),
+          serverRevision: revision,
+        };
+        if (current.table === 'estimate_sections'
+          && Array.isArray(confirmed.definitions)
+          && Array.isArray(confirmed.order)) {
+          nextData.baseDocument = {
+            definitions: confirmed.definitions,
+            order: confirmed.order,
+            serverRevision: revision,
+          };
+        }
+        rebased = { ...current, data: nextData };
+      } else if (current.operation === 'delete') {
+        rebased = { ...current, baseRevision: revision };
+      }
+      if (rebased) store.put(rebased);
+    }
+    await waitForTransaction(tx);
+    if (rebased) notifyListeners();
+    return rebased;
   },
 
   async count(userId: string): Promise<number> {
@@ -398,6 +482,7 @@ export const offlineQueue = {
         operation: change.operation,
         data: item.data,
         sequence: nextSequence(),
+        operationId: createOperationId(),
         timestamp: change.timestamp ?? new Date().toISOString(),
         retryCount: change.retryCount ?? 0,
       };

@@ -11,7 +11,13 @@ export const OFFLINE_TABLES = [
 ] as const;
 
 type OfflineTable = typeof OFFLINE_TABLES[number];
-type StoredRow = Record<string, unknown> & { id?: string; user_id?: string; payload?: Record<string, unknown> };
+type StoredRow = Record<string, unknown> & {
+  id?: string;
+  user_id?: string;
+  payload?: Record<string, unknown>;
+  revision?: number;
+  last_operation_id?: string;
+};
 
 export type RequestLog = {
   method: string;
@@ -169,6 +175,72 @@ export const startMockSupabaseServer = async (port = 54329) => {
       };
       rows.estimate_sections = [next];
       sendJson(response, 200, [next]);
+      return;
+    }
+
+    if (url.pathname === '/rest/v1/rpc/save_offline_record' && method === 'POST') {
+      const body = await readBody(request) as {
+        p_table?: OfflineTable;
+        p_record_id?: string;
+        p_payload?: Record<string, unknown>;
+        p_expected_revision?: number;
+        p_operation_id?: string;
+      };
+      const offlineTable = body.p_table;
+      if (!offlineTable || offlineTable === 'estimate_sections' || !OFFLINE_TABLES.includes(offlineTable)) {
+        sendJson(response, 400, { code: '22023', message: 'Invalid offline record payload' });
+        return;
+      }
+      logs[logs.length - 1].table = offlineTable;
+      const recordId = String(body.p_record_id ?? '');
+      const index = rows[offlineTable].findIndex(row => row.id === recordId && row.user_id === USER_ID);
+      const current = index >= 0 ? rows[offlineTable][index] : null;
+      const currentRevision = Number(current?.revision ?? 0);
+      if (current?.last_operation_id === body.p_operation_id) {
+        sendJson(response, 200, current);
+        return;
+      }
+      if ((current && Number(body.p_expected_revision ?? 0) !== currentRevision)
+        || (!current && Number(body.p_expected_revision ?? 0) !== 0)) {
+        sendJson(response, 409, { code: '40001', message: 'OFFLINE_RECORD_CONFLICT' });
+        return;
+      }
+      const next: StoredRow = {
+        id: recordId,
+        user_id: USER_ID,
+        payload: body.p_payload ?? {},
+        revision: current ? currentRevision + 1 : 1,
+        last_operation_id: body.p_operation_id,
+      };
+      if (index >= 0) rows[offlineTable][index] = next;
+      else rows[offlineTable].push(next);
+      sendJson(response, 200, next);
+      return;
+    }
+
+    if (url.pathname === '/rest/v1/rpc/delete_offline_record' && method === 'POST') {
+      const body = await readBody(request) as {
+        p_table?: OfflineTable;
+        p_record_id?: string;
+        p_expected_revision?: number;
+        p_operation_id?: string;
+      };
+      const offlineTable = body.p_table;
+      if (!offlineTable || offlineTable === 'estimate_sections' || !OFFLINE_TABLES.includes(offlineTable)) {
+        sendJson(response, 400, { code: '22023', message: 'Invalid offline delete request' });
+        return;
+      }
+      logs[logs.length - 1].table = offlineTable;
+      const recordId = String(body.p_record_id ?? '');
+      const index = rows[offlineTable].findIndex(row => row.id === recordId && row.user_id === USER_ID);
+      const current = index >= 0 ? rows[offlineTable][index] : null;
+      const currentRevision = Number(current?.revision ?? 0);
+      if (current && Number(body.p_expected_revision ?? 0) !== currentRevision) {
+        sendJson(response, 409, { code: '40001', message: 'OFFLINE_RECORD_CONFLICT' });
+        return;
+      }
+      if (index >= 0) rows[offlineTable].splice(index, 1);
+      sendJson(response, 200, { id: recordId, deleted: true, revision: currentRevision });
       return;
     }
 

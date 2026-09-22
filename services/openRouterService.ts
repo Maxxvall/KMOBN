@@ -1,11 +1,14 @@
-import { Estimate, EstimateCategory, EstimateItem, EstimateSubgroup, GenerationParams, Material, Work, normalizeKey, safeNumber, SectionId } from '../types';
+import { Estimate, EstimateCategory, EstimateItem, EstimateStatus, EstimateSubgroup, GenerationParams, Material, Work, normalizeKey, safeNumber, SectionId } from '../types';
 import { aiCache } from './aiCache';
-import { AI_CONFIG, hasOpenRouterKey } from './aiConfig';
+import { AI_CONFIG, getAIRequestHeaders, getAIRequestUrl, hasOpenRouterKey } from './aiConfig';
 import { analyzeHistoricalPatterns, buildDependencyGraph, buildPromptInsights, filterToLatestEstimateVersions, pickFewShotExamples, scoreEstimateQuality } from './estimateIntelligence';
 import { checkNormAnomalies, computeNormExpectations } from './constructionNorms';
 import { getLearningHints, isCacheKeyBad } from './aiLearning';
 import { buildSp31_105_2002SystemMessage, containsSp31Reference } from './sp31_105_2002';
 import { CATALOG_CATEGORIES, normalizeEstimateCategory } from './estimateSections';
+import { fingerprintData } from './hashing';
+import { normalizeMeasurementUnit, parsePackAreaSqM } from './aiMeasurements';
+import { deriveAIProjectScope, filterItemsToAIProjectScope } from './aiProjectSpec';
 
 export interface AIEstimateRequest {
   area: number;
@@ -43,19 +46,39 @@ export type CatalogMismatchItem = {
   subgroup: EstimateSubgroup;
 };
 
+export type AIGenerationStatus = 'success' | 'needs_clarification' | 'partial' | 'unavailable' | 'cancelled';
+export type AIGenerationSource = 'model' | 'rules' | 'template';
+
 export type AIEstimateResult = {
+  status: AIGenerationStatus;
+  source: AIGenerationSource;
   items: EstimateItem[];
   total: number;
   suggestions: string[];
   warnings: string[];
+  pricing: {
+    status: 'complete' | 'incomplete';
+    unknownItemIds: string[];
+  };
   /** Позиции, которые AI хотел добавить, но не нашёл в справочниках */
   notInDbItems?: CatalogMismatchItem[];
+  /** Exact generation input identity used for feedback invalidation. */
+  cacheKey?: string;
 };
+
+const AI_PIPELINE_VERSION = '2026-09-22.2';
 
 type OpenRouterChatMessage = {
   role: 'system' | 'user' | 'assistant';
   content: string;
 };
+
+class NonRetryableAIError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'NonRetryableAIError';
+  }
+}
 
 const MATERIAL_KEYWORDS = [
   'пиломат',
@@ -115,56 +138,21 @@ const sleep = (ms: number, signal?: AbortSignal) => new Promise<void>((resolve, 
   signal?.addEventListener('abort', handleAbort, { once: true });
 });
 
+const retryAfterMs = (response: Response, fallbackMs: number): number => {
+  const raw = response.headers?.get?.('Retry-After')?.trim();
+  if (!raw) return fallbackMs;
+  const seconds = Number(raw);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(30_000, seconds * 1000);
+  const at = Date.parse(raw);
+  if (Number.isFinite(at)) return Math.min(30_000, Math.max(0, at - Date.now()));
+  return fallbackMs;
+};
+
 const normalizeUnitText = (unitRaw: string): string => {
-  const u = String(unitRaw || '').trim().toLowerCase();
-  if (!u) return 'шт';
-
-  // Normalize common variants to the UI-supported set
-  if (
-    u === 'м²' ||
-    u === 'м2' ||
-    u === 'm2' ||
-    u === 'm²' ||
-    u.includes('м²') ||
-    u.includes('m²') ||
-    u.includes('м2') ||
-    u.includes('m2')
-  ) {
-    return 'м2';
-  }
-  if (u === 'м³' || u === 'м3' || u === 'm3' || u.includes('м3') || u.includes('m3')) return 'м3';
-  if (u.includes('м.п') || u.includes('пог') || u.includes('пог.м') || u.includes('пог. м') || u.includes('м/п') || u.includes('м.п')) return 'м/п';
-  if (u === 'шт.' || u.includes('шт')) return 'шт';
-  if (u.includes('упак') || u === 'уп.' || u === 'уп' || u.includes('уп ')) return 'уп';
-
-  // Leave as-is if unknown
-  return String(unitRaw).trim();
+  return normalizeMeasurementUnit(unitRaw) || 'шт';
 };
 
-/**
- * Infer measurement unit from item name heuristics (when the type has no unit field).
- */
-const inferUnitFromName = (name: string): string | null => {
-  const n = String(name || '').toLowerCase();
-  if (/\bм2\b|м²|\bкв\.?\s*м/i.test(n)) return 'м2';
-  if (/\bм3\b|м³|\bкуб\.?\s*м/i.test(n)) return 'м3';
-  if (/\bм\/п\b|\bпог\.?\s*м|\bм\.п/i.test(n)) return 'м/п';
-  if (/\bупак|\bуп\b|\bрулон|\bпач/i.test(n)) return 'уп';
-  // Works that typically measure in м2
-  if (/монтаж|укладка|устройство|облицовка|штукатур|покраска|утеплени|гидроизол/i.test(n)) return 'м2';
-  // Works that typically measure in м/п
-  if (/прокладка|разводка|провод|кабел/i.test(n)) return 'м/п';
-  return null;
-};
-
-const parsePackAreaSqMFromName = (nameRaw: string): number | null => {
-  const name = String(nameRaw || '');
-  // Matches: 25м2, 25 м2, 25м², 25 m2, 3 м², 3m², 70 кв.м, 70 кв м, 70кв.м
-  const m = name.match(/(\d+(?:[\.,]\d+)?)\s*(?:м2|м²|m2|m²|кв\.?\s*м)\b/i);
-  if (!m) return null;
-  const n = safeNumber(m[1], 0);
-  return n > 0 ? n : null;
-};
+const parsePackAreaSqMFromName = parsePackAreaSqM;
 
 const looksLikePackOrRoll = (nameRaw: string): boolean => {
   const n = String(nameRaw || '').toLowerCase();
@@ -190,28 +178,6 @@ const computePackQuantityWithReserve = (area: number, packArea: number): number 
   return base + reserve;
 };
 
-const parseProfileDimensionsFromName = (nameRaw: string): { thicknessMm?: number; widthMm?: number; lengthMm?: number } | null => {
-  const s = String(nameRaw || '').toLowerCase();
-  // patterns like 12.5x96x6000 or 50x50x6000 (mm) or with spaces and 'мм'
-  const re = /([\d\.\,]+)\s*[x×]\s*([\d\.\,]+)\s*[x×]\s*([\d\.\,]+)\s*(?:mm|мм)?/i;
-  const m = s.match(re);
-  if (!m) return null;
-  const a = safeNumber(m[1].replace(',', '.'), NaN);
-  const b = safeNumber(m[2].replace(',', '.'), NaN);
-  const c = safeNumber(m[3].replace(',', '.'), NaN);
-  if (!isFinite(a) || !isFinite(b) || !isFinite(c)) return null;
-  // Heuristic: if one value >= 1000 assume it's length in mm
-  const parts = [a, b, c];
-  const lengthIdx = parts.findIndex(v => v >= 1000) ;
-  if (lengthIdx === -1) {
-    // fallback: assume third is length
-    return { thicknessMm: a, widthMm: b, lengthMm: c };
-  }
-  const length = parts[lengthIdx];
-  const others = parts.filter((_, idx) => idx !== lengthIdx);
-  return { thicknessMm: others[0], widthMm: others[1], lengthMm: length };
-};
-
 export const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): EstimateItem[] => {
   const area = safeNumber(projectArea, 0);
   return (items || []).map((it) => {
@@ -226,7 +192,8 @@ export const applySmartPackagingRules = (items: EstimateItem[], projectArea?: nu
       return { ...it, unit };
     }
 
-    const suggestedFromArea = area > 0 ? computePackQuantityWithReserve(area, packArea) : null;
+    const coverageArea = area > 0 ? getCoverageArea(it.category, area) : 0;
+    const suggestedFromArea = coverageArea > 0 ? computePackQuantityWithReserve(coverageArea, packArea) : null;
 
     if (suggestedFromArea !== null) {
       const diffRatio = suggestedFromArea > 0 ? Math.abs(quantity - suggestedFromArea) / suggestedFromArea : 0;
@@ -244,75 +211,23 @@ export const applySmartPackagingRules = (items: EstimateItem[], projectArea?: nu
       return { ...it, unit: 'шт', quantity: fallbackQty, total: (it.price || 0) * fallbackQty };
     }
 
-    // If name contains profile dimensions like 50x50x6000 (mm) — convert linear/area units to pieces
-    const profile = parseProfileDimensionsFromName(it.name);
-    if (profile && profile.lengthMm) {
-      const lengthM = profile.lengthMm / 1000;
-
-      // Convert linear meters (м/п) to pieces using length per piece
-      if (unit === 'м/п' || unit === 'м/п.' || unit === 'м/п' ) {
-        const pieces = Math.max(1, Math.ceil(quantity / lengthM));
-        return { ...it, unit: 'шт', quantity: pieces, total: (it.price || 0) * pieces };
-      }
-
-      // If project area is known and this is a board/profile (width x length) and unit is м2 — compute pieces from area
-      if ((unit === 'м2' || unit === 'м²') && profile.widthMm) {
-        const widthM = profile.widthMm / 1000;
-        const areaPerPiece = Math.max(0.0001, widthM * lengthM);
-        const areaForCalc = area > 0 ? area : quantity; // prefer project area when provided
-        const pieces = Math.max(1, Math.ceil(areaForCalc / areaPerPiece));
-        return { ...it, unit: 'шт', quantity: pieces, total: (it.price || 0) * pieces };
-      }
-    }
-
     return { ...it, unit };
   });
 };
 
 export const sanitizeQuantities = (
   items: EstimateItem[],
-  floorArea: number,
+  _floorArea: number,
 ): EstimateItem[] => {
   return items.map(it => {
-    let { quantity, unit, subgroup, category, name } = it;
-
-    quantity = Math.max(0, quantity);
-
-    if (subgroup === EstimateSubgroup.WORKS) {
-      return { ...it, quantity: 1, unit: 'шт' };
-    }
+    const quantity = Math.max(0, safeNumber(it.quantity, 0));
+    const subgroup = it.subgroup;
 
     if (subgroup === EstimateSubgroup.DELIVERY) {
       return { ...it, quantity: 1, unit: 'шт' };
     }
 
-    if (unit === 'шт' && quantity > floorArea * 2 && quantity > 10) {
-      const capped = Math.max(1, Math.ceil(floorArea * 0.5));
-      console.warn(`[SANITIZER] ${name}: capped ${quantity} → ${capped}`);
-      return { ...it, quantity: capped, total: capped * (it.price || 0) };
-    }
-
-    if (unit === 'м2' || unit === 'м²') {
-      const coverage = getCoverageArea(category, floorArea);
-      if (quantity < coverage * 0.5) {
-        const fixed = Math.ceil(coverage * 1.1);
-        return { ...it, quantity: fixed, total: fixed * (it.price || 0) };
-      }
-      if (quantity > coverage * 3) {
-        const fixed = Math.ceil(coverage * 1.2);
-        return { ...it, quantity: fixed, total: fixed * (it.price || 0) };
-      }
-    }
-
-    if (unit === 'м/п') {
-      const maxLinear = Math.ceil(Math.sqrt(Math.max(1, floorArea)) * 4 * 5);
-      if (quantity > maxLinear && maxLinear > 0) {
-        const fixed = Math.ceil(Math.sqrt(floorArea) * 4);
-        return { ...it, quantity: fixed, total: fixed * (it.price || 0) };
-      }
-    }
-
-    return { ...it, quantity };
+    return { ...it, quantity, total: quantity * safeNumber(it.price, 0) };
   });
 };
 
@@ -454,15 +369,6 @@ const normalizeJsonFromLLM = (text: string): string => {
   return extractFirstJsonLikeSubstring(candidate);
 };
 
-const tryEvalJson = (text: string): { obj: any | null; error?: Error } => {
-  try {
-    const fn = new Function(`"use strict"; return (${text});`);
-    return { obj: fn(), error: undefined };
-  } catch (error) {
-    return { obj: null, error: error as Error };
-  }
-};
-
 const tryParseJsonWithHeuristics = (text: string): { obj: any | null; cleanedText?: string } => {
   // Normalize some whitespace / non-breaking spaces
   const base = escapeRawNewlinesInStrings(String(text || '')).replace(/\u00A0/g, ' ').trim();
@@ -491,8 +397,6 @@ const tryParseJsonWithHeuristics = (text: string): { obj: any | null; cleanedTex
   try {
     return { obj: JSON.parse(t), cleanedText: t };
   } catch {
-    const evalTry = tryEvalJson(t);
-    if (evalTry.obj) return { obj: evalTry.obj, cleanedText: t };
     return { obj: null, cleanedText: t };
   }
 };
@@ -525,7 +429,7 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
 
 ЖЁСТКИЕ правила:
 - ПРИОРИТЕТ ИСТОРИЧЕСКИХ ДАННЫХ:
-  - История похожих смет — это финальные, проверенные версии реальных проектов.
+  - История похожих смет содержит согласованные версии реальных проектов, но не является инженерной экспертизой.
   - Если в истории/паттернах есть позиция с частотой ≥ 50% похожих проектов — включи её, если это не противоречит описанию сметы и справочникам.
   - Количества из истории трактуй как реальный ориентир и масштабируй под текущую площадь (не копируй 1:1, а нормируй на площадь).
   - При конфликте между «логическими рассуждениями» и историей — предпочитай историю, но не нарушай справочники.
@@ -641,7 +545,8 @@ const buildAdvancedContext = (opts: {
   projectTemplateId?: string;
   projectTemplateName?: string;
 }) => {
-  const latestHistory = filterToLatestEstimateVersions(opts.historicalEstimates || []);
+  const latestHistory = filterToLatestEstimateVersions(opts.historicalEstimates || [])
+    .filter(estimate => estimate.status === EstimateStatus.APPROVED && (estimate.items || []).length > 0);
   const graph = buildDependencyGraph(opts.materials || [], opts.works || []);
   const patterns = analyzeHistoricalPatterns(latestHistory, {
     area: opts.params.area,
@@ -667,7 +572,7 @@ const buildAdvancedContext = (opts: {
 
   const fewShotText = fewShot.length
     ? `ЭТАЛОННЫЕ ПРИМЕРЫ (few-shot learning) — лучшие сметы по качеству и полноте (используй структуру как образец):\n${fewShot
-      .map(x => `- ${x.title}\n  ВАЖНО: эта смета прошла проверку качества (score ${typeof x.qualityScore === 'number' ? x.qualityScore.toFixed(2) : 'N/A'}).\n  ${JSON.stringify(x.example)}`)
+      .map(x => `- ${x.title}\n  Это согласованная историческая смета с внутренней оценкой структуры ${typeof x.qualityScore === 'number' ? x.qualityScore.toFixed(2) : 'N/A'}; оценка не подтверждает инженерную правильность.\n  ${JSON.stringify(x.example)}`)
       .join('\n')}`
     : '';
 
@@ -719,7 +624,7 @@ const buildWorksCatalog = (works: Work[]): string => {
 
 async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number; signal?: AbortSignal }) {
   if (!hasOpenRouterKey()) {
-    throw new Error('OpenRouter API key is not configured (VITE_OPENROUTER_API_KEY)');
+    throw new Error('AI connection is not configured');
   }
 
   if (opts?.signal?.aborted) {
@@ -741,14 +646,9 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
         throw createAbortError();
       }
 
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${AI_CONFIG.apiKey}`,
-        'Content-Type': 'application/json',
-      };
-      if (AI_CONFIG.siteUrl) headers['HTTP-Referer'] = AI_CONFIG.siteUrl;
-      if (AI_CONFIG.siteName) headers['X-Title'] = AI_CONFIG.siteName;
+      const headers = await getAIRequestHeaders();
 
-      const res = await fetch(AI_CONFIG.baseUrl, {
+      const res = await fetch(getAIRequestUrl(), {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -761,26 +661,26 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
       });
 
       if (res.status === 429) {
-        await sleep(Math.pow(2, i) * 1000, opts?.signal);
+        lastError = new Error('AI rate limit exceeded');
+        await sleep(retryAfterMs(res, Math.pow(2, i) * 1000), opts?.signal);
         continue;
       }
 
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(`OpenRouter error ${res.status}: ${text || res.statusText}`);
+        const message = `AI provider returned HTTP ${res.status}${res.statusText ? ` (${res.statusText})` : ''}`;
+        if (res.status === 408 || res.status >= 500) throw new Error(message);
+        throw new NonRetryableAIError(message);
       }
 
       const data = await res.json();
 
-      // Diagnostic logging: show raw model response content
+      // Production diagnostics intentionally exclude prompts and response bodies.
       const _respContent = data?.choices?.[0]?.message?.content;
       const _promptTokens = data?.usage?.prompt_tokens;
       const _completionTokens = data?.usage?.completion_tokens;
-      console.warn(`[AI][callOpenRouter] model=${AI_CONFIG.model} prompt_tokens=${_promptTokens ?? '?'} completion_tokens=${_completionTokens ?? '?'} content_length=${String(_respContent || '').length}`);
+      console.info(`[AI][callOpenRouter] model=${AI_CONFIG.model} prompt_tokens=${_promptTokens ?? '?'} completion_tokens=${_completionTokens ?? '?'} content_length=${String(_respContent || '').length}`);
       if (!_respContent || String(_respContent).trim().length === 0) {
-        console.warn('[AI][callOpenRouter] WARNING: model returned EMPTY content! Full response:', JSON.stringify(data).slice(0, 600));
-      } else {
-        console.debug('[AI][callOpenRouter] Response preview:', String(_respContent).slice(0, 500));
+        console.warn('[AI][callOpenRouter] Model returned empty content');
       }
 
       if (cacheKey) {
@@ -791,6 +691,7 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
       if (isAbortError(e) || opts?.signal?.aborted) {
         throw createAbortError();
       }
+      if (e instanceof NonRetryableAIError) throw e;
 
       lastError = e;
       if (i < maxRetries - 1) {
@@ -850,12 +751,10 @@ const parseEstimateResponse = (rawText: string, fallbackCategory?: SectionId): {
       const secondTry = tryParseJsonWithHeuristics(extracted);
       if (secondTry.obj) parsedObj = secondTry.obj;
       else {
-        const snippet = (extracted || '').slice(0, 1000);
-        return { items: [], suggestions: [], warnings: [`Не удалось распарсить JSON от AI. Содержимое ответа: ${snippet}...`] };
+        return { items: [], suggestions: [], warnings: ['AI вернул ответ в неподдерживаемом формате.'] };
       }
     } else {
-      const snippet = (normalized || '').slice(0, 1000);
-      return { items: [], suggestions: [], warnings: [`Не удалось распарсить JSON от AI. Содержимое ответа: ${snippet}...`] };
+      return { items: [], suggestions: [], warnings: ['AI вернул ответ в неподдерживаемом формате.'] };
     }
   }
 
@@ -912,94 +811,28 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
 };
 
 /**
- * Deterministic quantity override: recalculates quantity from scratch
- * for any material with a parseable pack area in its name.
- * Ignores AI output entirely and computes by formula.
- */
-const deterministicQuantityOverride = (
-  items: EstimateItem[],
-  floorArea: number,
-): EstimateItem[] => {
-  return items.map(it => {
-    const packArea = parsePackAreaSqMFromName(it.name);
-    const isWork = it.subgroup === EstimateSubgroup.WORKS || it.subgroup === EstimateSubgroup.DELIVERY;
-
-    if (isWork) return it;
-
-    if (packArea && packArea > 0) {
-      const coverageArea = getCoverageArea(it.category, floorArea);
-      const packsNeeded = Math.ceil(coverageArea / packArea);
-      const reserve = packsNeeded > 2 ? 2 : 1;
-      const newQty = packsNeeded + reserve;
-      const newUnit = 'шт';
-
-      if (it.quantity !== newQty || it.unit !== newUnit) {
-        console.warn(`[DQO] ${it.name}: ${it.quantity} ${it.unit} → ${newQty} ${newUnit} (pack=${packArea}m², coverage=${coverageArea}m²)`);
-      }
-      return { ...it, unit: newUnit, quantity: newQty, total: newQty * (it.price || 0) };
-    }
-
-    return it;
-  });
-};
-
-/**
  * Correct AI-generated quantities based on construction rules.
- * Fixes work quantities (always 1), delivery (always 1), windows/doors, and pack areas.
+ * Applies only corrections backed by explicit project inputs or explicit units.
  */
 const correctAIQuantities = (
   items: EstimateItem[],
-  area: number,
   windowCount?: number,
   doorCount?: number,
 ): EstimateItem[] => {
   return items.map(it => {
     const name = it.name.toLowerCase();
-    const isWork = it.subgroup === EstimateSubgroup.WORKS || it.subgroup === EstimateSubgroup.DELIVERY;
     const isDelivery = it.subgroup === EstimateSubgroup.DELIVERY || /доставк|транспорт|логист|курьер/i.test(name);
 
-    // Rule 1: Works and delivery are always quantity=1 (they're services)
-    if (isWork || isDelivery) {
+    // Delivery is a single service in the current catalog. Work quantities are
+    // preserved because the wizard already uses м², м/п, points and pieces.
+    if (isDelivery) {
       return { ...it, quantity: 1, unit: 'шт' };
     }
 
     // Rule 2: Door/window related materials use user-provided counts
     if (isDoorOrWindowMaterial(name)) {
       const newQty = /окн/i.test(name) ? (windowCount ?? it.quantity) : (doorCount ?? it.quantity);
-      return { ...it, quantity: Math.max(1, newQty) };
-    }
-
-    // Rule 3: Check if name contains pack area as trailing number (e.g. "Керамогранит 1.44", "Плитка 2.5")
-    // Heuristic: if name ends with a decimal number not followed by unit, it might be pack area in m²
-    const trailingNumberMatch = name.match(/(\d+(?:[.,]\d+)?)\s*(?:м2|м²|м3|м³|м\/п|шт|уп|мм)?$|(\d+[.,]\d+)$/i);
-    if (trailingNumberMatch) {
-      const potentialPackArea = safeNumber(trailingNumberMatch[1] || trailingNumberMatch[2], 0);
-      if (potentialPackArea > 0 && potentialPackArea < 1000) {
-        // Looks like pack area in m²
-        const coverageArea = getCoverageArea(it.category, area);
-        const newQty = Math.max(1, Math.ceil(coverageArea / potentialPackArea)) + (coverageArea / potentialPackArea > 2 ? 1 : 0);
-        // Sanity check: if AI suggested a wildly different quantity, use calculated
-        if (it.quantity > 100 || it.quantity < newQty / 2) {
-          console.warn(`[AI] Corrected ${it.name}: quantity ${it.quantity} → ${newQty} (pack area: ${potentialPackArea}m²)`);
-          return { ...it, quantity: newQty };
-        }
-      }
-    }
-
-    // Rule 4: Fix unreasonably high quantities (e.g. 255556 for a material)
-    // If material quantity > 1000 for residential building, likely an error
-    if (it.quantity > 1000 && it.subgroup === EstimateSubgroup.MATERIALS && area < 500) {
-      // Try to infer correct quantity
-      let correctedQty = 1;
-      if (it.unit === 'м2') {
-        correctedQty = Math.ceil(getCoverageArea(it.category, area) * 1.1);
-      } else if (it.unit === 'м/п') {
-        correctedQty = Math.ceil(Math.sqrt(area) * 4);
-      } else {
-        correctedQty = Math.max(1, Math.ceil(area * 0.05));
-      }
-      console.warn(`[AI] Corrected ${it.name}: unreasonable quantity ${it.quantity} → ${correctedQty}`);
-      return { ...it, quantity: correctedQty };
+      return { ...it, quantity: Math.max(0, newQty) };
     }
 
     return it;
@@ -1227,19 +1060,7 @@ const getCoverageArea = (category: SectionId, floorArea: number): number => {
 /** Detect if a material name refers to doors/windows/similar countable items. */
 const isDoorOrWindowMaterial = (name: string): boolean => {
   const n = String(name || '').toLowerCase();
-  return /\b(дверь|дверн|двер|окно|окон|стеклопакет|фурнитур|ручк|замок|петл|наличник|доборн|откос|подоконник)/.test(n);
-};
-
-/** Detect if a material is a fastener (screws, nails, etc). */
-const isFastener = (name: string): boolean => {
-  const n = String(name || '').toLowerCase();
-  return /\b(саморез|гвозд|шуруп|анкер|дюбел|болт|гайк|шайб|крепёж|крепеж|метиз)/.test(n);
-};
-
-/** Detect if a material is a sealant / foam / tape. */
-const isSealantOrFoam = (name: string): boolean => {
-  const n = String(name || '').toLowerCase();
-  return /\b(пен[аы]|герметик|лента|скотч|клей|мастик)/.test(n);
+  return /(дверь|дверн|двер|окно|окон|стеклопакет|фурнитур|ручк|замок|петл|наличник|доборн|откос|подоконник)/.test(n);
 };
 
 /**
@@ -1247,142 +1068,6 @@ const isSealantOrFoam = (name: string): boolean => {
  * when AI is unavailable or returns empty results.
  * Uses construction-aware logic for quantities.
  */
-const generateItemsFromCatalog = (opts: {
-  area: number;
-  buildingType: string;
-  materials: Material[];
-  works: Work[];
-  selectedSections?: SectionId[];
-  existingItems?: EstimateItem[];
-  /** Number of windows specified by user in wizard */
-  windowCount?: number;
-  /** Number of interior doors specified by user in wizard */
-  doorCount?: number;
-}): EstimateItem[] => {
-  const now = Date.now();
-  const floorArea = Math.max(1, opts.area || 100);
-  const windowCount = opts.windowCount ?? Math.max(4, Math.ceil(floorArea / 15));
-  const doorCount = opts.doorCount ?? Math.max(2, Math.ceil(floorArea / 20));
-  const existingNames = new Set((opts.existingItems || []).map(i => normalizeKey(i.name)));
-
-  // Determine which categories to include
-  const sections = (opts.selectedSections && opts.selectedSections.length > 0)
-    ? opts.selectedSections
-    : [
-      EstimateCategory.FOUNDATION, EstimateCategory.GRILLAGE,
-      EstimateCategory.WALLS, EstimateCategory.ROOF,
-      EstimateCategory.WINDOWS, EstimateCategory.ELECTRICAL,
-      EstimateCategory.LOGISTICS,
-    ];
-
-  const items: EstimateItem[] = [];
-  let idx = 0;
-
-  // ── Works: always quantity = 1 (work is a service, priced per-job) ──
-  for (const w of (opts.works || [])) {
-    if (!sections.includes(w.category)) continue;
-    const k = normalizeKey(w.name);
-    if (existingNames.has(k)) continue;
-    existingNames.add(k);
-
-    items.push({
-      id: `cat-work-${now}-${idx++}`,
-      name: w.name,
-      unit: 'шт',
-      quantity: 1,
-      price: w.price || 0,
-      total: 1 * (w.price || 0),
-      category: w.category,
-      subgroup: EstimateSubgroup.WORKS,
-    });
-  }
-
-  // ── Materials: smart quantity based on category, name, pack size, area ──
-  for (const m of (opts.materials || [])) {
-    if (!sections.includes(m.category)) continue;
-    const k = normalizeKey(m.name);
-    if (existingNames.has(k)) continue;
-    existingNames.add(k);
-
-    const unit = normalizeUnitText(inferUnitFromName(m.name) || 'шт');
-    let quantity = 1;
-
-    // Rule 1: Door/window related → use user-provided counts
-    if (isDoorOrWindowMaterial(m.name)) {
-      const n = String(m.name || '').toLowerCase();
-      if (/\b(окно|окон|стеклопакет)/.test(n)) {
-        quantity = windowCount;
-      } else {
-        quantity = doorCount;
-      }
-    }
-    // Rule 2: Material name contains pack area (e.g. "75 м2", "70 кв.м", "25м2")
-    else if (parsePackAreaSqMFromName(m.name)) {
-      const packArea = parsePackAreaSqMFromName(m.name)!;
-      const coverageArea = getCoverageArea(m.category, floorArea);
-      quantity = Math.max(1, Math.ceil(coverageArea / packArea)) + (coverageArea / packArea > 2 ? 1 : 0);
-    }
-    // Rule 3: Material name has dimensions (e.g. 50x50x6000) → compute from coverage
-    else if (parseProfileDimensionsFromName(m.name)) {
-      const dims = parseProfileDimensionsFromName(m.name)!;
-      if (dims.lengthMm && dims.widthMm) {
-        const pieceAreaM2 = (dims.lengthMm / 1000) * (dims.widthMm / 1000);
-        if (pieceAreaM2 > 0) {
-          const coverageArea = getCoverageArea(m.category, floorArea);
-          quantity = Math.max(1, Math.ceil(coverageArea / pieceAreaM2));
-        } else {
-          quantity = Math.max(1, Math.ceil(floorArea * 0.1));
-        }
-      } else if (dims.lengthMm) {
-        // Linear material (e.g. boards)
-        const pieceLenM = dims.lengthMm / 1000;
-        const coverageArea = getCoverageArea(m.category, floorArea);
-        const linearMeters = Math.ceil(Math.sqrt(coverageArea) * 4);
-        quantity = Math.max(1, Math.ceil(linearMeters / pieceLenM));
-      } else {
-        quantity = Math.max(1, Math.ceil(floorArea * 0.05));
-      }
-    }
-    // Rule 4: Fasteners → proportional to area
-    else if (isFastener(m.name)) {
-      if (unit === 'уп') quantity = Math.max(1, Math.ceil(floorArea / 30));
-      else quantity = Math.max(10, Math.ceil(floorArea * 3));
-    }
-    // Rule 5: Sealant / foam / tape
-    else if (isSealantOrFoam(m.name)) {
-      quantity = Math.max(1, Math.ceil(floorArea / 20));
-    }
-    // Rule 6: Unit-based estimation
-    else if (unit === 'м2') {
-      quantity = Math.ceil(getCoverageArea(m.category, floorArea) * 1.1);
-    } else if (unit === 'м/п') {
-      const perimeterIsh = Math.ceil(Math.sqrt(floorArea) * 4);
-      quantity = Math.ceil(perimeterIsh * 1.1);
-    } else if (unit === 'м3') {
-      quantity = Math.round(floorArea * 0.05 * 100) / 100 || 1;
-    } else if (unit === 'уп') {
-      quantity = Math.max(1, Math.ceil(floorArea / 30));
-    }
-    // Rule 7: Default шт for unknown
-    else {
-      quantity = Math.max(1, Math.ceil(floorArea * 0.05));
-    }
-
-    items.push({
-      id: `cat-mat-${now}-${idx++}`,
-      name: m.name,
-      unit,
-      quantity,
-      price: m.price || 0,
-      total: quantity * (m.price || 0),
-      category: m.category,
-      subgroup: classifySubgroup(m.name, unit),
-    });
-  }
-
-  return items;
-};
-
 /**
  * Build a compact prompt for the one-shot fallback (reduced context to fit smaller models).
  */
@@ -1418,13 +1103,76 @@ ${workLines || 'нет данных'}
 Правила:
 - Используй ТОЛЬКО названия из списков выше.
 - price=0 (цены подтянет приложение).
-- Работы — всегда quantity=1 (это услуга, а не кв.м).
+- Для работ сохраняй единицу тарифа и объём из надёжного примера. Если база тарифа неизвестна — quantity=1, unit="шт" и добавь предупреждение.
 - Материалы: масштабируй quantity под площадь. Если в названии указана площадь упаковки (напр. "75 м2") — рассчитай кол-во упаковок. Для стен учитывай площадь стен (периметр × высота ~2.8м), для кровли — площадь крыши (площадь × 1.3).
 - Окна/двери: используй указанное кол-во окон и дверей для соответствующих позиций.
 
 JSON формат:
 {"items":[{"name":"...","unit":"...","quantity":число,"price":0,"category":"КАТЕГОРИЯ","subgroup":"Работы|Материалы"}],"suggestions":[],"warnings":[]}`;
 };
+
+const catalogFingerprint = (materials: Material[], works: Work[]): string => fingerprintData({
+  materials: (materials || []).map(item => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    price: item.price,
+    lastUpdated: item.lastUpdated,
+    updatedAt: item.updated_at,
+  })),
+  works: (works || []).map(item => ({
+    id: item.id,
+    name: item.name,
+    category: item.category,
+    price: item.price,
+    updatedAt: item.updated_at,
+  })),
+});
+
+const estimateItemsFingerprint = (items: EstimateItem[]): string => fingerprintData((items || []).map(item => ({
+  id: item.id,
+  name: item.name,
+  unit: item.unit,
+  quantity: item.quantity,
+  price: item.price,
+  category: item.category,
+  subgroup: item.subgroup,
+})).sort((left, right) => `${left.category}:${left.name}:${left.id}`.localeCompare(`${right.category}:${right.name}:${right.id}`, 'ru')));
+
+const historyFingerprint = (estimates: Estimate[]): string => fingerprintData((estimates || []).map(estimate => ({
+  id: estimate.id,
+  estimateNumber: estimate.estimateNumber,
+  version: estimate.version,
+  status: estimate.status,
+  updatedAt: estimate.updated_at,
+  region: estimate.region,
+  buildingType: estimate.buildingType,
+  area: estimate.area,
+  items: estimateItemsFingerprint(estimate.items || []),
+})).sort((left, right) => left.id.localeCompare(right.id)));
+
+export const createEstimateGenerationCacheKey = (req: AIEstimateRequest): string => aiCache.generateKey(
+  'estimate',
+  AI_PIPELINE_VERSION,
+  AI_CONFIG.model,
+  {
+    area: req.area,
+    region: req.region,
+    buildingType: req.buildingType,
+    projectTemplateId: req.projectTemplateId || null,
+    projectTemplateName: req.projectTemplateName || null,
+    referenceEstimateId: req.referenceEstimateId || null,
+    selectedSections: req.selectedSections ? [...req.selectedSections].sort() : null,
+    scopeDescription: req.scopeDescription || null,
+    windowCount: req.windowCount ?? null,
+    doorCount: req.doorCount ?? null,
+    enableAiPriceSearch: req.enableAiPriceSearch ?? true,
+    templateItems: estimateItemsFingerprint(req.templateItems || []),
+    existingItems: estimateItemsFingerprint(req.existingItems || []),
+    catalogs: catalogFingerprint(req.materials || [], req.works || []),
+    history: historyFingerprint(req.historicalEstimates || []),
+  },
+);
 
 export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AIEstimateResult> {
   const params: GenerationParams = {
@@ -1455,23 +1203,31 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   const sectionsFilter = (req.selectedSections && req.selectedSections.length > 0)
     ? `Включай ТОЛЬКО следующие разделы/категории: ${req.selectedSections.join(', ')}. НЕ добавляй позиции из других категорий.\n`
     : '';
+  const projectScope = deriveAIProjectScope(req.scopeDescription, req.selectedSections);
+  const appliesSp31 = /каркас/i.test(req.buildingType || '');
+  const normativeMessages: OpenRouterChatMessage[] = appliesSp31
+    ? [{ role: 'system', content: NORMATIVE_SYSTEM_PROMPT }]
+    : [];
 
-  const cacheKey = aiCache.generateKey(
-    'estimate',
-    req.area,
-    req.region,
-    req.buildingType,
-    req.projectTemplateId || null,
-    req.projectTemplateName || null,
-    req.referenceEstimateId || null,
-    req.selectedSections ? [...req.selectedSections].sort() : null,
-    (req.existingItems || []).map(i => i.name).sort(),
-  );
+  const cacheKey = createEstimateGenerationCacheKey(req);
 
   // Cache: only return if not marked bad by learning
   if (!isCacheKeyBad(cacheKey)) {
     const cached = aiCache.get<AIEstimateResult>(cacheKey);
-    if (cached) return cached;
+    if (cached) return { ...cached, cacheKey };
+  }
+
+  if (projectScope.needsClarification.length > 0) {
+    return {
+      status: 'needs_clarification',
+      source: 'rules',
+      items: [],
+      total: 0,
+      suggestions: [],
+      warnings: projectScope.needsClarification,
+      pricing: { status: 'complete', unknownItemIds: [] },
+      cacheKey,
+    };
   }
 
   const adv = buildAdvancedContext({
@@ -1497,24 +1253,24 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   let parsedItems: any[] = [];
   let parsedSuggestions: string[] = [];
   let parsedWarnings: string[] = [];
+  let usedCompactFallback = false;
+  let failedStageBlocks = 0;
 
   // --- Stage 1: structure ---
   try {
-    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n- Окон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${templateContext}${scopeContext}${sectionsFilter}\n${referenceContext}\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nВажные правила:\n- Работы (subgroup=Работы) ВСЕГДА quantity=1, это услуга.\n- Материалы: масштабируй под площадь. Если в названии указана площадь упаковки (75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек. Для стен — площадь стен = периметр × 2.8м. Для кровли — площадь × 1.3.\n- Окна/двери: используй указанное кол-во.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
+    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n- Окон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${templateContext}${scopeContext}${sectionsFilter}\n${referenceContext}\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nВажные правила:\n- Для работ сохраняй единицу тарифа и объём из надёжного примера. Если база тарифа неизвестна — quantity=1, unit=\"шт\" и добавь предупреждение.\n- Материалы: масштабируй под площадь. Если в названии указана площадь упаковки (75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек. Для стен — площадь стен = периметр × 2.8м. Для кровли — площадь × 1.3.\n- Окна/двери: используй указанное кол-во, включая ноль.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
 
     console.info('[AI] Stage 1: sending structure request to model');
-    console.debug('[AI] Stage 1 prompt preview', stage1Prompt.slice(0, 1200));
     const s1 = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
+        ...normativeMessages,
         { role: 'user', content: stage1Prompt },
       ],
       { maxTokens: 1600, temperature: 0.2, signal: req.signal },
     );
     const s1Content = String(s1?.choices?.[0]?.message?.content || '');
     console.info('[AI] Stage 1: received response (length:', String((s1Content || '').length) + ')');
-    console.debug('[AI] Stage 1 full response:', s1Content);
     const s1Norm = normalizeJsonFromLLM(s1Content);
     const s1Parsed = tryParseJsonWithHeuristics(s1Norm);
     const s1Obj: any = s1Parsed.obj;
@@ -1567,14 +1323,13 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         ? `\nЭТАЛОН для блока ${cat} (из выбранной пользователем сметы, площадь ${referenceEstimate!.area} м²):\n${JSON.stringify(refItemsForCat.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, subgroup: i.subgroup })), null, 0)}\nАдаптируй количества под площадь ${req.area} м².\n`
         : '';
 
-      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\nОкон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${scopeContext}\n${refContext}\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Работы — ВСЕГДА quantity=1 (это услуга, не кв.м)\n- Материалы: если в названии указана площадь упаковки (напр. 75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек от покрываемой площади. Для стен площадь = периметр × 2.8м, для кровли = площадь × 1.3\n- Окна/двери: используй указанное кол-во\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
+      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\nОкон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${scopeContext}\n${refContext}\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Для работ сохраняй единицу тарифа и объём из надёжного примера; при неизвестной базе тарифа используй quantity=1, unit=\"шт\" и добавь warning\n- Материалы: если в названии указана площадь упаковки (напр. 75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек от покрываемой площади. Для стен площадь = периметр × 2.8м, для кровли = площадь × 1.3\n- Окна/двери: используй указанное кол-во, включая ноль\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
 
       console.info('[AI] Stage 2: sending detail request for block', cat);
-      console.debug('[AI] Stage 2 prompt preview for ' + String(cat), stage2Prompt.slice(0, 1200));
       const s2 = await callOpenRouterWithRetry(
         [
           { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
+          ...normativeMessages,
           { role: 'user', content: stage2Prompt },
         ],
         { maxTokens: 2200, temperature: 0.35, signal: req.signal },
@@ -1582,7 +1337,6 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
       const s2Content = String(s2?.choices?.[0]?.message?.content || '');
       console.info('[AI] Stage 2: received response for block', cat, '(length:', String((s2Content || '').length) + ')');
-      console.debug('[AI] Stage 2 full response for ' + String(cat) + ':', s2Content);
       return {
         cat,
         parsed: parseEstimateResponse(s2Content, cat),
@@ -1599,17 +1353,17 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       }
 
       parsedWarnings.push(`AI: блок ${categoryLabel} не обработан на этапе 2. Причина: ${String(result.reason)}`);
+      failedStageBlocks += 1;
     });
 
     // --- Stage 3: self-check ---
-    const stage3Prompt = `Этап 3/3: Самопроверка и корректировка.\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}\n\nПромежуточная смета (черновик items):\n${JSON.stringify(parsedItems, null, 0)}\n\n${adv.text}\n\nЗадача:\n1) Удалить дубли/мусорные позиции\n2) Проверить комплектность: если есть работа — добавь необходимые материалы (в рамках справочников и только если уместно по описанию сметы)\n3) Исправить явные несоответствия масштаба количеств (ориентируйся на историю и площадь)\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
+    const stage3Prompt = `Этап 3/3: Самопроверка и корректировка.\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}${sectionsFilter}\n\nПромежуточная смета (черновик items):\n${JSON.stringify(parsedItems, null, 0)}\n\n${adv.text}\n\nЗадача:\n1) Удалить дубли/мусорные позиции\n2) Проверить комплектность: если есть работа — добавь необходимые материалы (в рамках справочников и только если уместно по описанию сметы)\n3) Исправить явные несоответствия масштаба количеств (ориентируйся на историю и площадь)\n4) Не выходить за явно выбранные разделы.\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
 
     console.info('[AI] Stage 3: sending self-check request to model');
-    console.debug('[AI] Stage 3 prompt preview', stage3Prompt.slice(0, 1200));
     const s3 = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
+        ...normativeMessages,
         { role: 'user', content: stage3Prompt },
       ],
       { maxTokens: 2600, temperature: 0.2, signal: req.signal },
@@ -1617,7 +1371,6 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
     const s3Content = String(s3?.choices?.[0]?.message?.content || '');
     console.info('[AI] Stage 3: received response (length:', String((s3Content || '').length) + ')');
-    console.debug('[AI] Stage 3 full response:', s3Content);
     const s3Parsed = parseEstimateResponse(s3Content, EstimateCategory.GENERAL);
     if (Array.isArray(s3Parsed.items) && s3Parsed.items.length > 0) {
       parsedItems = s3Parsed.items;
@@ -1625,6 +1378,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       parsedWarnings.push(...(s3Parsed.warnings || []));
     }
   } catch (e) {
+    if (isAbortError(e) || req.signal?.aborted) throw createAbortError();
     // If multi-stage fails, fall back to the legacy one-shot prompt.
     console.warn('[AI] Multi-stage generation failed, falling back to one-shot', e);
     parsedWarnings.push(`AI: не удалось выполнить многоэтапную генерацию, использую упрощённый режим. Причина: ${String(e)}`);
@@ -1646,58 +1400,44 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         { maxTokens: 4000, temperature: 0.7, signal: req.signal },
       );
       const content = data?.choices?.[0]?.message?.content;
-      console.warn('[AI] Compact one-shot raw response (first 800 chars):', String(content || '').slice(0, 800));
       const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
       parsedItems = parsed.items;
       parsedSuggestions.push(...(parsed.suggestions || []));
       parsedWarnings.push(...(parsed.warnings || []));
       console.info('[AI] Compact one-shot fallback returned', parsedItems.length, 'items');
     } catch (fallbackErr) {
+      if (isAbortError(fallbackErr) || req.signal?.aborted) throw createAbortError();
       console.error('[AI] Compact one-shot fallback also failed', fallbackErr);
       parsedWarnings.push(`AI: упрощённый режим тоже не смог сгенерировать позиции. Причина: ${String(fallbackErr)}`);
     }
   }
 
-  // Fallback 2 (ULTIMATE): if AI still returned 0 items, use deterministic catalog-based generation
+  // Do not disguise an AI failure as a complete estimate by adding the entire catalog.
   if (parsedItems.length === 0) {
-    console.warn('[AI] All AI fallbacks returned 0 items. Using deterministic catalog generation.');
-    parsedWarnings.push('AI: модель не смогла сгенерировать позиции. Смета составлена автоматически из справочника.');
-    const catalogItems = generateItemsFromCatalog({
-      area: req.area,
-      buildingType: req.buildingType || '',
-      materials: req.materials || [],
-      works: req.works || [],
-      selectedSections: req.selectedSections,
-      existingItems: req.existingItems,
-      windowCount: req.windowCount,
-      doorCount: req.doorCount,
-    });
-    // Convert to the same shape as AI-parsed items
-    parsedItems = catalogItems.map(ci => ({
-      name: ci.name,
-      unit: ci.unit,
-      quantity: ci.quantity,
-      price: ci.price,
-      category: ci.category,
-      subgroup: ci.subgroup,
-    }));
-    console.info('[AI] Deterministic catalog fallback produced', parsedItems.length, 'items');
-    parsedSuggestions.push('Смета составлена автоматически на основе справочников материалов и работ. Рекомендуем проверить количества и при необходимости скорректировать.');
+    usedCompactFallback = true;
+    if (req.signal?.aborted) throw createAbortError();
+    parsedWarnings.push('AI не вернул проверяемых позиций. Изменения в смету не внесены; уточните описание или повторите запрос позже.');
   }
 
   // Post-processing: Correct AI quantities (works/delivery=1, windows/doors from wizard, pack areas)
   const aiItems = toEstimateItems(parsedItems);
-  const correctedItems = correctAIQuantities(aiItems, req.area, req.windowCount, req.doorCount);
-  
-  // Deterministic override: recalculate quantities from scratch for pack-area materials
-  const dqoItems = deterministicQuantityOverride(correctedItems, req.area);
+  const scoped = filterItemsToAIProjectScope(aiItems, projectScope);
+  if (scoped.dropped > 0) {
+    parsedWarnings.push(`AI: удалено позиций, противоречащих выбранному составу работ: ${scoped.dropped}.`);
+  }
+  const correctedItems = correctAIQuantities(scoped.items, req.windowCount, req.doorCount);
 
-  // Then apply smart packaging rules and pricing
-  const rawItems = applySmartPackagingRules(dqoItems, req.area);
+  // Apply packaging rules once, then pricing.
+  const rawItems = applySmartPackagingRules(correctedItems, req.area);
   const priced = applyCatalogPricing(rawItems, req.materials, req.works);
+  const pricedScope = filterItemsToAIProjectScope(priced.items, projectScope);
+  const notInDbScope = filterItemsToAIProjectScope(priced.notInDbItems, projectScope);
+  if (pricedScope.dropped > 0) {
+    parsedWarnings.push(`AI: после сверки со справочниками удалено позиций вне состава работ: ${pricedScope.dropped}.`);
+  }
 
   // Final sanity: sanitize quantities with physical bounds
-  const sanitizedItems = sanitizeQuantities(priced.items, req.area);
+  const sanitizedItems = sanitizeQuantities(pricedScope.items, req.area);
 
   // New step: AI-assisted search for missing/zero prices (materials only)
   const aiPriceEnabled = req.enableAiPriceSearch ?? true;
@@ -1711,21 +1451,40 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
 
   const norm = checkNormAnomalies({ area: req.area, items: pricedWithAi.items, materials: req.materials, works: req.works });
   const total = pricedWithAi.items.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+  const unknownPriceItemIds = pricedWithAi.items
+    .filter(item => !Number.isFinite(item.price) || item.price <= 0)
+    .map(item => item.id);
 
   const quality = scoreEstimateQuality(pricedWithAi.items, { graph: adv.graph, historical: adv.patterns });
   const finalWarnings = [...parsedWarnings, ...priced.warnings, ...pricedWithAi.warnings, ...norm.warnings, ...quality.notes];
+  if (unknownPriceItemIds.length > 0) {
+    finalWarnings.push(`Итоговая сумма неполная: у ${unknownPriceItemIds.length} позиций цена не определена. Эти позиции не считаются бесплатными.`);
+  }
 
-  const suggestionsWithNorm = ensureSp31Mention(
-    parsedSuggestions,
-    'Нормативный эталон: СП 31-105-2002 (каркасные одноквартирные дома). При выводах/ограничениях см. п. 1, п. 4.2.1, п. 5.1.3, табл. 5-1 и др. [СП 31-105-2002]',
-  );
+  const suggestionsWithNorm = appliesSp31
+    ? ensureSp31Mention(
+      parsedSuggestions,
+      'Нормативный эталон: СП 31-105-2002 (каркасные одноквартирные дома). При выводах/ограничениях см. п. 1, п. 4.2.1, п. 5.1.3, табл. 5-1 и др. [СП 31-105-2002]',
+    )
+    : parsedSuggestions;
 
   const result: AIEstimateResult = {
+    status: pricedWithAi.items.length === 0
+      ? 'unavailable'
+      : (usedCompactFallback || failedStageBlocks > 0 || unknownPriceItemIds.length > 0 || notInDbScope.items.length > 0)
+        ? 'partial'
+        : 'success',
+    source: 'model',
     items: pricedWithAi.items,
     total,
     suggestions: suggestionsWithNorm,
     warnings: finalWarnings,
-    notInDbItems: priced.notInDbItems.length > 0 ? priced.notInDbItems : undefined,
+    pricing: {
+      status: unknownPriceItemIds.length > 0 ? 'incomplete' : 'complete',
+      unknownItemIds: unknownPriceItemIds,
+    },
+    notInDbItems: notInDbScope.items.length > 0 ? notInDbScope.items : undefined,
+    cacheKey,
   };
 
   // Cache only if quality is above threshold and not marked bad
@@ -1755,11 +1514,19 @@ export async function aiAutocomplete(
 
   const prompt = `Пользователь начал вводить: "${q}"\nКатегория: ${category}\nУже добавленные позиции: ${existingItems.map(i => i.name).join(', ') || 'нет'}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nПредложи 5-10 вариантов завершения. Используй ТОЛЬКО названия из справочников.\nФормат ответа: ТОЛЬКО JSON массива items по схеме из системного промпта.\nprice всегда 0.\nДля quantity используй типичное значение для площади ${area || 'N/A'} м² (если площадь не указана — 1).`;
 
-  const cacheKey = aiCache.generateKey('autocomplete', q, category, area || null);
+  const cacheKey = aiCache.generateKey(
+    'autocomplete',
+    AI_PIPELINE_VERSION,
+    AI_CONFIG.model,
+    q,
+    category,
+    area || null,
+    estimateItemsFingerprint(existingItems || []),
+    catalogFingerprint(materials || [], works || []),
+  );
   const data = await callOpenRouterWithRetry(
     [
       { role: 'system', content: SYSTEM_PROMPT },
-      { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
       { role: 'user', content: prompt },
     ],
     { cacheKey, ttlMs: 10 * 60 * 1000, maxTokens: 1600, temperature: 0.3, signal },
@@ -1935,9 +1702,12 @@ export async function analyzeMissingItems(
 
   const anomalyWarnings = checkNormAnomalies({ area: currentEstimate.area, items: currentEstimate.items || [], materials, works }).warnings;
   const deterministicReasoning: string[] = [];
-  deterministicReasoning.push(
-    'Нормативный эталон для каркасных домов: СП 31-105-2002 (используй при проверке конструктивных ограничений и пояснениях). [СП 31-105-2002]',
-  );
+  const appliesSp31 = /каркас/i.test(currentEstimate.buildingType || '');
+  if (appliesSp31) {
+    deterministicReasoning.push(
+      'Нормативный эталон для каркасных домов: СП 31-105-2002 (используй при проверке конструктивных ограничений и пояснениях). [СП 31-105-2002]',
+    );
+  }
   if (ordered.length) {
     const crit = ordered.filter(x => x.severity === 'critical').map(x => x.name);
     const imp = ordered.filter(x => x.severity === 'important').map(x => x.name);
@@ -1960,7 +1730,18 @@ export async function analyzeMissingItems(
   // AI augmentation (formatting + extra reasoning + quantity check).
   const prompt = `Отвечай строго на русском языке.\n\nТекущая смета может быть ЧАСТИЧНОЙ (например только работы, ремонт крыши и т.п.).\n\nТекущая смета: площадь ${currentEstimate.area} м², тип/объект: ${currentEstimate.buildingType || 'не указан'}\nКатегории, которые нужно анализировать: ${allowed.join(', ') || 'не указаны'}\n\nПозиции в текущей смете:\n${JSON.stringify(curItems)}\n\n${insightsText}\n\nПредварительный анализ (детерминированный):\n- missingCandidates: ${JSON.stringify(deterministicMissingItems.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, category: i.category })))}\n- optionalCandidates: ${JSON.stringify(deterministicOptionalItems.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, category: i.category })))}\n\nСправочник материалов (выжимка):\n${buildMaterialsCatalog(materials)}\n\nСправочник работ (выжимка):\n${buildWorksCatalog(works)}\n\nЗадача:\n1) Сформируй итоговый список КРИТИЧЕСКИ недостающих позиций (missing) ТОЛЬКО в рамках перечисленных категорий\n2) Сформируй итоговый список опциональных позиций (optional) ТОЛЬКО в рамках перечисленных категорий\n3) Проверь явные аномалии количеств (если материалов явно мало/много относительно работ/площади) и отметь в reasoning\n\nПравила:\n- НЕ добавляй позиции из других категорий.\n- Используй ТОЛЬКО названия из справочников.\n- price всегда 0 (цены подтянет приложение).\n\nФормат ответа: строгий JSON:\n{ \"missing\": [item...], \"optional\": [item...], \"reasoning\": [\"...\"] }`;
 
-  const cacheKey = aiCache.generateKey('missing', currentEstimate.area, currentEstimate.buildingType, (currentEstimate.items || []).map(i => i.name).sort());
+  const cacheKey = aiCache.generateKey(
+    'missing',
+    AI_PIPELINE_VERSION,
+    AI_CONFIG.model,
+    currentEstimate.area,
+    currentEstimate.buildingType,
+    currentEstimate.region || null,
+    [...allowed].sort(),
+    estimateItemsFingerprint(currentEstimate.items || []),
+    catalogFingerprint(materials || [], works || []),
+    historyFingerprint(similarEstimates || []),
+  );
 
   // cache only if not marked bad
   const cached = !isCacheKeyBad(cacheKey) ? aiCache.get<any>(cacheKey) : null;
@@ -1969,7 +1750,7 @@ export async function analyzeMissingItems(
     : await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'system', content: NORMATIVE_SYSTEM_PROMPT },
+        ...(appliesSp31 ? [{ role: 'system' as const, content: NORMATIVE_SYSTEM_PROMPT }] : []),
         { role: 'user', content: prompt },
       ],
       { maxTokens: 2500, temperature: 0.2, signal },
@@ -1987,18 +1768,17 @@ export async function analyzeMissingItems(
   if (!obj) {
     const missing = applyCatalogPricing(applySmartPackagingRules(deterministicMissingItems, currentEstimate.area), materials, works).items;
     const optional = applyCatalogPricing(applySmartPackagingRules(deterministicOptionalItems, currentEstimate.area), materials, works).items;
-    const snippet = (normalized || '').slice(0, 1200);
-    return { missing, optional, reasoning: [...deterministicReasoning, `AI не смог вернуть корректный JSON. Ответ: ${snippet}...`] };
+    return { missing, optional, reasoning: [...deterministicReasoning, 'AI не смог вернуть проверяемый структурированный ответ. Использован локальный анализ.'] };
   }
 
   const missingRaw = applySmartPackagingRules(
     toEstimateItemsWithPrefix(Array.isArray(obj?.missing) ? obj.missing : [], 'ai-missing'),
     currentEstimate.area,
-  );
+  ).filter(item => allowed.includes(item.category));
   const optionalRaw = applySmartPackagingRules(
     toEstimateItemsWithPrefix(Array.isArray(obj?.optional) ? obj.optional : [], 'ai-optional'),
     currentEstimate.area,
-  );
+  ).filter(item => allowed.includes(item.category));
   const missingAi = applyCatalogPricing(missingRaw, materials, works).items;
   const optionalAi = applyCatalogPricing(optionalRaw, materials, works).items;
   const reasoningAi = Array.isArray(obj?.reasoning) ? obj.reasoning.map(String) : [];

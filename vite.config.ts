@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
       ...(isElectron ? [] : [
         VitePWA({
           registerType: 'autoUpdate',
-          includeAssets: ['favicon.ico'],
+          includeAssets: ['icon.svg', 'icon.png'],
           manifest: {
             name: 'Каркас Мастер - Генератор смет',
             short_name: 'КаркасМастер',
@@ -30,22 +30,15 @@ export default defineConfig(({ mode }) => {
             background_color: '#0f172a',
             display: 'standalone',
             icons: [
-              { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-              { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+              { src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' },
             ],
           },
           workbox: {
             globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2,ttf}'],
-            runtimeCaching: [
-              {
-                urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
-                handler: 'NetworkFirst',
-                options: {
-                  cacheName: 'supabase-api',
-                  expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 },
-                },
-              },
-            ],
+            // User data is persisted by the versioned IndexedDB cache and
+            // outbox. Caching Supabase responses here can replay stale rows as
+            // if they were a fresh complete server snapshot.
+            runtimeCaching: [],
           },
         }),
       ]),

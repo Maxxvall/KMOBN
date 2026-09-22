@@ -163,4 +163,25 @@ describe('estimate section registry', () => {
 
         expect(tryMergeEstimateSectionsDocuments(local, remote)).toBeNull();
     });
+
+    it('captures the server document before the first local mutation', () => {
+        const id = 'custom:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' as CustomSectionId;
+        const server = {
+            ...addUserEstimateSection(createEstimateSectionsDocument('user-1'), 'Исходное имя', new Date(), id),
+            serverRevision: 3,
+            baseDocument: undefined,
+            operationId: undefined,
+        };
+
+        const local = renameUserEstimateSection(server, id, 'Локальное имя');
+        const concurrentRemote = {
+            ...renameUserEstimateSection(server, id, 'Удалённое имя'),
+            serverRevision: 4,
+            baseDocument: undefined,
+            operationId: undefined,
+        };
+
+        expect(local.baseDocument?.definitions[0].label).toBe('Исходное имя');
+        expect(tryMergeEstimateSectionsDocuments(local, concurrentRemote)).toBeNull();
+    });
 });
