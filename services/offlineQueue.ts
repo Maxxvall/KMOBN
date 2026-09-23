@@ -22,6 +22,9 @@ export interface PendingChange {
   failureKind?: 'transient' | 'permanent';
 }
 
+export const isWorkspacePendingChange = (change: PendingChange): boolean =>
+  change.table !== 'salary_calculations';
+
 const QUEUE_DB_NAME = 'kmobn_offline_queue';
 const QUEUE_DB_VERSION = 4;
 const STORE_NAME = 'pending_changes';
@@ -425,6 +428,10 @@ export const offlineQueue = {
 
   async count(userId: string): Promise<number> {
     return (await offlineQueue.getAll(userId)).length;
+  },
+
+  async countWorkspacePending(userId: string): Promise<number> {
+    return (await offlineQueue.getAll(userId)).filter(isWorkspacePendingChange).length;
   },
 
   async getQuarantinedCount(): Promise<number> {

@@ -1,5 +1,5 @@
 import type { CacheTableKey } from './indexedDbCache';
-import { offlineQueue, type PendingChange } from './offlineQueue';
+import { isWorkspacePendingChange, offlineQueue, type PendingChange } from './offlineQueue';
 import { deleteOfflineRecord, saveOfflineRecord } from './supabase';
 import { fetchEstimateSections, saveEstimateSectionsRemote } from './supabase';
 import { upsertCachedRecords } from './indexedDbCache';
@@ -151,7 +151,7 @@ const inFlightByUser = new Map<string, Promise<OfflineSyncResult>>();
 const runQueue = async (userId: string, executeChange: ExecutePendingChange): Promise<OfflineSyncResult> => {
   let syncedCount = 0;
   const syncedTables = new Set<CacheTableKey>();
-  const changes = await offlineQueue.getAll(userId);
+  const changes = (await offlineQueue.getAll(userId)).filter(isWorkspacePendingChange);
 
   for (const change of changes) {
     if (change.failureKind === 'permanent') continue;
@@ -228,7 +228,7 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
   return {
     syncedCount,
     syncedTables: [...syncedTables],
-    pendingCount: await offlineQueue.count(userId),
+    pendingCount: await offlineQueue.countWorkspacePending(userId),
   };
 };
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getOfflineCoverage, type CacheTableKey } from '../services/indexedDbCache';
-import { offlineQueue, type PendingChange } from '../services/offlineQueue';
+import { isWorkspacePendingChange, offlineQueue, type PendingChange } from '../services/offlineQueue';
 import { processOfflineQueue } from '../services/offlineSync';
 import { prepareOfflineWorkspace } from '../services/offlineWorkspace';
 import { healthMonitor, type ServiceStatus } from '../services/healthMonitor';
@@ -63,7 +63,7 @@ export const useOfflineSync = (userId: string | null) => {
         offlineQueue.getQuarantinedCount(),
         offlineQueue.getClaimableQuarantinedCount(),
       ]);
-      setPendingChanges(pending);
+      setPendingChanges(pending.filter(isWorkspacePendingChange));
       setLegacyPendingCount(claimableQuarantined);
       setQuarantinedErrorCount(totalQuarantined - claimableQuarantined);
     } catch (error) {

@@ -16,7 +16,7 @@ type Dependencies = {
   processQueue: typeof processOfflineQueue;
   refreshWorkspace: typeof refreshOfflineWorkspace;
   readCoverage: typeof getOfflineCoverage;
-  countPending: typeof offlineQueue.count;
+  countPending: typeof offlineQueue.countWorkspacePending;
   onPhase?: (phase: 'syncing' | 'downloading') => void;
 };
 
@@ -24,7 +24,7 @@ const defaultDependencies: Dependencies = {
   processQueue: processOfflineQueue,
   refreshWorkspace: refreshOfflineWorkspace,
   readCoverage: getOfflineCoverage,
-  countPending: offlineQueue.count,
+  countPending: offlineQueue.countWorkspacePending,
 };
 
 /**
