@@ -308,6 +308,4 @@ export const canUseAi = (usage: SubscriptionUsage, limits: SubscriptionLimits): 
 
 export const canUseAnalytics = (limits: SubscriptionLimits): boolean => limits.features.analytics;
 
-export const canUseSalaryCalculator = (limits: SubscriptionLimits): boolean => limits.features.salaryCalculator;
-
 export const canUseWiki = (limits: SubscriptionLimits): boolean => limits.features.wiki;

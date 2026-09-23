@@ -63,7 +63,6 @@ const PRIMARY_DESKTOP_NAV_ITEMS = [
 
 const DRAWER_NAV_ITEMS = [
     { view: View.HOUSE_CALCULATOR, label: 'Расчёт дома', icon: 'house' },
-    { view: View.SALARY_CALCULATOR, label: 'Зарплаты', icon: 'tag' },
     { view: View.BUNDLES, label: 'Комплекты', icon: 'briefcase-business' },
     { view: View.ANALYTICS, label: 'Аналитика', icon: 'more-horizontal' },
     { view: View.CUTTING, label: 'Раскрой', icon: 'layers' },

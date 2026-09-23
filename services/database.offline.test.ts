@@ -7,7 +7,6 @@ import {
   type Estimate,
   type Material,
   type ProjectTemplate,
-  type SalaryCalculation,
   type Work,
   type WorkBundle,
   type EstimateSectionsDocument,
@@ -21,7 +20,6 @@ import {
   deleteEstimatesByNumber,
   deleteMaterial,
   deleteWork,
-  loadAllSalaryCalculations,
   loadBundles,
   loadEstimates,
   loadMaterials,
@@ -29,7 +27,6 @@ import {
   loadWorks,
   loadEstimateSections,
   saveEstimates,
-  saveSalaryCalculation,
   updateBundle,
   updateMaterial,
   updateWork,
@@ -277,33 +274,6 @@ describe('database offline behavior', () => {
         data: template,
       }),
     ]);
-  });
-
-  it('keeps two salary calculations saved one after another', async () => {
-    const first: SalaryCalculation = {
-      id: 'salary-1',
-      estimateId: 'estimate-1',
-      estimateNumber: 'KM-2026-001',
-      workers: [],
-      workAllocations: [],
-      createdDate: '2026-07-13',
-    };
-    const second: SalaryCalculation = {
-      id: 'salary-2',
-      estimateId: 'estimate-2',
-      estimateNumber: 'KM-2026-002',
-      workers: [],
-      workAllocations: [],
-      createdDate: '2026-07-13',
-    };
-
-    await saveSalaryCalculation(first);
-    await saveSalaryCalculation(second);
-
-    expect(await loadAllSalaryCalculations()).toEqual([first, second]);
-    expect(
-      (await offlineQueue.getForTable(USER_A, 'salary_calculations')).map(change => change.recordId),
-    ).toEqual([first.id, second.id]);
   });
 
   it('coalesces material create, update, and delete into one tombstone', async () => {

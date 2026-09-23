@@ -6,7 +6,6 @@ export const OFFLINE_TABLES = [
   'materials',
   'works',
   'bundles',
-  'salary_calculations',
   'estimate_sections',
 ] as const;
 
@@ -93,7 +92,6 @@ export const startMockSupabaseServer = async (port = 54329) => {
   rows.materials.push({ id: 'seed-material', user_id: USER_ID, payload: { id: 'seed-material', name: 'Материал E2E', price: 100, lastUpdated: '2026-07-13T00:00:00.000Z', category: 'ФУНДАМЕНТ' } });
   rows.works.push({ id: 'seed-work', user_id: USER_ID, payload: { id: 'seed-work', name: 'Работа E2E', price: 200, category: 'ФУНДАМЕНТ' } });
   rows.bundles.push({ id: 'seed-bundle', user_id: USER_ID, payload: { id: 'seed-bundle', name: 'Комплект E2E', items: [], category: 'ФУНДАМЕНТ' } });
-  rows.salary_calculations.push({ id: 'seed-salary', user_id: USER_ID, payload: { id: 'seed-salary', estimateId: 'seed-estimate', estimateNumber: 'KM-E2E-001', workers: [], workAllocations: [], createdDate: '2026-07-13' } });
   rows.estimate_sections.push({
     id: USER_ID,
     user_id: USER_ID,

@@ -44,7 +44,6 @@ export const OFFLINE_TABLES: readonly CacheTableKey[] = [
   'materials',
   'works',
   'bundles',
-  'salary_calculations',
   'estimate_sections',
 ];
 

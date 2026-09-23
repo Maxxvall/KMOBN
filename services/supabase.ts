@@ -248,9 +248,6 @@ export const fetchWorks = async (userId: string, options?: FetchTableOptions) =>
 export const upsertBundles = async (bundles: any[], userId: string) => upsertTable('bundles', bundles, userId);
 export const fetchBundles = async (userId: string, options?: FetchTableOptions) => fetchTable('bundles', userId, options);
 
-export const upsertSalaryCalculations = async (calculations: any[], userId: string) => upsertTable('salary_calculations', calculations, userId);
-export const fetchSalaryCalculations = async (userId: string, options?: FetchTableOptions) => fetchTable('salary_calculations', userId, options);
-
 export const upsertEstimateSections = async (documents: any[], userId: string) => upsertTable('estimate_sections', documents, userId);
 export const fetchEstimateSections = async (userId: string, options?: FetchTableOptions) => fetchTable('estimate_sections', userId, options);
 

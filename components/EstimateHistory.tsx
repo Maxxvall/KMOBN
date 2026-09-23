@@ -393,10 +393,6 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     lines.push(`Комплекты: ${parts.join(', ')}`);
                 }
 
-                if (result.salaryCalculations.added > 0) {
-                    lines.push(`Расчёт з/п: ${result.salaryCalculations.added} новых`);
-                }
-
                 alert(lines.length > 0
                     ? `Импорт завершён:\n\n${lines.join('\n')}`
                     : 'Данные импортированы, новых записей нет.');

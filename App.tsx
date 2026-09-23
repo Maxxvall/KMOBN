@@ -60,7 +60,6 @@ const EstimateEditor = lazy(() => import('./components/EstimateEditor'));
 const Prices = lazy(() => import('./components/Prices'));
 const Works = lazy(() => import('./components/Works'));
 const Bundles = lazy(() => import('./components/Bundles'));
-const SalaryCalculator = lazy(() => import('./components/SalaryCalculator'));
 const HouseCalculator = lazy(() => import('./components/HouseCalculator'));
 const Analytics = lazy(() => import('./components/Analytics'));
 const Cutting = lazy(() => import('./components/Cutting'));
@@ -1057,7 +1056,7 @@ const App: React.FC = () => {
                 void loadHistoryData(true);
             }
         }
-        if (view === View.ANALYTICS || view === View.SALARY_CALCULATOR) {
+        if (view === View.ANALYTICS) {
             if (!loadedFlags.estimates || !loadedFlags.templates || historyChanged) {
                 void loadHistoryData(false);
             }
@@ -2212,11 +2211,6 @@ const App: React.FC = () => {
                         )}
                         {view === View.SUBSCRIPTIONS && (
                             <Subscriptions />
-                        )}
-                        {view === View.SALARY_CALCULATOR && (
-                            <SalaryCalculator
-                                estimates={visibleSubscriptionData.estimates}
-                            />
                         )}
                         {view === View.HOUSE_CALCULATOR && (
                             <HouseCalculator

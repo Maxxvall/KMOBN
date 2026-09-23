@@ -9,7 +9,6 @@ export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, SubscriptionLimits> =
         aiRequestsPerDay: null,
         features: {
             analytics: true,
-            salaryCalculator: true,
             wiki: true,
         },
     },
@@ -21,7 +20,6 @@ export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, SubscriptionLimits> =
         aiRequestsPerDay: null,
         features: {
             analytics: true,
-            salaryCalculator: true,
             wiki: true,
         },
     },
@@ -33,7 +31,6 @@ export const SUBSCRIPTION_LIMITS: Record<SubscriptionTier, SubscriptionLimits> =
         aiRequestsPerDay: null,
         features: {
             analytics: true,
-            salaryCalculator: true,
             wiki: true,
         },
     },

@@ -24,7 +24,6 @@ vi.mock('./supabase', () => ({
   fetchMaterials: vi.fn(),
   fetchWorks: vi.fn(),
   fetchBundles: vi.fn(),
-  fetchSalaryCalculations: vi.fn(),
   fetchEstimateSections: vi.fn(),
   saveEstimateSectionsRemote: remote.saveSections,
   saveOfflineRecord: remote.saveRecord,

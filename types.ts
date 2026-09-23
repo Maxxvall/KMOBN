@@ -178,18 +178,17 @@ export enum EstimateStatus {
 export const ESTIMATE_EXPLANATION_MAX_LENGTH = 1200;
 
 export enum View {
-    HISTORY,
-    EDITOR,
-    PRICES,
-    WORKS,
-    BUNDLES,
-    SALARY_CALCULATOR,
-    HOUSE_CALCULATOR,
-    ANALYTICS,
-    SUBSCRIPTIONS,
-    CUTTING,
-    WIKI,
-    SECTIONS,
+    HISTORY = 0,
+    EDITOR = 1,
+    PRICES = 2,
+    WORKS = 3,
+    BUNDLES = 4,
+    HOUSE_CALCULATOR = 6,
+    ANALYTICS = 7,
+    SUBSCRIPTIONS = 8,
+    CUTTING = 9,
+    WIKI = 10,
+    SECTIONS = 11,
 }
 
 export type SubscriptionTier = 'free' | 'basic' | 'premium';
@@ -198,7 +197,6 @@ export type SubscriptionStatus = 'active' | 'expired' | 'cancelled';
 
 export type SubscriptionFeatures = {
     analytics: boolean;
-    salaryCalculator: boolean;
     wiki: boolean;
 };
 
@@ -350,35 +348,6 @@ export interface GenerationParams {
     area: number;
     projectTemplateId: string;
     region: string;
-}
-
-// Salary Calculator Types
-export type SalaryMode = 'percent' | 'rate';
-
-export interface Worker {
-    id: string;
-    name: string;
-    ratePerHour?: number;
-    ratePerDay?: number;
-    rateType?: 'hour' | 'day';
-}
-
-export interface WorkAllocation {
-    workItemId: string;
-    workItemName: string;
-    workItemTotal: number;
-    allocations: { [workerId: string]: number };
-    hours?: { [workerId: string]: number };
-}
-
-export interface SalaryCalculation {
-    id: string;
-    estimateId: string;
-    estimateNumber: string;
-    workers: Worker[];
-    workAllocations: WorkAllocation[];
-    createdDate: string;
-    mode?: SalaryMode;
 }
 
 export const normalizeKey = (s: unknown): string => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');

@@ -45,6 +45,25 @@ const notifyListeners = (): void => {
   listeners.forEach(listener => listener());
 };
 
+const formatErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (!error || typeof error !== 'object') return String(error);
+
+  const value = error as Record<string, unknown>;
+  const parts = ['message', 'details', 'hint']
+    .map(key => value[key])
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+  if (typeof value.code === 'string' && value.code.trim()) parts.push(`code: ${value.code}`);
+  if (parts.length > 0) return parts.join(' — ');
+
+  try {
+    return JSON.stringify(error) || 'Неизвестная ошибка';
+  } catch {
+    return 'Неизвестная ошибка';
+  }
+};
+
 const nextSequence = (): number => {
   const fromClock = Date.now() * 1000;
   lastSequence = Math.max(fromClock, lastSequence + 1);
@@ -351,7 +370,7 @@ export const offlineQueue = {
       store.put({
         ...current,
         retryCount,
-        lastError: error instanceof Error ? error.message : String(error),
+        lastError: formatErrorMessage(error),
         lastAttemptAt: now.toISOString(),
         nextRetryAt: retryable ? new Date(now.getTime() + retryDelayMs).toISOString() : undefined,
         failureKind: retryable ? 'transient' : 'permanent',

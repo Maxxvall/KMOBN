@@ -1,4 +1,4 @@
-import { Estimate, EstimateStatus, ProjectTemplate, Material, Work, WorkBundle, SalaryCalculation, normalizeKey, EstimateSectionsDocument } from '../types';
+import { Estimate, EstimateStatus, ProjectTemplate, Material, Work, WorkBundle, normalizeKey, EstimateSectionsDocument } from '../types';
 import { generateEstimateNumber } from './estimateNumber';
 import {
   CacheTableKey,
@@ -23,7 +23,6 @@ import supabase, {
   fetchMaterials,
   fetchWorks,
   fetchBundles,
-  fetchSalaryCalculations,
   fetchEstimateSections,
 } from './supabase';
 
@@ -169,13 +168,12 @@ type TableFetcher = (
   options?: LoadTableOptions,
 ) => Promise<{ data: unknown[] | null; error: unknown }>;
 
-const OFFLINE_TABLE_FETCHERS: Record<CacheTableKey, TableFetcher> = {
+const OFFLINE_TABLE_FETCHERS: Partial<Record<CacheTableKey, TableFetcher>> = {
   estimates: fetchEstimates,
   templates: fetchTemplates,
   materials: fetchMaterials,
   works: fetchWorks,
   bundles: fetchBundles,
-  salary_calculations: fetchSalaryCalculations,
   estimate_sections: fetchEstimateSections,
 };
 
@@ -211,7 +209,9 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
     }
     const refreshGeneration = getMutationGeneration(refreshKey);
     try {
-      const { data, error } = await OFFLINE_TABLE_FETCHERS[table](userId);
+      const fetcher = OFFLINE_TABLE_FETCHERS[table];
+      if (!fetcher) continue;
+      const { data, error } = await fetcher(userId);
       if (error) throw error;
       const records = normalizeStableOrder((data ?? []) as Array<{ id: string }>);
       const applied = await withTableMutationLock(refreshKey, async (): Promise<boolean> => {
@@ -567,39 +567,12 @@ export const deleteBundles = async (bundleIds: string[]): Promise<void> => {
   await deleteRecords('bundles', bundleIds);
 };
 
-export const saveSalaryCalculation = async (calculation: SalaryCalculation): Promise<void> => {
-  await saveLocalRecords('salary_calculations', [calculation]);
-};
-
 export const loadEstimateSections = async (options?: LoadTableOptions): Promise<EstimateSectionsDocument[]> => (
   readTableCached<EstimateSectionsDocument>('estimate_sections', fetchEstimateSections, options)
 );
 
 export const saveEstimateSections = async (document: EstimateSectionsDocument): Promise<void> => {
   await saveLocalRecords('estimate_sections', [prepareEstimateSectionsDocumentForSave(document)]);
-};
-
-export const loadSalaryCalculationByEstimateId = async (estimateId: string): Promise<SalaryCalculation | undefined> => {
-  // Try to find in local cache first for fast path
-  const cacheUserId = requireWorkspaceUserId();
-  const cached = applyPendingChanges(
-    await getCachedRecords<SalaryCalculation>('salary_calculations', cacheUserId),
-    await offlineQueue.getForTable(cacheUserId, 'salary_calculations'),
-  );
-  const fromCache = cached.find(calc => calc.estimateId === estimateId);
-  if (fromCache) return fromCache;
-
-  // Fallback: load all and filter (server-side filter would require payload JSON query)
-  const calculations = await readTableCached<SalaryCalculation>('salary_calculations', fetchSalaryCalculations);
-  return calculations.find(calc => calc.estimateId === estimateId);
-};
-
-export const loadAllSalaryCalculations = async (): Promise<SalaryCalculation[]> => {
-  return readTableCached<SalaryCalculation>('salary_calculations', fetchSalaryCalculations);
-};
-
-export const deleteSalaryCalculation = async (calculationId: string): Promise<void> => {
-  await deleteRecord('salary_calculations', calculationId);
 };
 
 export const SCHEMA_VERSION = 3;
@@ -737,13 +710,12 @@ export const mergeImportedEstimate = (incoming: Estimate, existing?: Estimate): 
 };
 
 export const exportData = async (): Promise<string> => {
-  const [estimates, templates, materials, works, bundles, salaryCalculations, estimateSections] = await Promise.all([
+  const [estimates, templates, materials, works, bundles, estimateSections] = await Promise.all([
     loadEstimates(),
     loadTemplates(),
     loadMaterials(),
     loadWorks(),
     loadBundles(),
-    loadAllSalaryCalculations(),
     loadEstimateSections(),
   ]);
 
@@ -754,7 +726,6 @@ export const exportData = async (): Promise<string> => {
     materials,
     works,
     bundles,
-    salaryCalculations,
     estimateSections: estimateSections[0] ?? null,
     exportedAt: new Date().toISOString(),
   };
@@ -806,7 +777,6 @@ export interface ImportResult {
   materials: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
   works: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
   bundles: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
-  salaryCalculations: { added: number };
 }
 
 export const importData = async (jsonData: string): Promise<ImportResult> => {
@@ -913,7 +883,6 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       existingBundleByName.set(normalizeKey(b.name), b);
     }
     const rawBundles = asArray<WorkBundle>(data.bundles);
-    const rawSalaryCalculations = asArray<SalaryCalculation>(data.salaryCalculations);
     const rawEstimateSections = isObject(data.estimateSections)
       ? data.estimateSections as unknown as EstimateSectionsDocument
       : null;
@@ -1055,18 +1024,6 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     const dedupBundlesResult = dedupById(bundles);
     const dedupBundles = dedupBundlesResult.result;
 
-    let salaryAdded = 0;
-    const salaryCalculations = rawSalaryCalculations.map(s => {
-      const newEstimateId = estimateIdMap.get(s.estimateId);
-      const estimateId = newEstimateId ?? s.estimateId;
-      salaryAdded++;
-      return {
-        ...s,
-        estimateId,
-        id: newEstimateId ? `salary-${estimateId}` : generateId('salary'),
-      };
-    });
-
     const importTable = async <T extends { id: string }>(
       tableName: CacheTableKey,
       records: T[],
@@ -1095,7 +1052,6 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       importTable('materials', dedupMaterials),
       importTable('works', dedupWorks),
       importTable('bundles', dedupBundles),
-      importTable('salary_calculations', salaryCalculations),
     ]);
 
     const importResult: ImportResult = {
@@ -1104,7 +1060,6 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       materials: { added: materialsAdded, updated: materialsUpdated, unchanged: materialsUnchanged, inFileDuplicates: dedupMaterialsResult.removedCount },
       works: { added: worksAdded, updated: worksUpdated, unchanged: worksUnchanged, inFileDuplicates: dedupWorksResult.removedCount },
       bundles: { added: bundlesAdded, updated: bundlesUpdated, unchanged: bundlesUnchanged, inFileDuplicates: dedupBundlesResult.removedCount },
-      salaryCalculations: { added: salaryAdded },
     };
 
     window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
