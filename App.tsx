@@ -5,6 +5,7 @@ import { BoardSpec, Estimate, View, EstimateStatus, ProjectTemplate, Material, W
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import StatusIndicators from './components/StatusIndicators';
+import OfflineChangesModal from './components/OfflineChangesModal';
 import PdfStyleModal from './components/PdfStyleModal';
 import ContractNameModal from './components/ContractNameModal';
 import ScrollToTop from './components/ScrollToTop';
@@ -343,6 +344,7 @@ const App: React.FC = () => {
     const [wikiLoaded, setWikiLoaded] = useState(false);
     const [dataHashes, setDataHashes] = useState<Record<string, string>>({});
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+    const [isOfflineChangesOpen, setIsOfflineChangesOpen] = useState(false);
     const [appUpdateInfo, setAppUpdateInfo] = useState<{ version: string } | null>(null);
     const [appUpdateDownloaded, setAppUpdateDownloaded] = useState(false);
     const [appUpdateProgress, setAppUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; transferred: number; total: number } | null>(null);
@@ -1340,6 +1342,26 @@ const App: React.FC = () => {
         setSync,
     });
 
+    const handleEditPendingEstimate = useCallback((estimateId: string) => {
+        const estimate = estimates.find(item => item.id === estimateId);
+        if (!estimate) return;
+        handleEdit(estimate);
+        setIsOfflineChangesOpen(false);
+    }, [estimates, handleEdit]);
+
+    const handleOpenPendingTable = useCallback((table: CacheTableKey) => {
+        const viewByTable: Partial<Record<CacheTableKey, View>> = {
+            materials: View.PRICES,
+            works: View.WORKS,
+            bundles: View.BUNDLES,
+            estimate_sections: View.SECTIONS,
+        };
+        const target = viewByTable[table];
+        if (target == null) return;
+        handleNavigationAttempt(target);
+        setIsOfflineChangesOpen(false);
+    }, [handleNavigationAttempt]);
+
     const handleDraftChange = useCallback((draft: Estimate) => {
         setEditorDraft({ ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) });
     }, [sectionsDocument, setEditorDraft]);
@@ -2155,6 +2177,7 @@ const App: React.FC = () => {
                         retryAt={offlineSync.retryAt}
                         syncError={syncErrorMessage}
                         onSync={offlineSync.syncNow}
+                        onPendingChangesClick={() => setIsOfflineChangesOpen(true)}
                     />
                 )}
             />
@@ -2186,6 +2209,7 @@ const App: React.FC = () => {
                     retryAt={offlineSync.retryAt}
                     syncError={syncErrorMessage}
                     onSync={offlineSync.syncNow}
+                    onPendingChangesClick={() => setIsOfflineChangesOpen(true)}
                 />
             </div>
             <main className="p-2 sm:p-4 md:p-6 max-w-8xl mx-auto pb-24 lg:pb-6">
@@ -2351,6 +2375,15 @@ const App: React.FC = () => {
                 updateAvailableVersion={appUpdateInfo?.version ?? null}
                 updateDownloadedVersion={appUpdateDownloaded ? appUpdateInfo?.version ?? null : null}
                 updateProgress={appUpdateProgress}
+            />
+            <OfflineChangesModal
+                isOpen={isOfflineChangesOpen}
+                isOnline={offlineSync.isOnline}
+                changes={offlineSync.pendingChanges}
+                onClose={() => setIsOfflineChangesOpen(false)}
+                onSync={offlineSync.syncNow}
+                onEditEstimate={handleEditPendingEstimate}
+                onOpenTable={handleOpenPendingTable}
             />
             {passwordRecoveryModal}
             <SyncToast

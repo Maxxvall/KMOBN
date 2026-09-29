@@ -233,6 +233,31 @@ export const fetchTable = async (table: string, userId?: string, options?: Fetch
   return { data: parsed, error: null };
 };
 
+const OFFLINE_RECORD_TABLES = new Set([
+  'estimates',
+  'templates',
+  'materials',
+  'works',
+  'bundles',
+  'estimate_sections',
+]);
+
+/** Reads one current server row only when the user explicitly asks to compare a queued change. */
+export const fetchOfflineRecord = async (table: string, recordId: string, userId: string) => {
+  if (!supabase) return { data: null, error: new Error('Supabase not configured') };
+  if (!userId) return { data: null, error: new Error('User is not authenticated') };
+  if (!OFFLINE_RECORD_TABLES.has(table)) return { data: null, error: new Error('Unsupported offline table') };
+
+  const { data, error } = await supabase
+    .from(table)
+    .select('*')
+    .eq('user_id', userId)
+    .eq('id', recordId)
+    .maybeSingle();
+  if (error || !data) return { data: null, error };
+  return { data: normalizeFetchedRows([data as Record<string, unknown>])[0] ?? null, error: null };
+};
+
 export const upsertEstimates = async (estimates: any[], userId: string) => upsertTable('estimates', estimates, userId);
 export const fetchEstimates = async (userId: string, options?: FetchTableOptions) => fetchTable('estimates', userId, options);
 

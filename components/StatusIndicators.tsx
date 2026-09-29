@@ -14,6 +14,7 @@ type Props = {
   retryAt: string | null;
   syncError: string | null;
   onSync?: () => void;
+  onPendingChangesClick?: () => void;
   compact?: boolean;
 };
 
@@ -38,6 +39,7 @@ const StatusIndicators: React.FC<Props> = ({
   retryAt,
   syncError,
   onSync,
+  onPendingChangesClick,
   compact = false,
 }) => {
   const lastPreparedTime = formatTime(lastPreparedAt);
@@ -67,16 +69,29 @@ const StatusIndicators: React.FC<Props> = ({
 
   if (compact) {
     return (
-      <button
-        type="button"
-        data-testid="offline-readiness"
-        onClick={canRetry ? onSync : undefined}
-        disabled={!canRetry || syncStatus === 'syncing'}
-        className={`min-h-9 max-w-[156px] truncate rounded-md border px-2 text-[11px] font-semibold transition ${statusStyle} disabled:cursor-default disabled:opacity-90`}
-        title={syncError ?? (canRetry ? 'Повторить синхронизацию и подготовку offline-данных' : statusText)}
-      >
-        {statusText}{pendingCount > 0 ? ` · ${pendingCount}` : ''}
-      </button>
+      <div className="flex items-center gap-1">
+        {pendingCount > 0 && onPendingChangesClick && (
+          <button
+            type="button"
+            data-testid="sync-pending-count"
+            onClick={onPendingChangesClick}
+            className="min-h-9 whitespace-nowrap rounded-md border border-amber-500/40 bg-amber-500/10 px-2 text-[11px] font-semibold text-amber-200 hover:bg-amber-500/20"
+            title="Посмотреть локальные изменения"
+          >
+            Локально {pendingCount}
+          </button>
+        )}
+        <button
+          type="button"
+          data-testid="offline-readiness"
+          onClick={canRetry ? onSync : undefined}
+          disabled={!canRetry || syncStatus === 'syncing'}
+          className={`min-h-9 max-w-[112px] truncate rounded-md border px-2 text-[11px] font-semibold transition ${statusStyle} disabled:cursor-default disabled:opacity-90`}
+          title={syncError ?? (canRetry ? 'Повторить синхронизацию и подготовку offline-данных' : statusText)}
+        >
+          {statusText}
+        </button>
+      </div>
     );
   }
 
@@ -87,9 +102,13 @@ const StatusIndicators: React.FC<Props> = ({
         <div className={`h-2.5 w-2.5 rounded-full ${dot(isSupabaseConnected)}`} title={isSupabaseConnected ? 'База доступна' : 'База недоступна'} />
         <div className={`h-2.5 w-2.5 rounded-full ${dot(isGoogleAuthOk)}`} title={isGoogleAuthOk ? 'Авторизация активна' : 'Нет подтверждённой online-сессии'} />
         {pendingCount > 0 && (
-          <span data-testid="sync-pending-count" className="text-[11px] text-amber-300">
-            Локально: {pendingCount}
-          </span>
+          onPendingChangesClick ? (
+            <button type="button" data-testid="sync-pending-count" onClick={onPendingChangesClick} className="text-[11px] text-amber-300 underline decoration-amber-300/40 underline-offset-2 hover:text-amber-200" title="Посмотреть локальные изменения">
+              Локально: {pendingCount}
+            </button>
+          ) : (
+            <span data-testid="sync-pending-count" className="text-[11px] text-amber-300">Локально: {pendingCount}</span>
+          )
         )}
       </div>
       <button

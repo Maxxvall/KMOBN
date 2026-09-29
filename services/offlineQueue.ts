@@ -354,6 +354,63 @@ export const offlineQueue = {
     return shouldDelete;
   },
 
+  async rebaseAfterReview(
+    id: string,
+    sequence: number,
+    operationId: string | undefined,
+    serverRecord: Record<string, unknown> | null,
+  ): Promise<PendingChange | null> {
+    const db = await openQueueDb();
+    const tx = db.transaction(STORE_NAME, 'readwrite');
+    const store = tx.objectStore(STORE_NAME);
+    const current = await requestToPromise(store.get(id)) as PendingChange | undefined;
+    if (!isSameSnapshot(current, sequence, operationId)) {
+      await waitForTransaction(tx);
+      return null;
+    }
+
+    const serverRevision = Number(serverRecord?.serverRevision ?? 0);
+    if (!Number.isInteger(serverRevision) || serverRevision < 0) {
+      tx.abort();
+      throw new Error('Не удалось определить ревизию серверной записи.');
+    }
+
+    let data = current.data;
+    if (current.operation === 'upsert' && data && typeof data === 'object') {
+      const nextData: Record<string, unknown> = {
+        ...(data as Record<string, unknown>),
+        serverRevision,
+      };
+      if (current.table === 'estimate_sections' && serverRecord) {
+        nextData.baseDocument = {
+          definitions: serverRecord.definitions,
+          order: serverRecord.order,
+          serverRevision,
+        };
+        nextData.syncConflict = undefined;
+      }
+      data = nextData;
+    }
+
+    const rebased: PendingChange = {
+      ...current,
+      data,
+      baseRevision: current.operation === 'delete' ? serverRevision : current.baseRevision,
+      sequence: nextSequence(),
+      operationId: createOperationId(),
+      timestamp: new Date().toISOString(),
+      retryCount: 0,
+      lastError: undefined,
+      lastAttemptAt: undefined,
+      nextRetryAt: undefined,
+      failureKind: undefined,
+    };
+    store.put(rebased);
+    await waitForTransaction(tx);
+    notifyListeners();
+    return rebased;
+  },
+
   async markFailed(
     id: string,
     sequence: number,

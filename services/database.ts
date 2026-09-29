@@ -10,7 +10,7 @@ import {
   syncCachedRecords,
   upsertCachedRecords,
 } from './indexedDbCache';
-import { offlineQueue } from './offlineQueue';
+import { offlineQueue, type PendingChange } from './offlineQueue';
 import { hashData } from './hashing';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
@@ -24,6 +24,7 @@ import supabase, {
   fetchWorks,
   fetchBundles,
   fetchEstimateSections,
+  fetchOfflineRecord,
 } from './supabase';
 
 const ensureSupabase = () => {
@@ -236,6 +237,62 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
   }
 
   return result;
+};
+
+export const fetchPendingChangeServerRecord = async (change: PendingChange): Promise<Record<string, unknown> | null> => {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    throw new Error('Для сравнения с сервером нужно подключение к интернету.');
+  }
+  const { data, error } = await fetchOfflineRecord(change.table, change.recordId, change.userId);
+  if (error) throw error;
+  return data as Record<string, unknown> | null;
+};
+
+export const acceptServerVersionForPendingChange = async (
+  change: PendingChange,
+  serverRecord: Record<string, unknown> | null,
+): Promise<void> => {
+  const refreshKey = getRefreshKey(change.table, change.userId);
+  await withTableMutationLock(refreshKey, async () => {
+    bumpMutationGeneration(refreshKey);
+    const acknowledged = await offlineQueue.acknowledge(change.id, change.sequence, change.operationId);
+    if (!acknowledged) throw new Error('Локальная запись уже изменилась. Обновите список и сравните её заново.');
+
+    const cacheUserId = getCacheUserId(change.userId);
+    if (serverRecord) {
+      await upsertCachedRecords(change.table, cacheUserId, [serverRecord as { id: string }]);
+    } else {
+      await deleteCachedRecords(change.table, cacheUserId, [change.recordId]);
+    }
+
+    const cached = await getCachedRecords<{ id: string }>(change.table, cacheUserId);
+    const next = normalizeStableOrder(
+      cached.filter(record => record.id !== change.recordId).concat(serverRecord ? [serverRecord as { id: string }] : []),
+    );
+    dispatchCacheUpdate(change.table, next);
+  });
+};
+
+export const prepareLocalVersionForPendingChange = async (
+  change: PendingChange,
+  serverRecord: Record<string, unknown> | null,
+): Promise<void> => {
+  const refreshKey = getRefreshKey(change.table, change.userId);
+  await withTableMutationLock(refreshKey, async () => {
+    bumpMutationGeneration(refreshKey);
+    const rebased = await offlineQueue.rebaseAfterReview(
+      change.id,
+      change.sequence,
+      change.operationId,
+      serverRecord,
+    );
+    if (!rebased) throw new Error('Локальная запись уже изменилась. Обновите список и сравните её заново.');
+    if (rebased.operation !== 'upsert' || !rebased.data || typeof rebased.data !== 'object') return;
+
+    await upsertCachedRecords(change.table, getCacheUserId(change.userId), [rebased.data as { id: string }]);
+    const cached = await getCachedRecords<{ id: string }>(change.table, getCacheUserId(change.userId));
+    dispatchCacheUpdate(change.table, normalizeStableOrder(cached));
+  });
 };
 
 const refreshCacheInBackground = async <T extends { id: string }>(
