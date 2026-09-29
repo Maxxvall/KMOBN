@@ -8,13 +8,6 @@ import { healthMonitor, type ServiceStatus } from '../services/healthMonitor';
 export type SyncStatus = 'idle' | 'syncing' | 'error';
 export type WorkspaceStatus = 'checking' | 'syncing' | 'downloading' | 'ready' | 'partial' | 'error';
 
-const retryDelay = (change: PendingChange | undefined): number | null => {
-  if (!change || !change.lastError) return 0;
-  if (change.failureKind === 'permanent') return null;
-  if (!change.nextRetryAt) return 0;
-  return Math.max(0, Date.parse(change.nextRetryAt) - Date.now());
-};
-
 export const useOfflineSync = (userId: string | null) => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [isAppShellReady, setIsAppShellReady] = useState(
@@ -26,6 +19,7 @@ export const useOfflineSync = (userId: string | null) => {
     lastCheck: '',
   });
   const [pendingChanges, setPendingChanges] = useState<PendingChange[]>([]);
+  const [pendingChangesLoaded, setPendingChangesLoaded] = useState(false);
   const [legacyPendingCount, setLegacyPendingCount] = useState(0);
   const [quarantinedErrorCount, setQuarantinedErrorCount] = useState(0);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
@@ -38,9 +32,7 @@ export const useOfflineSync = (userId: string | null) => {
   const [syncedTables, setSyncedTables] = useState<string[]>([]);
   const syncingRef = useRef(false);
   const preparedUserRef = useRef<string | null>(null);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const workspaceRetryCountRef = useRef(0);
-  const workspaceRetryAtRef = useRef<string | null>(null);
+  const manualRetryRequiredRef = useRef(false);
 
   const applyCoverage = useCallback(async (activeUserId: string) => {
     const coverage = await getOfflineCoverage(activeUserId);
@@ -53,6 +45,7 @@ export const useOfflineSync = (userId: string | null) => {
   const refreshPending = useCallback(async () => {
     if (!userId) {
       setPendingChanges([]);
+      setPendingChangesLoaded(true);
       setLegacyPendingCount(0);
       setQuarantinedErrorCount(0);
       return;
@@ -63,12 +56,19 @@ export const useOfflineSync = (userId: string | null) => {
         offlineQueue.getQuarantinedCount(),
         offlineQueue.getClaimableQuarantinedCount(),
       ]);
-      setPendingChanges(pending.filter(isWorkspacePendingChange));
+      const workspacePending = pending.filter(isWorkspacePendingChange);
+      if (workspacePending.some(change => Boolean(change.lastError) || change.failureKind === 'permanent')) {
+        manualRetryRequiredRef.current = true;
+        setWorkspaceStatus('error');
+      }
+      setPendingChanges(workspacePending);
+      setPendingChangesLoaded(true);
       setLegacyPendingCount(claimableQuarantined);
       setQuarantinedErrorCount(totalQuarantined - claimableQuarantined);
     } catch (error) {
       console.error('Failed to read offline queue:', error);
       setSyncStatus('error');
+      setWorkspaceStatus('error');
     }
   }, [userId]);
 
@@ -98,8 +98,6 @@ export const useOfflineSync = (userId: string | null) => {
   useEffect(() => {
     const handleOnline = () => {
       preparedUserRef.current = null;
-      workspaceRetryCountRef.current = 0;
-      workspaceRetryAtRef.current = null;
       setIsOnline(true);
       setWorkspaceStatus('checking');
       void refreshPending();
@@ -118,6 +116,8 @@ export const useOfflineSync = (userId: string | null) => {
 
   useEffect(() => {
     preparedUserRef.current = null;
+    manualRetryRequiredRef.current = false;
+    setPendingChangesLoaded(false);
     setWorkspaceStatus('checking');
     if (userId) void applyCoverage(userId);
     void refreshPending();
@@ -155,16 +155,13 @@ export const useOfflineSync = (userId: string | null) => {
       preparedUserRef.current = userId;
       setWorkspaceVersion(value => value + 1);
       if (refreshIncomplete) {
-        workspaceRetryCountRef.current += 1;
-        const delay = Math.min(60_000, 1000 * (2 ** Math.max(0, workspaceRetryCountRef.current - 1)));
-        workspaceRetryAtRef.current = new Date(Date.now() + delay).toISOString();
-        setRetryAt(workspaceRetryAtRef.current);
+        manualRetryRequiredRef.current = true;
       } else {
-        workspaceRetryCountRef.current = 0;
-        workspaceRetryAtRef.current = null;
+        manualRetryRequiredRef.current = false;
       }
     } catch (error) {
       console.error('Offline workspace preparation failed:', error);
+      manualRetryRequiredRef.current = true;
       setSyncStatus('error');
       setWorkspaceStatus('error');
       preparedUserRef.current = null;
@@ -180,12 +177,21 @@ export const useOfflineSync = (userId: string | null) => {
     setSyncStatus('syncing');
     setRetryAt(null);
     try {
-      await processOfflineQueue(userId);
-      setSyncStatus('idle');
-      setWorkspaceStatus(missingTables.length === 0 ? 'ready' : 'partial');
+      const result = await processOfflineQueue(userId);
+      if (result.pendingCount > 0) {
+        manualRetryRequiredRef.current = true;
+        setSyncStatus('error');
+        setWorkspaceStatus('error');
+      } else {
+        manualRetryRequiredRef.current = false;
+        setSyncStatus('idle');
+        setWorkspaceStatus(missingTables.length === 0 ? 'ready' : 'partial');
+      }
     } catch (error) {
       console.error('Background offline sync failed:', error);
+      manualRetryRequiredRef.current = true;
       setSyncStatus('error');
+      setWorkspaceStatus('error');
     } finally {
       await refreshPending();
       syncingRef.current = false;
@@ -193,11 +199,9 @@ export const useOfflineSync = (userId: string | null) => {
   }, [missingTables.length, refreshPending, userId]);
 
   const syncNow = useCallback(() => {
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    retryTimerRef.current = null;
     preparedUserRef.current = null;
-    workspaceRetryCountRef.current = 0;
-    workspaceRetryAtRef.current = null;
+    manualRetryRequiredRef.current = false;
+    setRetryAt(null);
     void runPreparation();
   }, [runPreparation]);
 
@@ -210,48 +214,16 @@ export const useOfflineSync = (userId: string | null) => {
   }, [refreshPending, userId]);
 
   useEffect(() => {
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    retryTimerRef.current = null;
     setRetryAt(null);
+    if (!pendingChangesLoaded) return;
     if (!isOnline || !userId || userId === 'anon' || syncingRef.current) return;
-
-    const firstPending = pendingChanges.find(change => change.failureKind !== 'permanent');
-    const hasPermanentFailure = pendingChanges.some(change => change.failureKind === 'permanent');
-    if (!firstPending && hasPermanentFailure) {
-      setWorkspaceStatus('error');
-      return;
-    }
-    const delay = firstPending
-      ? retryDelay(firstPending)
-      : workspaceRetryAtRef.current
-        ? Math.max(0, Date.parse(workspaceRetryAtRef.current) - Date.now())
-        : 0;
-    if (delay == null) {
-      setWorkspaceStatus('error');
-      return;
-    }
-    if (delay > 0) {
-      setRetryAt(firstPending?.nextRetryAt ?? workspaceRetryAtRef.current);
-      const retryPendingOnly = Boolean(firstPending && preparedUserRef.current === userId);
-      retryTimerRef.current = setTimeout(() => {
-        if (retryPendingOnly) {
-          void runPendingSync();
-        } else {
-          workspaceRetryAtRef.current = null;
-          preparedUserRef.current = null;
-          void runPreparation();
-        }
-      }, delay);
-      return () => {
-        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      };
-    }
+    if (manualRetryRequiredRef.current) return;
     if (preparedUserRef.current === userId && pendingChanges.length > 0) {
       void runPendingSync();
     } else if (preparedUserRef.current !== userId || pendingChanges.length > 0) {
       void runPreparation();
     }
-  }, [isOnline, pendingChanges, runPendingSync, runPreparation, userId]);
+  }, [isOnline, pendingChanges, pendingChangesLoaded, runPendingSync, runPreparation, userId]);
 
   return {
     isOnline,
