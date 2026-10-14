@@ -160,7 +160,7 @@ describe('processOfflineQueue', () => {
     expect(await offlineQueue.getAll(TEST_USER)).toEqual([]);
   });
 
-  it('processes all seven supported cache tables in FIFO order', async () => {
+  it('processes workspace tables in FIFO order and retains local salary calculations', async () => {
     const tables: CacheTableKey[] = [
       'estimates',
       'templates',
@@ -177,8 +177,12 @@ describe('processOfflineQueue', () => {
 
     await processOfflineQueue(TEST_USER, executeChange);
 
-    expect(executeChange.mock.calls.map(([change]) => change.table)).toEqual(tables);
-    expect(await offlineQueue.count(TEST_USER)).toBe(0);
+    expect(executeChange.mock.calls.map(([change]) => change.table)).toEqual([
+      'estimates', 'templates', 'materials', 'works', 'bundles', 'estimate_sections',
+    ]);
+    expect(await offlineQueue.getAll(TEST_USER)).toEqual([
+      expect.objectContaining({ table: 'salary_calculations', retryCount: 0 }),
+    ]);
   });
 
   it('restricts queue tables to CacheTableKey at compile time', () => {

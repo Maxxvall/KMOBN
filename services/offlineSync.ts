@@ -47,11 +47,14 @@ export class OfflineSyncError extends Error {
 export const isRetryableSyncError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') return true;
   const value = error as { status?: unknown; statusCode?: unknown; code?: unknown; message?: unknown };
+  const code = typeof value.code === 'string' ? value.code : '';
+  // Application revision conflicts must reach the client as HTTP 409.
+  // SQLSTATE 40001 can trigger internal transaction retries in PostgREST 14.
+  if (code === 'PT409') return false;
   const numericStatus = Number(value.status ?? value.statusCode);
   if (Number.isFinite(numericStatus)) {
     return numericStatus === 408 || numericStatus === 429 || numericStatus >= 500;
   }
-  const code = typeof value.code === 'string' ? value.code : '';
   if (code === '40001' && /OFFLINE_RECORD_CONFLICT/.test(String(value.message ?? ''))) return false;
   if (/^(22|23|42|PGRST)/.test(code)) return false;
   return true;

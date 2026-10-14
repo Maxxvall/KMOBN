@@ -139,13 +139,13 @@ describe('offline reliability regressions', () => {
     ]);
   });
 
-  it('keeps a conflicting regular record locally instead of overwriting the server', async () => {
+  it.each(['40001', 'PT409'])('keeps a %s conflict locally and does not resend it after reopening the queue', async code => {
     const local = { id: 'material-conflict', name: 'Локальная доска', price: 100, serverRevision: 1 };
     await upsertCachedRecords('materials', USER_ID, [local]);
     await offlineQueue.enqueueUpserts(USER_ID, 'materials', [local]);
     remote.saveRecord.mockResolvedValue({
       data: null,
-      error: Object.assign(new Error('OFFLINE_RECORD_CONFLICT'), { code: '40001' }),
+      error: { code, message: 'OFFLINE_RECORD_CONFLICT', details: null, hint: null },
     });
 
     const result = await processOfflineQueue(USER_ID);
@@ -156,6 +156,27 @@ describe('offline reliability regressions', () => {
       failureKind: 'permanent',
     });
     expect(await getCachedRecords('materials', USER_ID)).toEqual([local]);
+
+    await offlineQueue.close();
+    await processOfflineQueue(USER_ID);
+    expect(remote.saveRecord).toHaveBeenCalledTimes(1);
+    expect(await offlineQueue.count(USER_ID)).toBe(1);
+  });
+
+  it('retains a PT409 delete conflict without scheduling or repeating the delete', async () => {
+    await offlineQueue.enqueueDeletes(USER_ID, 'materials', ['material-delete-conflict']);
+    remote.deleteRecord.mockResolvedValue({
+      data: null,
+      error: { code: 'PT409', message: 'OFFLINE_RECORD_CONFLICT', details: null, hint: null },
+    });
+
+    await expect(processOfflineQueue(USER_ID)).resolves.toMatchObject({ pendingCount: 1 });
+    const [pending] = await offlineQueue.getAll(USER_ID);
+    expect(pending).toMatchObject({ operation: 'delete', failureKind: 'permanent' });
+    expect(pending.nextRetryAt).toBeUndefined();
+
+    await processOfflineQueue(USER_ID);
+    expect(remote.deleteRecord).toHaveBeenCalledTimes(1);
   });
 
   it('rebases a newer local edit on the confirmed predecessor revision', async () => {
