@@ -72,7 +72,6 @@ const hasRecoveryFlagInUrl = (): boolean => {
 };
 
 type SyncState = { visible: boolean; message: string; type: 'success' | 'error' | 'info' };
-type AccessModalState = { title: string; description: string } | null;
 type EditorValidationState = ReturnType<typeof validateEstimate> | null;
 
 type UiState = {
@@ -85,7 +84,6 @@ type UiState = {
     showSaveOptions: boolean;
     showUnsavedModal: boolean;
     pendingView: View | null;
-    accessModal: AccessModalState;
 };
 
 type AuthState = {
@@ -137,7 +135,6 @@ const initialUiState: UiState = {
     showSaveOptions: false,
     showUnsavedModal: false,
     pendingView: null,
-    accessModal: null,
 };
 
 const initialEditorState: EditorState = {
@@ -2024,7 +2021,7 @@ const App: React.FC = () => {
                         workspaceStatus={offlineSync.workspaceStatus}
                         missingTableCount={offlineSync.missingTables.length}
                         lastPreparedAt={offlineSync.lastPreparedAt}
-                                                syncError={syncErrorMessage}
+                        syncError={syncErrorMessage}
                         onSync={offlineSync.syncNow}
                         onPendingChangesClick={() => setIsOfflineChangesOpen(true)}
                     />
@@ -2055,7 +2052,7 @@ const App: React.FC = () => {
                     workspaceStatus={offlineSync.workspaceStatus}
                     missingTableCount={offlineSync.missingTables.length}
                     lastPreparedAt={offlineSync.lastPreparedAt}
-                                        syncError={syncErrorMessage}
+                    syncError={syncErrorMessage}
                     onSync={offlineSync.syncNow}
                     onPendingChangesClick={() => setIsOfflineChangesOpen(true)}
                 />

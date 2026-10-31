@@ -1431,7 +1431,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     .map(item => item.id);
 
   const quality = scoreEstimateQuality(sanitizedItems, { graph: adv.graph, historical: adv.patterns });
-  const finalWarnings = [...parsedWarnings, ...priced.warnings,  ...norm.warnings, ...quality.notes];
+  const finalWarnings = [...parsedWarnings, ...priced.warnings, ...norm.warnings, ...quality.notes];
   if (unknownPriceItemIds.length > 0) {
     finalWarnings.push(`Итоговая сумма неполная: у ${unknownPriceItemIds.length} позиций цена не определена. Эти позиции не считаются бесплатными.`);
   }
