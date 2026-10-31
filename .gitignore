@@ -48,8 +48,7 @@ pnpm-debug.log*
 ehthumbs.db
 Thumbs.db
 
-# Optional npm dependencies
-package-lock.json
+# Alternative lockfiles (npm package-lock.json is tracked)
 yarn.lock
 pnpm-lock.yaml
 

@@ -98,5 +98,8 @@
         "karkasmaster"
       ]
     }
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
