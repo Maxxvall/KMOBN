@@ -1,4 +1,4 @@
-import { Estimate, EstimateItem, normalizeKey, safeNumber } from '../types';
+import { EstimateItem, normalizeKey, safeNumber } from '../types';
 import { aiCache } from './aiCache';
 
 export type LearningContext = {

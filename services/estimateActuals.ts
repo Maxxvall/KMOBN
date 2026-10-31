@@ -1,4 +1,4 @@
-import { Estimate, EstimateItem, EstimateSubgroup, normalizeKey, safeNumber, SectionId } from '../types';
+import { Estimate, EstimateItem, EstimateSubgroup, safeNumber, SectionId } from '../types';
 
 export type ActualFilter = 'all' | 'different' | 'missing' | 'actualOnly';
 
