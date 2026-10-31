@@ -1,3 +1,5 @@
+import { hashData } from './hashing';
+
 export type CacheTableKey =
   | 'estimates'
   | 'templates'
@@ -130,20 +132,7 @@ const openDb = (): Promise<IDBDatabase> => {
   return cachedDbPromise;
 };
 
-const stableStringify = (value: unknown): string => {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
-    return `{${entries.join(',')}}`;
-  }
-  return JSON.stringify(value);
-};
-
-const hashRecord = (record: unknown): string => stableStringify(record);
+const hashRecord = (record: unknown): string => hashData(record);
 
 // In-memory hash cache — avoids recomputing hashes for records that haven't changed
 const hashMemoryCache = new Map<string, string>();
