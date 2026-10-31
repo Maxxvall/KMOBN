@@ -2,8 +2,8 @@ import type { CacheTableKey } from './indexedDbCache';
 import { isWorkspacePendingChange, offlineQueue, type PendingChange } from './offlineQueue';
 import { deleteOfflineRecord, saveOfflineRecord } from './supabase';
 import { fetchEstimateSections, saveEstimateSectionsRemote } from './supabase';
-import { getCachedRecords, getCacheUserId, upsertCachedRecords } from './indexedDbCache';
-import { normalizeStableOrder } from './database';
+import { getCachedRecords, getCacheUserId } from './indexedDbCache';
+import { applyConfirmedRecordToCache, normalizeStableOrder } from './database';
 import type { EstimateSectionsDocument } from '../types';
 import { tryMergeEstimateSectionsDocuments } from './estimateSections';
 
@@ -74,7 +74,7 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
         const merged = tryMergeEstimateSectionsDocuments(local, remote);
         if (merged) {
           await offlineQueue.enqueueUpserts(userId, 'estimate_sections', [merged]);
-          await upsertCachedRecords('estimate_sections', userId, [merged]);
+          await applyConfirmedRecordToCache('estimate_sections', userId, merged);
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key: 'estimate_sections', data: [merged] } }));
           }
@@ -88,7 +88,7 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
             detectedAt: new Date().toISOString(),
           },
         };
-        await upsertCachedRecords('estimate_sections', userId, [conflict]);
+        await applyConfirmedRecordToCache('estimate_sections', userId, conflict);
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key: 'estimate_sections', data: [conflict] } }));
         }
@@ -178,14 +178,14 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
       const acknowledged = await offlineQueue.acknowledge(change.id, change.sequence, change.operationId);
       if (acknowledged) {
         if (result && result.confirmedSections) {
-          await upsertCachedRecords('estimate_sections', userId, [result.confirmedSections]);
+          await applyConfirmedRecordToCache('estimate_sections', userId, result.confirmedSections);
           await dispatchConfirmedRecords('estimate_sections', userId, result.confirmedSections);
         }
         if (result && result.confirmedRecord) {
-          await upsertCachedRecords(
+          await applyConfirmedRecordToCache(
             result.confirmedRecord.table,
             userId,
-            [result.confirmedRecord.data],
+            result.confirmedRecord.data,
           );
           await dispatchConfirmedRecords(
             result.confirmedRecord.table,
@@ -205,11 +205,7 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
             confirmed,
           );
           if (rebased?.operation === 'upsert' && rebased.data && typeof rebased.data === 'object') {
-            await upsertCachedRecords(
-              rebased.table,
-              userId,
-              [rebased.data as { id: string }],
-            );
+            await applyConfirmedRecordToCache(rebased.table, userId, rebased.data as { id: string });
             await dispatchConfirmedRecords(rebased.table, userId, rebased.data as { id: string });
           }
         }

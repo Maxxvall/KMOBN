@@ -185,9 +185,26 @@ export type OfflineWorkspaceRefreshResult = {
 };
 
 /**
+ * Persists a remotely confirmed record into the cache under the table
+ * mutation lock, bumping the generation so an in-flight refresh of a stale
+ * snapshot defers to the confirmation instead of overwriting it.
+ */
+export const applyConfirmedRecordToCache = async (
+  table: CacheTableKey,
+  userId: string,
+  record: { id: string },
+): Promise<void> => {
+  const refreshKey = getRefreshKey(table, userId);
+  bumpMutationGeneration(refreshKey);
+  await withTableMutationLock(refreshKey, async () => {
+    await upsertCachedRecords(table, getCacheUserId(userId), [record]);
+  });
+};
+
+/**
  * Applies a server snapshot while keeping records with pending local changes
  * authoritative in the cache (outbox-first): the snapshot applies around them
- * and their cached local forms are written back afterwards.
+ * and the unconfirmed outbox forms are written back afterwards.
  */
 const applySnapshotPreservingPending = async <T extends { id: string }>(
   key: CacheTableKey,
@@ -197,16 +214,18 @@ const applySnapshotPreservingPending = async <T extends { id: string }>(
 ): Promise<{ changed: boolean; merged: T[] }> => {
   const pendingIds = new Set(pending.map(change => change.recordId));
   const applyRecords = pendingIds.size ? records.filter(record => !pendingIds.has(record.id)) : records;
-  let preserved: T[] = [];
-  if (pendingIds.size) {
-    preserved = (await getCachedRecords<T>(key, cacheUserId)).filter(record => pendingIds.has(record.id));
-  }
+  // The outbox is the single source of truth for unconfirmed forms: its
+  // upsert payloads are newer than anything on the server and may even be
+  // missing from the cache when a cache write failed after enqueueing.
+  const pendingUpserts = pending
+    .filter(change => change.operation === 'upsert' && change.data && typeof change.data === 'object')
+    .map(change => change.data as T);
   const { changed } = await syncCachedRecords(key, cacheUserId, applyRecords);
-  if (preserved.length) {
-    await upsertCachedRecords(key, cacheUserId, preserved);
+  if (pendingUpserts.length) {
+    await upsertCachedRecords(key, cacheUserId, pendingUpserts);
   }
-  const merged = normalizeStableOrder(pendingIds.size ? [...applyRecords, ...preserved] : records);
-  return { changed: changed || preserved.length > 0, merged };
+  const merged = normalizeStableOrder(pendingIds.size ? [...applyRecords, ...pendingUpserts] : records);
+  return { changed: changed || pendingUpserts.length > 0, merged };
 };
 
 const hasUnresolvedEstimateSectionsConflict = async (userId: string): Promise<boolean> => (

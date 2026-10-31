@@ -21,6 +21,7 @@ import {
   upsertCachedRecords,
 } from './indexedDbCache';
 import { offlineQueue } from './offlineQueue';
+import { processOfflineQueue } from './offlineSync';
 import { fetchEstimateSections, fetchEstimates, fetchMaterials } from './supabase';
 
 const USER = 'refresh-user';
@@ -195,5 +196,83 @@ describe('background refresh with pending changes', () => {
     expect(byId.get('estimate-pending')).toMatchObject({ total: 250 });
     expect(byId.get('estimate-new')).toMatchObject({ total: 70 });
     expect(await offlineQueue.getForTable(USER_SECOND, 'estimates')).toHaveLength(1);
+  });
+
+  it('keeps the confirmed record when a sync confirmation lands during a refresh', async () => {
+    const cacheUser = getCacheUserId(USER);
+    const pendingLocal = material('mat-pending', 250);
+    const kept = material('mat-kept', 100);
+    await upsertCachedRecords('materials', cacheUser, [pendingLocal, kept]);
+    await offlineQueue.enqueueUpserts(USER, 'materials', [pendingLocal]);
+    vi.mocked(fetchMaterials).mockImplementation(async () => {
+      // The push confirms the local edit while the refresh is between its
+      // fetch and its cache write: the server snapshot is now stale.
+      await processOfflineQueue(USER, async change => ({
+        confirmedRecord: {
+          table: change.table,
+          data: { ...pendingLocal, serverRevision: 1 },
+        },
+      }));
+      return { data: [material('mat-pending', 100), kept], error: null };
+    });
+
+    const result = await refreshOfflineWorkspace(USER);
+
+    const byId = new Map(
+      (await getCachedRecords<{ id: string; price: number; serverRevision?: number }>('materials', cacheUser))
+        .map(record => [record.id, record]),
+    );
+    // The confirmed form with its server revision must survive the refresh;
+    // a stale rewrite here would cause a false PT409 on the next edit.
+    expect(byId.get('mat-pending')).toMatchObject({ price: 250, serverRevision: 1 });
+    expect(await offlineQueue.getForTable(USER, 'materials')).toEqual([]);
+    expect(result.failedTables).not.toContain('materials');
+  });
+
+  it('restores offline-created records from the outbox into the cache on refresh', async () => {
+    const cacheUser = getCacheUserId(USER);
+    const offlineCreated = material('mat-offline-created', 300);
+    const kept = material('mat-kept', 100);
+    // The outbox write succeeded but the cache write did not.
+    await upsertCachedRecords('materials', cacheUser, [kept]);
+    await offlineQueue.enqueueUpserts(USER, 'materials', [offlineCreated]);
+    vi.mocked(fetchMaterials).mockResolvedValue({ data: [kept], error: null });
+
+    const updates: Array<{ key: string; data: unknown[] }> = [];
+    const listener = (event: Event): void => {
+      const detail = (event as CustomEvent<{ key: string; data: unknown[] }>).detail;
+      if (detail?.key) updates.push(detail);
+    };
+    const eventTarget = new EventTarget();
+    eventTarget.addEventListener('kmobn:cache-update', listener);
+    vi.stubGlobal('window', eventTarget);
+
+    try {
+      await refreshOfflineWorkspace(USER);
+    } finally {
+      eventTarget.removeEventListener('kmobn:cache-update', listener);
+    }
+
+    const cached = await getCachedRecords<{ id: string; price: number }>('materials', cacheUser);
+    // The unconfirmed outbox record stays visible in the merged view.
+    expect(cached.map(record => record.id).sort()).toEqual(['mat-kept', 'mat-offline-created']);
+    expect(await offlineQueue.getForTable(USER, 'materials')).toHaveLength(1);
+  });
+
+  it('does not resurrect a locally deleted record that the server still has', async () => {
+    const cacheUser = getCacheUserId(USER);
+    const kept = material('mat-kept', 100);
+    await upsertCachedRecords('materials', cacheUser, [kept]);
+    await offlineQueue.enqueueDeletes(USER, 'materials', ['mat-deleted']);
+    vi.mocked(fetchMaterials).mockResolvedValue({
+      data: [kept, material('mat-deleted', 50)],
+      error: null,
+    });
+
+    await refreshOfflineWorkspace(USER);
+
+    const cached = await getCachedRecords<{ id: string }>('materials', cacheUser);
+    expect(cached.map(record => record.id)).toEqual(['mat-kept']);
+    expect(await offlineQueue.getForTable(USER, 'materials')).toHaveLength(1);
   });
 });
