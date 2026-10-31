@@ -66,31 +66,35 @@ describe('processOfflineQueue', () => {
     expect(await offlineQueue.getAll(TEST_USER)).toEqual([]);
   });
 
-  it('stops after a failure and retains the failed and unprocessed changes', async () => {
+  it('continues with independent changes after a transient failure and retries on the next run', async () => {
     await enqueueMaterial('material-1', 100);
     await enqueueMaterial('material-2', 200);
     await enqueueMaterial('material-3', 300);
     const executed: string[] = [];
 
-    try {
-      await processOfflineQueue(TEST_USER, async change => {
-        executed.push(change.recordId);
-        if (change.recordId === 'material-2') {
-          throw new Error('remote rejected material-2');
-        }
-      });
-    } catch {
-      // The contract may report the failure by rejection or by a result object.
-    }
+    const result = await processOfflineQueue(TEST_USER, async change => {
+      executed.push(change.recordId);
+      if (change.recordId === 'material-2') {
+        throw Object.assign(new Error('network dropped'), { status: 503 });
+      }
+    });
 
-    expect(executed).toEqual(['material-1', 'material-2']);
+    // The transient failure on material-2 must not block material-3.
+    expect(executed).toEqual(['material-1', 'material-2', 'material-3']);
+    expect(result).toMatchObject({ syncedCount: 2, pendingCount: 1 });
     const remaining = await offlineQueue.getAll(TEST_USER);
-    expect(remaining.map(change => change.recordId)).toEqual(['material-2', 'material-3']);
+    expect(remaining.map(change => change.recordId)).toEqual(['material-2']);
     expect(remaining[0]).toMatchObject({
       retryCount: 1,
-      lastError: 'remote rejected material-2',
+      lastError: 'network dropped',
+      failureKind: 'transient',
     });
-    expect(remaining[1]).toMatchObject({ retryCount: 0 });
+    expect(remaining[0].nextRetryAt).toBeDefined();
+
+    // Manual retry after the network recovers drains the remaining change.
+    const retryResult = await processOfflineQueue(TEST_USER, async () => undefined);
+    expect(retryResult).toMatchObject({ syncedCount: 1, pendingCount: 0 });
+    expect(await offlineQueue.getAll(TEST_USER)).toEqual([]);
   });
 
   it('classifies a 4xx database rejection as permanent', async () => {
