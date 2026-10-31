@@ -18,7 +18,8 @@
     "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run --exclude \"e2e/**\"",
     "test:e2e:electron": "npm run build:electron:e2e && playwright test --config=playwright.electron.config.ts",
-    "test:coverage": "vitest run --exclude \"e2e/**\" --coverage"
+    "test:coverage": "vitest run --exclude \"e2e/**\" --coverage",
+    "check": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.3",
