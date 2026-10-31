@@ -401,6 +401,15 @@ describe('houseCalculator financials and failures', () => {
         expect(() => calculateHouseEstimate(input(invalid))).toThrow();
     });
 
+    it.each([
+        { area: Infinity },
+        { floors: Infinity },
+        { glazingArea: Infinity },
+        { doors: Infinity },
+    ])('rejects infinite dimensions instead of computing unbounded costs: %o', invalid => {
+        expect(() => calculateHouseEstimate(input(invalid))).toThrow();
+    });
+
     it('throws when no eligible source estimate exists', () => {
         expect(() => calculateHouseEstimate(input({ estimates: [] }))).toThrow(/нет согласованных смет с позициями/);
     });

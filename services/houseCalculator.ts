@@ -532,10 +532,11 @@ const financialBreakdown = (items: EstimateItem[], rates: HouseFinancialRates): 
 };
 
 export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalculatorResult {
-    // NaN passes every comparison, so non-finite inputs must be rejected explicitly.
+    // NaN and Infinity pass size comparisons, so non-finite inputs must be
+    // rejected explicitly before any arithmetic runs.
     if (
-        !(input.area > 0)
-        || !(input.floors >= 1)
+        !Number.isFinite(input.area) || input.area <= 0
+        || !Number.isFinite(input.floors) || input.floors < 1
         || !Number.isFinite(input.glazingArea) || input.glazingArea < 0
         || !Number.isFinite(input.doors) || input.doors < 0
     ) {

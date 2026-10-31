@@ -70,6 +70,8 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
       if (error && (String((error as { code?: unknown }).code) === '40001' || /ESTIMATE_SECTIONS_CONFLICT/.test(String((error as { message?: unknown }).message)))) {
         const remoteResult = await fetchEstimateSections(userId);
         if (remoteResult.error || !remoteResult.data?.[0]) throw remoteResult.error ?? error;
+        // The row arrives from the JSONB payload RPC; the document shape is
+        // enforced server-side by the estimate_sections revision contract.
         const remote = remoteResult.data[0] as unknown as EstimateSectionsDocument;
         const merged = tryMergeEstimateSectionsDocuments(local, remote);
         if (merged) {
