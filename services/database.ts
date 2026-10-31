@@ -80,7 +80,7 @@ const compareByStableOrder = <T extends { id: string }>(left: T, right: T): numb
   return String(left.id).localeCompare(String(right.id));
 };
 
-const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
+export const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
   if (records.length <= 1) return records;
   return [...records].sort(compareByStableOrder);
 };

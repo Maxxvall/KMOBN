@@ -2,7 +2,8 @@ import type { CacheTableKey } from './indexedDbCache';
 import { isWorkspacePendingChange, offlineQueue, type PendingChange } from './offlineQueue';
 import { deleteOfflineRecord, saveOfflineRecord } from './supabase';
 import { fetchEstimateSections, saveEstimateSectionsRemote } from './supabase';
-import { upsertCachedRecords } from './indexedDbCache';
+import { getCachedRecords, getCacheUserId, upsertCachedRecords } from './indexedDbCache';
+import { normalizeStableOrder } from './database';
 import type { EstimateSectionsDocument } from '../types';
 import { tryMergeEstimateSectionsDocuments } from './estimateSections';
 
@@ -151,6 +152,32 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
 
 const inFlightByUser = new Map<string, Promise<OfflineSyncResult>>();
 
+// The kmobn:cache-update contract carries a full table snapshot for collection
+// tables (see dispatchCacheUpdate in database.ts). Rebuild that snapshot from
+// the cache after a confirmation so the UI update cannot drop records that were
+// not part of the confirmed change. estimate_sections keeps its
+// single-document contract: App reads detail.data[0] as the whole document.
+const dispatchConfirmedRecords = async (
+  table: CacheTableKey,
+  userId: string,
+  record: { id: string },
+): Promise<void> => {
+  if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
+  if (table === 'estimate_sections') {
+    window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key: table, data: [record] } }));
+    return;
+  }
+  try {
+    const cached = await getCachedRecords<{ id: string }>(table, getCacheUserId(userId));
+    window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
+      detail: { key: table, data: normalizeStableOrder(cached) },
+    }));
+  } catch {
+    // The confirmed record is already persisted in the cache; the next
+    // background refresh reconciles the UI. Never fail the sync for this.
+  }
+};
+
 const runQueue = async (userId: string, executeChange: ExecutePendingChange): Promise<OfflineSyncResult> => {
   let syncedCount = 0;
   const syncedTables = new Set<CacheTableKey>();
@@ -164,11 +191,7 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
       if (acknowledged) {
         if (result && result.confirmedSections) {
           await upsertCachedRecords('estimate_sections', userId, [result.confirmedSections]);
-          if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
-              detail: { key: 'estimate_sections', data: [result.confirmedSections] },
-            }));
-          }
+          await dispatchConfirmedRecords('estimate_sections', userId, result.confirmedSections);
         }
         if (result && result.confirmedRecord) {
           await upsertCachedRecords(
@@ -176,14 +199,11 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
             userId,
             [result.confirmedRecord.data],
           );
-          if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
-              detail: {
-                key: result.confirmedRecord.table,
-                data: [result.confirmedRecord.data],
-              },
-            }));
-          }
+          await dispatchConfirmedRecords(
+            result.confirmedRecord.table,
+            userId,
+            result.confirmedRecord.data,
+          );
         }
         syncedCount += 1;
         syncedTables.add(change.table);
@@ -202,11 +222,7 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
               userId,
               [rebased.data as { id: string }],
             );
-            if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
-                detail: { key: rebased.table, data: [rebased.data] },
-              }));
-            }
+            await dispatchConfirmedRecords(rebased.table, userId, rebased.data as { id: string });
           }
         }
       }
