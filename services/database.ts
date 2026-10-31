@@ -465,12 +465,6 @@ const deleteRecords = async (table: CacheTableKey, ids: string[]): Promise<void>
   await deleteLocalRecords(table, ids);
 };
 
-export const pickChangedRecordsByIds = <T extends { id: string }>(records: T[], changedIds: string[]): T[] => {
-  if (!records.length || !changedIds.length) return [];
-  const changedSet = new Set(changedIds);
-  return records.filter(record => changedSet.has(record.id));
-};
-
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
   await saveLocalRecords('estimates', estimates);
 };
@@ -1183,9 +1177,4 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     }
     throw new Error('Ошибка при импорте данных. Проверьте формат файла.');
   }
-};
-
-export const exportUserData = async (): Promise<Blob> => {
-  const data = await exportData();
-  return new Blob([data], { type: 'application/json' });
 };

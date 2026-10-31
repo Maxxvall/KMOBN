@@ -137,6 +137,3 @@ export const shouldShowActualRow = (item: EstimateItem, filter: ActualFilter): b
   if (filter === 'missing') return !row.isActualComplete;
   return row.isActualOnly || Math.abs(row.diff) > 0.009 || row.planUnit !== row.actualUnit;
 };
-
-export const actualComparisonKey = (item: Pick<EstimateItem, 'name' | 'unit' | 'category'>): string =>
-  `${normalizeKey(item.name)}::${normalizeKey(item.unit)}::${item.category}`;

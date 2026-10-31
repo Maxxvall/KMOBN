@@ -531,54 +531,6 @@ const financialBreakdown = (items: EstimateItem[], rates: HouseFinancialRates): 
     };
 };
 
-export function createAiHouseEstimateResult(
-    input: HouseCalculatorInput,
-    items: EstimateItem[],
-    sources: Estimate[],
-    aiWarnings: string[] = [],
-): HouseCalculatorResult {
-    validateRates(input.rates);
-    const source = chooseHouseReference(sources, input.area, input.package) || sources[0];
-    if (!source) throw new Error('AI не нашёл согласованных смет текущего года для проверки цен.');
-    const pricedItems = items.filter(item => Number.isFinite(item.total) && item.total > 0);
-    if (!pricedItems.length) throw new Error('AI не смог подобрать позиции с подтверждёнными ценами из базы.');
-
-    const financials = financialBreakdown(pricedItems, input.rates);
-    const sections = [...new Set(pricedItems.map(item => item.category))].map(category => {
-        const sectionItems = pricedItems.filter(item => item.category === category);
-        return { category, total: money(sum(sectionItems)), items: sectionItems };
-    });
-    const approvedCount = sources.filter(item => item.status === EstimateStatus.APPROVED).length;
-    const sentCount = sources.filter(item => item.status === EstimateStatus.SENT).length;
-    const confidence: HouseCalculatorResult['confidence'] = approvedCount >= 2 ? 'medium' : 'low';
-    const spread = confidence === 'medium' ? 0.15 : 0.25;
-
-    return {
-        low: money(financials.final * (1 - spread)),
-        base: financials.final,
-        high: money(financials.final * (1 + spread)),
-        confidence,
-        evidence: {
-            eligibleEstimateCount: sources.length,
-            approvedCount,
-            sentCount,
-            draftCount: 0,
-            referenceMatched: isReference(source),
-            sourceReason: explanationMatchesPackage(source, input.package)
-                ? 'AI выбрал допустимую смету с подходящими ключевыми словами во внутреннем пояснении.'
-                : 'AI разобрал пожелания и собрал предварительный расчёт по согласованным сметам и справочникам текущего пользователя.',
-        },
-        sections,
-        items: pricedItems,
-        warnings: ['Расчёт подготовлен AI и требует проверки перед отправкой клиенту.', ...aiWarnings],
-        sourceEstimate: source,
-        rates: { ...input.rates },
-        financials,
-        scope: evaluateHouseScope(pricedItems, input.package),
-        geometry: input.geometry ? calculateHouseGeometry(input.geometry) : undefined,
-    };
-}
-
 export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalculatorResult {
     if (!(input.area > 0) || !(input.floors >= 1) || input.glazingArea < 0 || input.doors < 0) {
         throw new Error('Площадь и этажность должны быть больше нуля, площадь остекления и двери — неотрицательными.');

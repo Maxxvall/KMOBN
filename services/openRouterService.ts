@@ -152,7 +152,6 @@ const normalizeUnitText = (unitRaw: string): string => {
   return normalizeMeasurementUnit(unitRaw) || 'шт';
 };
 
-const parsePackAreaSqMFromName = parsePackAreaSqM;
 
 const looksLikePackOrRoll = (nameRaw: string): boolean => {
   const n = String(nameRaw || '').toLowerCase();
@@ -181,7 +180,7 @@ const computePackQuantityWithReserve = (area: number, packArea: number): number 
 export const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): EstimateItem[] => {
   const area = safeNumber(projectArea, 0);
   return (items || []).map((it) => {
-    const packArea = parsePackAreaSqMFromName(it.name);
+    const packArea = parsePackAreaSqM(it.name);
     if (!packArea) return { ...it, unit: normalizeUnitText(it.unit) };
 
     const unit = normalizeUnitText(it.unit);

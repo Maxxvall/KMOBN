@@ -3,7 +3,6 @@ import {
     calculateHouseEstimate,
     calculateHouseVariants,
     chooseHouseReference,
-    createAiHouseEstimateResult,
     HouseCalculatorInput,
     parseHouseDescription,
     selectEligibleHouseHistory,
@@ -353,19 +352,6 @@ describe('houseCalculator reference and packages', () => {
 });
 
 describe('houseCalculator financials and failures', () => {
-    it('builds an AI fallback result only from priced catalog items and approved sources', () => {
-        const source = estimate({ id: 'approved-source', estimateNumber: 'AI-source' });
-        const result = createAiHouseEstimateResult(
-            input({ estimates: [source] }),
-            [item({ total: 250, price: 250 })],
-            [source],
-        );
-
-        expect(result.base).toBe(250);
-        expect(result.evidence.approvedCount).toBe(1);
-        expect(result.evidence.sourceReason).toContain('AI');
-    });
-
     it('separates direct costs and applies overhead, margin, reserve, discount, and tax', () => {
         const source = estimate({
             items: [

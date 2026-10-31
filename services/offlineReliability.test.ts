@@ -28,8 +28,6 @@ vi.mock('./supabase', () => ({
   saveEstimateSectionsRemote: remote.saveSections,
   saveOfflineRecord: remote.saveRecord,
   deleteOfflineRecord: remote.deleteRecord,
-  upsertTable: vi.fn(),
-  deleteTableRecords: vi.fn(),
 }));
 
 const USER_ID = 'offline-reliability-user';
