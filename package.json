@@ -14,7 +14,7 @@
     "build:electron:win": "vite build --mode electron --configLoader runner && tsc -p tsconfig.electron.json && electron-builder --win",
     "preview": "vite preview",
     "dist": "electron-builder --win --publish never",
-    "lint": "eslint \"App.tsx\" \"index.tsx\" \"types.ts\" \"components/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"services/**/*.ts\" \"vite.config.ts\"",
+    "lint": "eslint \"App.tsx\" \"index.tsx\" \"types.ts\" \"components/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"services/**/*.ts\" \"contexts/**/*.{ts,tsx}\" \"api/**/*.ts\" \"electron/**/*.ts\" \"e2e/**/*.ts\" \"vite.config.ts\" \"playwright.electron.config.ts\"",
     "test": "vitest run --exclude \"e2e/**\"",
     "test:e2e:electron": "npm run build:electron:e2e && playwright test --config=playwright.electron.config.ts"
   },
