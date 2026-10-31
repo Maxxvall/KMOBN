@@ -532,7 +532,13 @@ const financialBreakdown = (items: EstimateItem[], rates: HouseFinancialRates): 
 };
 
 export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalculatorResult {
-    if (!(input.area > 0) || !(input.floors >= 1) || input.glazingArea < 0 || input.doors < 0) {
+    // NaN passes every comparison, so non-finite inputs must be rejected explicitly.
+    if (
+        !(input.area > 0)
+        || !(input.floors >= 1)
+        || !Number.isFinite(input.glazingArea) || input.glazingArea < 0
+        || !Number.isFinite(input.doors) || input.doors < 0
+    ) {
         throw new Error('Площадь и этажность должны быть больше нуля, площадь остекления и двери — неотрицательными.');
     }
     validateRates(input.rates);

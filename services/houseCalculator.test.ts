@@ -392,6 +392,15 @@ describe('houseCalculator financials and failures', () => {
         expect(() => calculateHouseEstimate(input(invalid))).toThrow();
     });
 
+    it.each([
+        { area: NaN },
+        { floors: NaN },
+        { glazingArea: NaN },
+        { doors: NaN },
+    ])('rejects non-finite dimensions instead of computing NaN costs: %o', invalid => {
+        expect(() => calculateHouseEstimate(input(invalid))).toThrow();
+    });
+
     it('throws when no eligible source estimate exists', () => {
         expect(() => calculateHouseEstimate(input({ estimates: [] }))).toThrow(/нет согласованных смет с позициями/);
     });
