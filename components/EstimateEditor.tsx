@@ -53,7 +53,6 @@ interface EstimateEditorProps {
         remaining?: number | null;
         onConsume?: (reason: 'autocomplete' | 'generation' | 'analysis') => void;
     };
-    onUpgradeRequest?: () => void;
 }
 
 type NonUrgentTaskHandle =
@@ -258,7 +257,7 @@ const cancelNonUrgentTask = (handle?: NonUrgentTaskHandle): void => {
     clearTimeout(handle.id);
 };
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, onManageSections, allEstimates, validationResult, aiAccess, onUpgradeRequest }) => {
+const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, onManageSections, allEstimates, validationResult, aiAccess }) => {
     const estimateContext = useOptionalEstimateContext();
     const catalogContext = useOptionalCatalogContext();
     const subscriptionContext = useOptionalSubscriptionContext();
@@ -526,7 +525,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             // IMPORTANT: never blocks typing; runs after local results are shown.
             if (query.length >= 3 && results.length < 5) {
                 if (aiAccessValue && !aiAccessValue.canUseAi) {
-                    if (onUpgradeRequest) onUpgradeRequest();
                     return;
                 }
                 // run AI autocomplete in idle time to avoid blocking typing/render
@@ -946,8 +944,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         doorCount?: number;
     }) => {
         if (aiAccessValue && !aiAccessValue.canUseAi) {
-            alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
-            if (onUpgradeRequest) onUpgradeRequest();
+            alert('Лимит AI-запросов исчерпан. Обновите лимиты позже.');
             return;
         }
         if (!hasOpenRouterKey()) {
@@ -1137,12 +1134,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, estimate.items, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, onUpgradeRequest, subscriptionContext?.subscription?.user_id]);
+    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, estimate.items, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, subscriptionContext?.subscription?.user_id]);
 
     const handleAnalyzeEstimate = useCallback(async () => {
         if (aiAccessValue && !aiAccessValue.canUseAi) {
-            alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
-            if (onUpgradeRequest) onUpgradeRequest();
+            alert('Лимит AI-запросов исчерпан. Обновите лимиты позже.');
             return;
         }
 
@@ -1192,7 +1188,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [aiAccessValue, estimate, materialsValue, onUpgradeRequest, visibleEstimatesValue, worksValue]);
+    }, [aiAccessValue, estimate, materialsValue, visibleEstimatesValue, worksValue]);
 
     const toggleSubgroupExpansion = (subgroupKey: string) => {
         setExpandedSubgroups(prev => ({
@@ -1547,8 +1543,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         <button
                             onClick={() => {
                                 if (aiAccessValue && !aiAccessValue.canUseAi) {
-                                    alert('Лимит AI-запросов исчерпан. Перейдите на платный план для продолжения.');
-                                    if (onUpgradeRequest) onUpgradeRequest();
+                                    alert('Лимит AI-запросов исчерпан. Обновите лимиты позже.');
                                     return;
                                 }
                                 if (!hasOpenRouterKey()) {

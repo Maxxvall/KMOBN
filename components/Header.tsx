@@ -8,8 +8,6 @@ interface HeaderProps {
     onLogout?: () => void;
     onUserNameClick?: () => void;
     onProfileClick?: () => void;
-    subscriptionSummary?: unknown;
-    onUpgradeClick?: () => void;
     isElectron?: boolean;
     mobileStatus?: React.ReactNode;
 }

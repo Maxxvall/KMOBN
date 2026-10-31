@@ -1,8 +1,7 @@
 import { useCallback, useRef } from 'react';
 import { addTemplate as addTemplateToDb, deleteEstimateById, deleteEstimates, deleteEstimatesByNumber, deleteTemplate as deleteTemplateFromDb, saveEstimates } from '../services/database';
 import { validateEstimate } from '../services/estimateValidation';
-import { canCreateEstimate, canDeleteEstimate } from '../services/subscriptionService';
-import { Estimate, EstimateStatus, ProjectTemplate, SubscriptionLimits, SubscriptionUsage, View } from '../types';
+import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { buildEstimateDuplicateDeletePlan, type EstimateDuplicateDeleteRequest } from '../services/estimateIntelligence';
 import { applyEstimateSave, setEstimateChainArchived } from '../services/estimateLifecycle';
 
@@ -10,13 +9,8 @@ type SaveMode = 'overwrite' | 'new';
 
 type UseEstimateCrudParams = {
   estimates: Estimate[];
-  subscriptionUsage: SubscriptionUsage;
-  subscriptionLimits: SubscriptionLimits;
-  subscriptionLoading: boolean;
   goToView: (view: View) => void;
-  openAccessModal?: (title: string, description: string) => void;
   recalculateWorkPrices: (estimate: Estimate) => Estimate;
-  consumeDeleteLimit: () => void;
   setEstimates: React.Dispatch<React.SetStateAction<Estimate[]>>;
   setTemplates: React.Dispatch<React.SetStateAction<ProjectTemplate[]>>;
   setCurrentEstimate: React.Dispatch<React.SetStateAction<Estimate | null>>;
@@ -32,13 +26,8 @@ type UseEstimateCrudParams = {
 
 export const useEstimateCrud = ({
   estimates,
-  subscriptionUsage,
-  subscriptionLimits,
-  subscriptionLoading,
   goToView,
-  openAccessModal,
   recalculateWorkPrices,
-  consumeDeleteLimit,
   setEstimates,
   setTemplates,
   setCurrentEstimate,
@@ -55,11 +44,6 @@ export const useEstimateCrud = ({
   estimatesRef.current = estimates;
   const archiveMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const handleCreateNew = useCallback(() => {
-    // Don't block action while subscription is loading — allow creation with subsequent check
-    if (!subscriptionLoading && !canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
-      openAccessModal?.('Лимит смет исчерпан', 'Перейдите на платный план, чтобы создавать больше смет.');
-      return;
-    }
     setCurrentEstimate(null);
     setEditorValidationResult(null);
     setEditorDirty(false);
@@ -69,10 +53,6 @@ export const useEstimateCrud = ({
     setShowUnsavedModal(false);
     goToView(View.EDITOR);
   }, [
-    subscriptionUsage,
-    subscriptionLimits,
-    subscriptionLoading,
-    openAccessModal,
     setCurrentEstimate,
     setEditorValidationResult,
     setEditorDirty,
@@ -189,17 +169,11 @@ export const useEstimateCrud = ({
   }, [setEstimates, setSync]);
 
   const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
-    if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
-      alert('Удаление смет доступно на платных планах.');
-      goToView(View.SUBSCRIPTIONS);
-      return;
-    }
     if (!window.confirm(`Вы уверены, что хотите удалить смету №${estimateToDelete.estimateNumber} и все ее версии? Это действие необратимо.`)) return;
     const estimateNumberToDelete = estimateToDelete.estimateNumber;
     try {
       await deleteEstimatesByNumber(estimateNumberToDelete);
       setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateNumberToDelete));
-      consumeDeleteLimit();
       setSync({ visible: true, message: 'Сметы удалены из БД', type: 'success' });
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
     } catch (error) {
@@ -207,14 +181,9 @@ export const useEstimateCrud = ({
       setSync({ visible: true, message: 'Ошибка удаления смет в БД', type: 'error' });
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
     }
-  }, [subscriptionUsage, subscriptionLimits, goToView, setEstimates, consumeDeleteLimit, setSync]);
+  }, [setEstimates, setSync]);
 
   const handleDeleteEstimateVersion = useCallback(async (estimateToDelete: Estimate) => {
-    if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
-      alert('Удаление смет доступно на платных планах.');
-      goToView(View.SUBSCRIPTIONS);
-      return;
-    }
     const estimateNumber = estimateToDelete.estimateNumber;
     const versionHistory = estimates
       .filter(e => e.estimateNumber === estimateNumber)
@@ -246,7 +215,6 @@ export const useEstimateCrud = ({
         const updatedEstimates = estimates.filter(e => e.id !== estimateToDelete.id);
         await saveEstimates(updatedEstimates);
         setEstimates(updatedEstimates);
-        consumeDeleteLimit();
         setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
       } else {
         const deletedId = estimateToDelete.id;
@@ -282,7 +250,6 @@ export const useEstimateCrud = ({
           });
         await saveEstimates(updatedEstimates);
         setEstimates(updatedEstimates);
-        consumeDeleteLimit();
         const msg = isLatest ? 'Версия удалена, главная обновлена' : 'Версия сметы удалена';
         setSync({ visible: true, message: msg, type: 'success' });
       }
@@ -292,27 +259,22 @@ export const useEstimateCrud = ({
       setSync({ visible: true, message: 'Ошибка удаления версии в БД', type: 'error' });
       setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
     }
-  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit, setSync]);
+  }, [estimates, setEstimates, setSync]);
 
   const handleDeleteVersionDuplicates = useCallback(async (requests: EstimateDuplicateDeleteRequest[]): Promise<number> => {
     if (requests.length === 0) return 0;
-    if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
-      goToView(View.SUBSCRIPTIONS);
-      throw new Error('Удаление смет доступно на платных планах или месячный лимит удалений исчерпан.');
-    }
     try {
       const plan = buildEstimateDuplicateDeletePlan(estimates, requests);
       if (plan.deleteIds.length === 0) return 0;
       await deleteEstimates(plan.deleteIds);
       const deleteSet = new Set(plan.deleteIds);
       setEstimates(current => current.filter(estimate => !deleteSet.has(estimate.id)));
-      consumeDeleteLimit();
       return plan.deleteIds.length;
     } catch (error) {
       console.error('Failed to delete version duplicates:', error);
       throw error;
     }
-  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit]);
+  }, [estimates, setEstimates]);
 
   const handleSaveAsTemplate = useCallback(async (estimate: Estimate) => {
     const templateName = prompt('Введите название шаблона:');
