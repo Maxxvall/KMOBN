@@ -184,6 +184,31 @@ export type OfflineWorkspaceRefreshResult = {
   failedTables: CacheTableKey[];
 };
 
+/**
+ * Applies a server snapshot while keeping records with pending local changes
+ * authoritative in the cache (outbox-first): the snapshot applies around them
+ * and their cached local forms are written back afterwards.
+ */
+const applySnapshotPreservingPending = async <T extends { id: string }>(
+  key: CacheTableKey,
+  cacheUserId: string,
+  records: T[],
+  pending: PendingChange[],
+): Promise<{ changed: boolean; merged: T[] }> => {
+  const pendingIds = new Set(pending.map(change => change.recordId));
+  const applyRecords = pendingIds.size ? records.filter(record => !pendingIds.has(record.id)) : records;
+  let preserved: T[] = [];
+  if (pendingIds.size) {
+    preserved = (await getCachedRecords<T>(key, cacheUserId)).filter(record => pendingIds.has(record.id));
+  }
+  const { changed } = await syncCachedRecords(key, cacheUserId, applyRecords);
+  if (preserved.length) {
+    await upsertCachedRecords(key, cacheUserId, preserved);
+  }
+  const merged = normalizeStableOrder(pendingIds.size ? [...applyRecords, ...preserved] : records);
+  return { changed: changed || preserved.length > 0, merged };
+};
+
 const hasUnresolvedEstimateSectionsConflict = async (userId: string): Promise<boolean> => (
   (await getCachedRecords<EstimateSectionsDocument>('estimate_sections', getCacheUserId(userId)))
     .some(document => Boolean(document.syncConflict))
@@ -200,11 +225,11 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
 
   for (const table of OFFLINE_TABLES) {
     const refreshKey = getRefreshKey(table, userId);
-    if ((await offlineQueue.getForTable(userId, table)).length > 0) {
-      result.skippedTables.push(table);
-      continue;
-    }
-    if (table === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) {
+    // estimate_sections keeps its conservative single-document flow: its
+    // pending changes and conflicts are resolved through the merge review.
+    if (table === 'estimate_sections'
+      && ((await offlineQueue.getForTable(userId, table)).length > 0
+        || await hasUnresolvedEstimateSectionsConflict(userId))) {
       result.skippedTables.push(table);
       continue;
     }
@@ -217,10 +242,11 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
       const records = normalizeStableOrder((data ?? []) as Array<{ id: string }>);
       const applied = await withTableMutationLock(refreshKey, async (): Promise<boolean> => {
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
-        if ((await offlineQueue.getForTable(userId, table)).length > 0) return false;
-        if (table === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return false;
+        const pending = await offlineQueue.getForTable(userId, table);
+        if (table === 'estimate_sections'
+          && (pending.length > 0 || await hasUnresolvedEstimateSectionsConflict(userId))) return false;
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
-        await syncCachedRecords(table, getCacheUserId(userId), records);
+        await applySnapshotPreservingPending(table, getCacheUserId(userId), records, pending);
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
         markRefreshed(table, userId);
         return true;
@@ -301,8 +327,11 @@ const refreshCacheInBackground = async <T extends { id: string }>(
   fetcher: (uid: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
   options?: LoadTableOptions,
 ): Promise<void> => {
-  if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
-  if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return;
+  // estimate_sections keeps its conservative single-document flow: pending
+  // changes and conflicts are resolved through the merge review.
+  if (key === 'estimate_sections'
+    && ((await offlineQueue.getForTable(userId, key)).length > 0
+      || await hasUnresolvedEstimateSectionsConflict(userId))) return;
   if (isRefreshThrottled(key, userId)) return;
   const refreshKey = getRefreshKey(key, userId);
   if (refreshesInFlight.has(refreshKey)) return;
@@ -311,7 +340,9 @@ const refreshCacheInBackground = async <T extends { id: string }>(
   try {
     // Cache a complete server snapshot. Subscription limits are applied only
     // to the returned UI slice; otherwise remote deletions outside a partial
-    // window can never invalidate stale local rows.
+    // window can never invalidate stale local rows. Records with pending
+    // local changes are excluded from the snapshot and their cached local
+    // forms are kept authoritative until the queue confirms them.
     const { data, error } = await fetcher(userId);
     if (error) {
       console.error('Supabase fetch error:', error);
@@ -321,14 +352,15 @@ const refreshCacheInBackground = async <T extends { id: string }>(
     const cacheUserId = getCacheUserId(userId);
     await withTableMutationLock(refreshKey, async () => {
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
-      if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
-      if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return;
+      const pending = await offlineQueue.getForTable(userId, key);
+      if (key === 'estimate_sections'
+        && (pending.length > 0 || await hasUnresolvedEstimateSectionsConflict(userId))) return;
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
-      const changed = (await syncCachedRecords(key, cacheUserId, records)).changed;
+      const { changed, merged } = await applySnapshotPreservingPending<T>(key, cacheUserId, records, pending);
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
       markRefreshed(key, userId);
       if (changed) {
-        const visibleRecords = typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
+        const visibleRecords = typeof options?.limit === 'number' ? merged.slice(0, options.limit) : merged;
         dispatchCacheUpdate(key, visibleRecords);
       }
     });
@@ -357,7 +389,9 @@ const readTableCached = async <T extends { id: string }>(
     && cached.some(record => Boolean((record as unknown as EstimateSectionsDocument).syncConflict));
 
   if (cached.length > 0 || hasCompleteSnapshot) {
-    if (canFetch && pending.length === 0 && !hasLocalConflict) {
+    // refreshCacheInBackground applies the snapshot around pending records;
+    // only the estimate_sections merge review must hold it off.
+    if (canFetch && !hasLocalConflict) {
       void refreshCacheInBackground<T>(key, userId as string, fetcher, options);
     }
     return limitedCached;
