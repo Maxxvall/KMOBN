@@ -1,11 +1,14 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { app, BrowserWindow, ipcMain, nativeTheme, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, shell, session } = require('electron') as typeof import('electron');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const path = require('path');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fs = require('fs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { pathToFileURL } = require('url');
+
+import type { BrowserWindow as ElectronBrowserWindow } from 'electron';
+import type { AppUpdater } from 'electron-updater';
 
 const IS_E2E = process.env.KMOBN_E2E === '1';
 const e2eUserDataDir = process.env.KMOBN_E2E_USER_DATA_DIR;
@@ -15,15 +18,17 @@ if (IS_E2E && e2eUserDataDir) {
   app.setPath('sessionData', path.join(e2eUserDataDir, 'session'));
 }
 
-let store = null;
-let mainWindow = null;
-let autoUpdater = null;
-let pendingAuthUrl = null;
+// Structural view of the lazily imported electron-store instance: only
+// get/set are used through the IPC handlers.
+let store: { get(key: string): unknown; set(key: string, value: unknown): void } | null = null;
+let mainWindow: ElectronBrowserWindow | null = null;
+let autoUpdater: AppUpdater | null = null;
+let pendingAuthUrl: string | null = null;
 
 const LOG_FILE = path.join(app.getPath('userData'), 'app.log');
 const PROTOCOL_NAME = 'karkasmaster';
 
-function log(...args) {
+function log(...args: unknown[]) {
   const msg = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
   console.log(...args);
   try { fs.appendFileSync(LOG_FILE, msg); } catch {}
@@ -33,7 +38,7 @@ function getDistPath() {
   return path.join(__dirname, '../dist');
 }
 
-function openExternalUrl(url) {
+function openExternalUrl(url: string) {
   let parsed;
   try {
     parsed = new URL(String(url));
@@ -44,13 +49,13 @@ function openExternalUrl(url) {
     log('Blocked external URL with unsupported protocol:', parsed.protocol);
     return Promise.resolve(false);
   }
-  return shell.openExternal(parsed.toString()).then(() => true).catch((e) => {
-    log('Failed to open external URL:', e.message);
+  return shell.openExternal(parsed.toString()).then(() => true).catch((e: unknown) => {
+    log('Failed to open external URL:', e instanceof Error ? e.message : String(e));
     return false;
   });
 }
 
-function sendAuthToRenderer(url) {
+function sendAuthToRenderer(url: string) {
   try {
     const parsed = new URL(url);
     log('Auth callback received:', `${parsed.protocol}//${parsed.host}${parsed.pathname}`);
@@ -72,8 +77,8 @@ async function initStore() {
     const { default: Store } = await import('electron-store');
     store = new Store();
     log('Store initialized');
-  } catch (e) {
-    log('Store init error:', e.message);
+  } catch (e: unknown) {
+    log('Store init error:', e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -122,8 +127,8 @@ async function initAutoUpdater() {
         mainWindow.webContents.send('update-downloaded', { version: info.version });
       }
     });
-  } catch (e) {
-    log('Auto-updater init error:', e.message);
+  } catch (e: unknown) {
+    log('Auto-updater init error:', e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -136,7 +141,7 @@ function createWindow() {
   log('Index exists:', fs.existsSync(indexPath));
 
   try {
-    mainWindow = new BrowserWindow({
+    const win = new BrowserWindow({
       width: 1400,
       height: 900,
       minWidth: 1024,
@@ -151,10 +156,11 @@ function createWindow() {
       backgroundColor: '#111827',
       show: false,
     });
+    mainWindow = win;
 
-    mainWindow.loadFile(indexPath);
+    win.loadFile(indexPath);
     const trustedIndexUrl = new URL(pathToFileURL(indexPath).toString());
-    const isTrustedAppNavigation = (targetUrl) => {
+    const isTrustedAppNavigation = (targetUrl: string) => {
       try {
         const target = new URL(targetUrl);
         return target.protocol === trustedIndexUrl.protocol && target.pathname === trustedIndexUrl.pathname;
@@ -162,52 +168,53 @@ function createWindow() {
         return false;
       }
     };
-    mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    win.webContents.setWindowOpenHandler(({ url }) => {
       void openExternalUrl(url);
       return { action: 'deny' };
     });
-    mainWindow.webContents.on('will-navigate', (event, url) => {
+    win.webContents.on('will-navigate', (event, url) => {
       if (isTrustedAppNavigation(url)) return;
       event.preventDefault();
       void openExternalUrl(url);
     });
 
-    mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
       log('did-fail-load:', errorCode, errorDescription, validatedURL);
     });
 
-    mainWindow.webContents.on('render-process-gone', (event, details) => {
+    win.webContents.on('render-process-gone', (event, details) => {
       log('render-process-gone:', details.reason, details.exitCode);
     });
 
-    mainWindow.webContents.on('console-message', (event, level, message) => {
+    win.webContents.on('console-message', (event, level, message) => {
       log(`[renderer L${level}]:`, message);
     });
 
-    mainWindow.once('ready-to-show', () => {
+    win.once('ready-to-show', () => {
       log('Window ready-to-show');
-      mainWindow.show();
+      win.show();
 
       if (pendingAuthUrl) {
         log('Sending pending auth URL');
-        mainWindow.webContents.send('auth-callback', pendingAuthUrl);
+        win.webContents.send('auth-callback', pendingAuthUrl);
         pendingAuthUrl = null;
       }
     });
 
-    mainWindow.on('closed', () => {
+    win.on('closed', () => {
       mainWindow = null;
     });
 
-    if (autoUpdater) {
+    const updater = autoUpdater;
+    if (updater) {
       setTimeout(() => {
-        autoUpdater.checkForUpdates().catch((e) => {
-          log('Check for updates failed:', e.message);
+        updater.checkForUpdates().catch((e: unknown) => {
+          log('Check for updates failed:', e instanceof Error ? e.message : String(e));
         });
       }, 5000);
     }
-  } catch (e) {
-    log('Window creation error:', e.message);
+  } catch (e: unknown) {
+    log('Window creation error:', e instanceof Error ? e.message : String(e));
   }
 }
 
@@ -263,11 +270,11 @@ app.on('open-url', (event, url) => {
   sendAuthToRenderer(url);
 });
 
-ipcMain.handle('get-store', (_, key) => {
+ipcMain.handle('get-store', (_, key: string) => {
   return store ? store.get(key) : null;
 });
 
-ipcMain.handle('set-store', (_, key, value) => {
+ipcMain.handle('set-store', (_, key: string, value: unknown) => {
   if (store) {
     store.set(key, value);
     return true;
@@ -309,9 +316,10 @@ ipcMain.handle('check-for-updates', async () => {
 });
 
 ipcMain.handle('download-update', () => {
-  if (autoUpdater) {
-    autoUpdater.downloadUpdate().catch((e) => {
-      log('Download update failed:', e.message);
+  const updater = autoUpdater;
+  if (updater) {
+    updater.downloadUpdate().catch((e: unknown) => {
+      log('Download update failed:', e instanceof Error ? e.message : String(e));
     });
   }
 });
@@ -330,6 +338,6 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
-ipcMain.handle('open-external', (_, url) => {
+ipcMain.handle('open-external', (_, url: string) => {
   return openExternalUrl(url);
 });

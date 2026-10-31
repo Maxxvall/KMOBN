@@ -70,7 +70,7 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
       if (error && (String((error as { code?: unknown }).code) === '40001' || /ESTIMATE_SECTIONS_CONFLICT/.test(String((error as { message?: unknown }).message)))) {
         const remoteResult = await fetchEstimateSections(userId);
         if (remoteResult.error || !remoteResult.data?.[0]) throw remoteResult.error ?? error;
-        const remote = remoteResult.data[0] as EstimateSectionsDocument;
+        const remote = remoteResult.data[0] as unknown as EstimateSectionsDocument;
         const merged = tryMergeEstimateSectionsDocuments(local, remote);
         if (merged) {
           await offlineQueue.enqueueUpserts(userId, 'estimate_sections', [merged]);

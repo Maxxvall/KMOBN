@@ -488,7 +488,9 @@ export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
     throw new Error(`Не удалось обновить сметы из базы: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const records = normalizeStableOrder((data ?? []) as Estimate[]);
+  // Rows come back from the JSONB payload RPC as generic records; the
+  // shape contract is enforced by the revision RPC on the server.
+  const records = normalizeStableOrder((data ?? []) as unknown as Estimate[]);
   return withTableMutationLock(refreshKey, async () => {
     if (getMutationGeneration(refreshKey) !== refreshGeneration) {
       throw new Error('Во время обновления появились локальные изменения смет. Данные из базы не применены.');

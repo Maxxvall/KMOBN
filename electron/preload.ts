@@ -1,7 +1,9 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron') as typeof import('electron');
 
-contextBridge.exposeInMainWorld('electronAPI', {
+import type { ElectronAPI } from './types';
+
+const electronAPI: ElectronAPI = {
   getStore: (key) => ipcRenderer.invoke('get-store', key),
   setStore: (key, value) => ipcRenderer.invoke('set-store', key, value),
   getTheme: () => ipcRenderer.invoke('get-theme'),
@@ -21,4 +23,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUpdateDownloaded: (callback) => ipcRenderer.on('update-downloaded', (_, info) => callback(info)),
   onUpdateNotAvailable: (callback) => ipcRenderer.on('update-not-available', () => callback()),
   onUpdateError: (callback) => ipcRenderer.on('update-error', (_, error) => callback(error)),
-});
+};
+
+contextBridge.exposeInMainWorld('electronAPI', electronAPI);

@@ -3,12 +3,10 @@ import { Estimate, EstimateCategory, EstimateStatus } from '../types';
 import { applyEstimateSave, normalizeEstimateChains, setEstimateChainArchived } from './estimateLifecycle';
 
 const estimate = (overrides: Partial<Estimate> & Pick<Estimate, 'id' | 'version'>): Estimate => ({
-    id: overrides.id,
     estimateNumber: 'SM-1',
     client: 'Клиент',
     date: `2026-07-${String(overrides.version).padStart(2, '0')}`,
     status: EstimateStatus.DRAFT,
-    version: overrides.version,
     items: [{ id: 'item', name: 'Работа', unit: 'шт', quantity: 1, price: 1, total: 1, category: EstimateCategory.GENERAL }],
     total: 1,
     buildingType: 'Дом',

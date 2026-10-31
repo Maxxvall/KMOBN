@@ -8,7 +8,7 @@
     "noEmit": false,
     "outDir": "dist-electron",
     "rootDir": "electron",
-    "strict": false,
+    "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -16,6 +16,12 @@
     "declarationMap": false,
     "sourceMap": true
   },
-  "include": ["electron/**/*"],
-  "exclude": ["node_modules", "dist", "dist-electron"]
+  "include": [
+    "electron/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "dist-electron"
+  ]
 }

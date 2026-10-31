@@ -499,7 +499,7 @@ const App: React.FC = () => {
             throw new Error(error.message);
         }
         if (isElectron && data?.url) {
-            await window.electronAPI.openExternal(data.url);
+            await window.electronAPI?.openExternal?.(data.url);
         }
     }, []);
 
@@ -750,13 +750,14 @@ const App: React.FC = () => {
 
     // Handle OAuth callback from custom protocol (Electron)
     useEffect(() => {
-        if (!window.electronAPI?.onAuthCallback || !supabase) return;
+        const authClient = supabase;
+        if (!window.electronAPI?.onAuthCallback || !authClient) return;
         const handler = (url: string) => {
             try {
                 const parsedUrl = new URL(url);
                 const code = parsedUrl.searchParams.get('code');
                 if (code) {
-                    supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+                    authClient.auth.exchangeCodeForSession(code).then(({ data, error }) => {
                         if (error) {
                             console.error('OAuth exchange error:', error);
                         } else if (data?.user) {
