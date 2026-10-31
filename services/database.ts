@@ -478,7 +478,7 @@ export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
     throw new Error('Нет подключения к базе данных пользователя.');
   }
   if ((await offlineQueue.getForTable(userId, 'estimates')).length > 0) {
-    throw new Error('РЎРЅР°С‡Р°Р»Р° СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓР№С‚Рµ Р»РѕРєР°Р»СЊРЅС‹Рµ РёР·РјРµРЅРµРЅРёСЏ СЃРјРµС‚.');
+    throw new Error('Сначала синхронизируйте локальные изменения смет.');
   }
 
   const refreshKey = getRefreshKey('estimates', userId);

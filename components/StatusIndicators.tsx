@@ -11,7 +11,6 @@ type Props = {
   workspaceStatus: WorkspaceStatus;
   missingTableCount: number;
   lastPreparedAt: string | null;
-  retryAt: string | null;
   syncError: string | null;
   onSync?: () => void;
   onPendingChangesClick?: () => void;
@@ -36,14 +35,12 @@ const StatusIndicators: React.FC<Props> = ({
   workspaceStatus,
   missingTableCount,
   lastPreparedAt,
-  retryAt,
   syncError,
   onSync,
   onPendingChangesClick,
   compact = false,
 }) => {
   const lastPreparedTime = formatTime(lastPreparedAt);
-  const retryTime = formatTime(retryAt);
   const offlineReady = workspaceStatus === 'ready' && isAppShellReady;
   const statusText = workspaceStatus === 'ready'
     ? isAppShellReady
@@ -57,9 +54,7 @@ const StatusIndicators: React.FC<Props> = ({
           ? 'Проверка офлайн-данных…'
           : workspaceStatus === 'partial'
             ? `Офлайн не готово: ${missingTableCount} разд.`
-            : retryTime
-              ? `Повтор синхронизации в ${retryTime}`
-              : 'Ошибка синхронизации';
+            : 'Ошибка синхронизации';
   const statusStyle = offlineReady
     ? 'border-emerald-500/40 bg-emerald-500/15 text-emerald-300'
     : workspaceStatus === 'error'

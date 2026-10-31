@@ -132,22 +132,6 @@ const openDb = (): Promise<IDBDatabase> => {
   return cachedDbPromise;
 };
 
-const hashRecord = (record: unknown): string => hashData(record);
-
-// In-memory hash cache — avoids recomputing hashes for records that haven't changed
-const hashMemoryCache = new Map<string, string>();
-
-const getOrComputeHash = (table: CacheTableKey, id: string, record: unknown): string => {
-  const cacheKey = `${table}:${id}`;
-  const newHash = hashRecord(record);
-  hashMemoryCache.set(cacheKey, newHash);
-  return newHash;
-};
-
-const clearHashCache = (table: CacheTableKey, id: string): void => {
-  hashMemoryCache.delete(`${table}:${id}`);
-};
-
 const getAllEntriesByUser = async <T>(table: CacheTableKey, userId: string): Promise<CacheRecord<T>[]> => {
   if (!isIndexedDbAvailable()) return [];
   const db = await openDb();
@@ -220,7 +204,7 @@ export const upsertCachedRecords = async <T extends { id: string }>(
 
   records.forEach(record => {
     if (!record?.id) throw new Error(`Cached ${table} record requires an id`);
-    const hash = getOrComputeHash(table, record.id, record);
+    const hash = hashData(record);
     const payload: CacheRecord<T> = {
       key: buildRecordKey(userId, record.id),
       id: record.id,
@@ -248,7 +232,6 @@ export const deleteCachedRecords = async (
   const store = tx.objectStore(getStoreName(table));
   recordIds.forEach(recordId => {
     store.delete(buildRecordKey(userId, recordId));
-    clearHashCache(table, recordId);
   });
   await waitForTransaction(tx);
 };
@@ -281,7 +264,7 @@ export const syncCachedRecords = async <T extends { id: string }>(
     if (!record || !record.id) return;
     const id = record.id;
     nextIds.add(id);
-    const nextHash = getOrComputeHash(table, id, record);
+    const nextHash = hashData(record);
     const prevHash = existingMap.get(id);
     if (prevHash !== nextHash) {
       const payload: CacheRecord<T> = {
@@ -301,7 +284,6 @@ export const syncCachedRecords = async <T extends { id: string }>(
   existingEntries.forEach(entry => {
     if (!nextIds.has(entry.id)) {
       store.delete(entry.key);
-      clearHashCache(table, entry.id);
       changed = true;
     }
   });

@@ -2024,8 +2024,7 @@ const App: React.FC = () => {
                         workspaceStatus={offlineSync.workspaceStatus}
                         missingTableCount={offlineSync.missingTables.length}
                         lastPreparedAt={offlineSync.lastPreparedAt}
-                        retryAt={offlineSync.retryAt}
-                        syncError={syncErrorMessage}
+                                                syncError={syncErrorMessage}
                         onSync={offlineSync.syncNow}
                         onPendingChangesClick={() => setIsOfflineChangesOpen(true)}
                     />
@@ -2056,8 +2055,7 @@ const App: React.FC = () => {
                     workspaceStatus={offlineSync.workspaceStatus}
                     missingTableCount={offlineSync.missingTables.length}
                     lastPreparedAt={offlineSync.lastPreparedAt}
-                    retryAt={offlineSync.retryAt}
-                    syncError={syncErrorMessage}
+                                        syncError={syncErrorMessage}
                     onSync={offlineSync.syncNow}
                     onPendingChangesClick={() => setIsOfflineChangesOpen(true)}
                 />
