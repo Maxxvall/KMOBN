@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
 import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
-import { generateEstimateWithAI } from '../services/geminiService';
+import { generateEstimateWithAI } from '../services/openRouterService';
 import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
 import CrewToolPlanPanel from './CrewToolPlanPanel';
@@ -318,7 +318,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [aiAnalysisReasoning, setAiAnalysisReasoning] = useState<string[]>([]);
     const [aiGenModalOpen, setAiGenModalOpen] = useState(false);
     const [aiGenDescription, setAiGenDescription] = useState('');
-    const [aiGenEnableAiPriceSearch, setAiGenEnableAiPriceSearch] = useState(true);
     const [aiAddedItemIds, setAiAddedItemIds] = useState<Set<string>>(new Set());
     const [aiNotInDbItems, setAiNotInDbItems] = useState<import('./AIMissingItemsModal').NotInDbItem[]>([]);
     const [aiAddedToCatalogNames, setAiAddedToCatalogNames] = useState<Set<string>>(new Set());
@@ -935,7 +934,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const handleGenerateWithAI = useCallback(async (opts?: {
         scopeDescription?: string;
-        enableAiPriceSearch?: boolean;
         area?: number;
         buildingType?: string;
         selectedSections?: SectionId[];
@@ -1025,32 +1023,26 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             });
 
             // AI дополняет базу (шаблон) и учитывает тип строения/шаблон
-            const callParams = { ...genParams, area: wizardArea };
             const scopeDescription = (opts?.scopeDescription ?? aiGenDescription) || '';
-            const enableAiPriceSearch = typeof opts?.enableAiPriceSearch === 'boolean'
-                ? opts.enableAiPriceSearch
-                : aiGenEnableAiPriceSearch;
 
-            const { status, items: aiItems, suggestions, warnings, notInDbItems: generatedNotInDb, cacheKey } = await generateEstimateWithAI(
-                callParams,
-                latestOnlyEstimates,
-                materialsValue,
-                worksValue,
-                baseItems,
-                {
-                    buildingType: wizardBuildingType,
-                    signal: generationController.signal,
-                    projectTemplateId: selectedTemplate?.id,
-                    projectTemplateName: selectedTemplate?.name,
-                    templateItems: baseItems,
-                    scopeDescription,
-                    enableAiPriceSearch,
-                    referenceEstimateId: opts?.referenceEstimateId,
-                    selectedSections: opts?.selectedSections,
-                    windowCount: opts?.windowCount,
-                    doorCount: opts?.doorCount,
-                },
-            );
+            const { status, items: aiItems, suggestions, warnings, notInDbItems: generatedNotInDb, cacheKey } = await generateEstimateWithAI({
+                area: wizardArea,
+                region: genParams.region,
+                buildingType: wizardBuildingType,
+                signal: generationController.signal,
+                projectTemplateId: selectedTemplate?.id,
+                projectTemplateName: selectedTemplate?.name,
+                templateItems: baseItems,
+                scopeDescription,
+                historicalEstimates: latestOnlyEstimates,
+                existingItems: baseItems,
+                materials: materialsValue,
+                works: worksValue,
+                referenceEstimateId: opts?.referenceEstimateId,
+                selectedSections: opts?.selectedSections,
+                windowCount: opts?.windowCount,
+                doorCount: opts?.doorCount,
+            });
 
             if (
                 generationController.signal.aborted
@@ -1134,7 +1126,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, estimate.items, aiGenDescription, aiGenEnableAiPriceSearch, aiAccessValue, subscriptionContext?.subscription?.user_id]);
+    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, estimate.items, aiGenDescription, aiAccessValue, subscriptionContext?.subscription?.user_id]);
 
     const handleAnalyzeEstimate = useCallback(async () => {
         if (aiAccessValue && !aiAccessValue.canUseAi) {
@@ -2371,15 +2363,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             <AIGenerationModal
                 isOpen={aiGenModalOpen}
                 initialValue={aiGenDescription}
-                initialEnableAiPriceSearch={aiGenEnableAiPriceSearch}
                 onCancel={() => setAiGenModalOpen(false)}
                 onConfirm={(payload) => {
                     setAiGenDescription(payload.description);
-                    setAiGenEnableAiPriceSearch(payload.enableAiPriceSearch);
                     setAiGenModalOpen(false);
                     handleGenerateWithAI({
                         scopeDescription: payload.description,
-                        enableAiPriceSearch: payload.enableAiPriceSearch,
                         area: payload.area,
                         buildingType: payload.buildingType,
                         selectedSections: payload.selectedSections,

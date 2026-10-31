@@ -24,9 +24,6 @@ export interface AIEstimateRequest {
   materials: Material[];
   works: Work[];
 
-  // Если true — поиск цены через AI отключён (оставлено для обратной совместимости).
-  enableAiPriceSearch?: boolean;
-
   /** ID эталонной сметы, выбранной пользователем в визарде */
   referenceEstimateId?: string;
   /** Выбранные пользователем разделы (если не указаны — все) */
@@ -1016,16 +1013,6 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
   return { items: priced, warnings, notInDbItems };
 };
 
-const applyAiPriceSearchForMissingMaterials = async (opts: {
-  items: EstimateItem[];
-  materials: Material[];
-  region: string;
-}): Promise<{ items: EstimateItem[]; warnings: string[] } > => {
-  const warnings: string[] = [];
-  const items = [...(opts.items || [])];
-  return { items, warnings };
-};
-
 // ─── Construction-aware area multipliers ─────────────────────────────────────
 
 /** Estimate total wall surface area from floor area (perimeter * wall height). */
@@ -1165,7 +1152,6 @@ export const createEstimateGenerationCacheKey = (req: AIEstimateRequest): string
     scopeDescription: req.scopeDescription || null,
     windowCount: req.windowCount ?? null,
     doorCount: req.doorCount ?? null,
-    enableAiPriceSearch: req.enableAiPriceSearch ?? true,
     templateItems: estimateItemsFingerprint(req.templateItems || []),
     existingItems: estimateItemsFingerprint(req.existingItems || []),
     catalogs: catalogFingerprint(req.materials || [], req.works || []),
@@ -1438,24 +1424,14 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   // Final sanity: sanitize quantities with physical bounds
   const sanitizedItems = sanitizeQuantities(pricedScope.items, req.area);
 
-  // New step: AI-assisted search for missing/zero prices (materials only)
-  const aiPriceEnabled = req.enableAiPriceSearch ?? true;
-  const pricedWithAi = aiPriceEnabled
-    ? await applyAiPriceSearchForMissingMaterials({
-        items: sanitizedItems,
-        materials: req.materials,
-        region: req.region,
-      })
-    : { items: sanitizedItems, warnings: [] };
-
-  const norm = checkNormAnomalies({ area: req.area, items: pricedWithAi.items, materials: req.materials, works: req.works });
-  const total = pricedWithAi.items.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-  const unknownPriceItemIds = pricedWithAi.items
+  const norm = checkNormAnomalies({ area: req.area, items: sanitizedItems, materials: req.materials, works: req.works });
+  const total = sanitizedItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+  const unknownPriceItemIds = sanitizedItems
     .filter(item => !Number.isFinite(item.price) || item.price <= 0)
     .map(item => item.id);
 
-  const quality = scoreEstimateQuality(pricedWithAi.items, { graph: adv.graph, historical: adv.patterns });
-  const finalWarnings = [...parsedWarnings, ...priced.warnings, ...pricedWithAi.warnings, ...norm.warnings, ...quality.notes];
+  const quality = scoreEstimateQuality(sanitizedItems, { graph: adv.graph, historical: adv.patterns });
+  const finalWarnings = [...parsedWarnings, ...priced.warnings,  ...norm.warnings, ...quality.notes];
   if (unknownPriceItemIds.length > 0) {
     finalWarnings.push(`Итоговая сумма неполная: у ${unknownPriceItemIds.length} позиций цена не определена. Эти позиции не считаются бесплатными.`);
   }
@@ -1468,13 +1444,13 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     : parsedSuggestions;
 
   const result: AIEstimateResult = {
-    status: pricedWithAi.items.length === 0
+    status: sanitizedItems.length === 0
       ? 'unavailable'
       : (usedCompactFallback || failedStageBlocks > 0 || unknownPriceItemIds.length > 0 || notInDbScope.items.length > 0)
         ? 'partial'
         : 'success',
     source: 'model',
-    items: pricedWithAi.items,
+    items: sanitizedItems,
     total,
     suggestions: suggestionsWithNorm,
     warnings: finalWarnings,
