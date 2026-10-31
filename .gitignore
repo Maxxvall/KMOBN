@@ -78,3 +78,7 @@ PROJECT.md
 .mimocode/
 /plans
 UsersMexxvell.localsharemimocodemimocode.db
+
+# Local quality-tool artifacts
+/.metrics/
+/tmp/
