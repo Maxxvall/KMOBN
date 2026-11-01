@@ -31,11 +31,8 @@ export interface HouseProposalPdfModel {
 
 export const HOUSE_PROPOSAL_PRELIMINARY_TEXT = 'Расчёт является предварительным. Окончательная стоимость будет указана после выбора проекта и согласования дополнительных деталей.';
 
-// Бренд-палитра едина с premiumPdf; здесь только локальное расширение positive.
-const COLORS: Record<keyof typeof PREMIUM_PDF_COLORS | 'positive', Rgb> = {
-    ...PREMIUM_PDF_COLORS,
-    positive: [23, 107, 77] as Rgb,
-} as const;
+// Бренд-палитра едина с premiumPdf (positive входит в бренд).
+const COLORS = PREMIUM_PDF_COLORS;
 
 const PAGE_WIDTH = 210;
 const PAGE_HEIGHT = 297;

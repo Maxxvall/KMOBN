@@ -641,9 +641,8 @@ export async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[],
 
       const headers = await getAIRequestHeaders();
 
-      const timeoutSignal = typeof AbortSignal.timeout === 'function'
-        ? AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS)
-        : undefined;
+      const supportsCombining = typeof AbortSignal.timeout === 'function' && typeof AbortSignal.any === 'function';
+      const timeoutSignal = supportsCombining ? AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS) : undefined;
       const combinedSignal = opts?.signal && timeoutSignal
         ? AbortSignal.any([opts.signal, timeoutSignal])
         : opts?.signal ?? timeoutSignal;
@@ -661,7 +660,7 @@ export async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[],
       });
 
       if (res.status === 429) {
-        lastError = new Error('AI rate limit exceeded');
+        lastError = new Error('AI provider returned HTTP 429 (rate limit exceeded)');
         await sleep(retryAfterMs(res, Math.pow(2, i) * 1000), opts?.signal);
         continue;
       }
@@ -1135,11 +1134,24 @@ export const createEstimateGenerationCacheKey = (req: AIEstimateRequest): string
 // cache; cleared on success, error and rejection — never held forever.
 const inFlightGenerations = new Map<string, Promise<AIEstimateResult>>();
 
+const rejectOnCallerAbort = (promise: Promise<AIEstimateResult>, signal?: AbortSignal): Promise<AIEstimateResult> => {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(createAbortError());
+    return new Promise<AIEstimateResult>((resolve, reject) => {
+        const onAbort = () => reject(createAbortError());
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(
+            value => { signal.removeEventListener('abort', onAbort); resolve(value); },
+            reason => { signal.removeEventListener('abort', onAbort); reject(reason); },
+        );
+    });
+};
+
 export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AIEstimateResult> {
     if (req.signal?.aborted) throw createAbortError();
     const cacheKey = createEstimateGenerationCacheKey(req);
     const inFlight = inFlightGenerations.get(cacheKey);
-    if (inFlight) return inFlight;
+    if (inFlight) return rejectOnCallerAbort(inFlight, req.signal);
 
     // The shared generation deliberately runs without the caller's abort
     // signal: an aborting consumer just stops waiting, the result still lands
@@ -1149,7 +1161,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         if (inFlightGenerations.get(cacheKey) === generation) inFlightGenerations.delete(cacheKey);
     });
     inFlightGenerations.set(cacheKey, generation);
-    return generation;
+    return rejectOnCallerAbort(generation, req.signal);
 }
 
 async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: string): Promise<AIEstimateResult> {
@@ -1354,7 +1366,7 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
       parsedWarnings.push(...(s3Parsed.warnings || []));
     }
   } catch (e) {
-    if (isAbortError(e) || req.signal?.aborted) throw createAbortError();
+    if (isAbortError(e)) throw createAbortError();
     // If multi-stage fails, fall back to the legacy one-shot prompt.
     console.warn('[AI] Multi-stage generation failed, falling back to one-shot', e);
     parsedWarnings.push(`AI: не удалось выполнить многоэтапную генерацию, использую упрощённый режим. Причина: ${String(e)}`);
@@ -1382,7 +1394,7 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
       parsedWarnings.push(...(parsed.warnings || []));
       console.info('[AI] Compact one-shot fallback returned', parsedItems.length, 'items');
     } catch (fallbackErr) {
-      if (isAbortError(fallbackErr) || req.signal?.aborted) throw createAbortError();
+      if (isAbortError(fallbackErr)) throw createAbortError();
       console.error('[AI] Compact one-shot fallback also failed', fallbackErr);
       parsedWarnings.push(`AI: упрощённый режим тоже не смог сгенерировать позиции. Причина: ${String(fallbackErr)}`);
     }

@@ -456,18 +456,27 @@ describe('in-flight deduplication', () => {
   };
 
   it('shares one generation between identical parallel requests', async () => {
-    const first = fetchCountingMock();
-    vi.stubGlobal('fetch', first.mock);
-
+    const single = fetchCountingMock();
+    vi.stubGlobal('fetch', single.mock);
     const { generateEstimateWithAI } = await import('./openRouterService');
+    await generateEstimateWithAI(baseRequest);
+    const singleCalls = single.calls();
+
+    // Fresh module: identical parallel requests must cost exactly one run.
+    vi.resetModules();
+    process.env.VITE_OPENROUTER_API_KEY = 'test-key';
+    process.env.VITE_OPENROUTER_BASE_URL = 'https://example.com/openrouter';
+    process.env.VITE_OPENROUTER_MODEL = 'test-model';
+    const parallel = fetchCountingMock();
+    vi.stubGlobal('fetch', parallel.mock);
+    const { generateEstimateWithAI: generateAgain } = await import('./openRouterService');
     const [a, b] = await Promise.all([
-      generateEstimateWithAI(baseRequest),
-      generateEstimateWithAI(baseRequest),
+      generateAgain(baseRequest),
+      generateAgain(baseRequest),
     ]);
-    const sharedCalls = first.calls();
 
     expect(a).toEqual(b);
-    expect(sharedCalls).toBeGreaterThan(0);
+    expect(parallel.calls()).toBe(singleCalls);
   });
 
   it('starts an independent generation for a different request', async () => {
@@ -480,9 +489,8 @@ describe('in-flight deduplication', () => {
       generateEstimateWithAI({ ...baseRequest, area: 150 }),
     ]);
 
-    const twoRequestCalls = counter.calls();
-    // A different key ran its own stages: at least one extra stage fetch.
-    expect(twoRequestCalls).toBeGreaterThan(1);
+    // Different keys: two full runs (twice the single-run stage count at minimum).
+    expect(counter.calls()).toBeGreaterThanOrEqual(2);
   });
 
   it('clears the in-flight entry on failure so a retry starts a new generation', async () => {
@@ -523,12 +531,13 @@ describe('in-flight deduplication', () => {
     const controller = new AbortController();
     const shared = generateEstimateWithAI(baseRequest);
 
-    // Abort before joining: the aborted consumer gets an immediate rejection
-    // while the shared generation keeps running for everyone else.
+    // Abort after joining: the aborted consumer stops waiting immediately
+    // (AbortError) while the shared generation keeps running for the rest.
+    const abortedJoin = generateEstimateWithAI({ ...baseRequest, signal: controller.signal });
     controller.abort();
-    await expect(generateEstimateWithAI({ ...baseRequest, signal: controller.signal }))
-      .rejects.toMatchObject({ name: 'AbortError' });
+    await expect(abortedJoin).rejects.toMatchObject({ name: 'AbortError' });
 
+    // Non-aborted consumers still receive the shared result.
     await expect(shared).resolves.toBeDefined();
   });
 });

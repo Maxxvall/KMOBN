@@ -306,7 +306,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     });
     y += 3; // отступ после блока
 
-    addLine(`ОБЩИЙ ИТОГ: ${formatCurrency(totalForDisplay)} (${totalWords})`, { bold: true, size: 12 });
+    addLine(`ОБЩИЙ ИТОГ: ${totalForDisplay.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽ (${totalWords})`, { bold: true, size: 12 });
     y += 3;
     // Блок согласования — печатаем без внутренних отступов между строками
     addLine('СОГЛАСОВАНО:', { bold: true });
