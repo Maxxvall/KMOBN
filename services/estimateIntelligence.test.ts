@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Estimate, EstimateCategory, EstimateStatus } from '../types';
 import {
   buildEstimateDuplicateDeletePlan,
+  isSimilarEstimate,
   filterToLatestEstimateVersions,
   findEstimateVersionDuplicates,
   getLatestEstimateVersions,
@@ -228,5 +229,99 @@ describe('buildEstimateDuplicateDeletePlan', () => {
       [latest, oldA, oldB],
       [makeDeleteRequest(latest, [oldA, oldB])],
     )).toThrow('нужно сохранить одну версию');
+  });
+});
+
+
+// ─── Differential oracles: the original inline filters ──────────────────────
+
+const oracleHistoricalPatterns = (e: Estimate, params: { area: number; region?: string; buildingType?: string }): boolean => {
+  const normalize = (v: string) => v.trim().toLowerCase();
+  if (!e?.area || params.area <= 0) return false;
+  const areaClose = Math.abs(e.area - params.area) / params.area < 0.2;
+  const typeOk = params.buildingType ? normalize(e.buildingType) === normalize(params.buildingType) : true;
+  const estimateRegion = normalize(e.region || '');
+  const regionOk = params.region && estimateRegion ? estimateRegion === normalize(params.region) : true;
+  return areaClose && typeOk && regionOk;
+};
+
+const oracleBuilder = (e: Estimate, params: { area: number; region?: string; buildingType?: string }): boolean => {
+  const normalize = (v: string) => v.trim().toLowerCase();
+  const typeMatch = params.buildingType ? normalize(e.buildingType) === normalize(params.buildingType) : true;
+  const areaMatch = params.area > 0 && e.area > 0
+    ? Math.abs(e.area - params.area) / params.area < 0.3
+    : true;
+  return typeMatch && areaMatch;
+};
+
+const historyEstimate = (patch: Partial<Estimate>): Estimate => ({
+  id: 'h1',
+  estimateNumber: 'SM-2026-001',
+  client: 'Клиент',
+  date: '2026-07-13',
+  status: EstimateStatus.APPROVED,
+  version: 1,
+  items: [],
+  total: 100,
+  buildingType: 'Каркасный дом',
+  area: 100,
+  region: 'Московская область',
+  ...patch,
+});
+
+describe('isSimilarEstimate (differential against original filters)', () => {
+  const paramsList = [
+    { area: 100, buildingType: 'Каркасный дом', region: 'Московская область' },
+    { area: 100, buildingType: 'Каркасный дом' },
+    { area: 100, region: 'Московская область' },
+    { area: 100 },
+    { area: 0 },
+    { area: -5 },
+    { area: 100, buildingType: 'каркасный ДОМ' },
+  ];
+  const candidates = [
+    historyEstimate({ area: 100 }),
+    historyEstimate({ area: 119 }),
+    historyEstimate({ area: 121 }),
+    historyEstimate({ area: 0 }),
+    historyEstimate({ buildingType: 'Каркасный дом (утеплённый)' }),
+    historyEstimate({ buildingType: 'Кирпичный дом' }),
+    historyEstimate({ region: 'Свердловская область' }),
+    historyEstimate({ region: '' }),
+    historyEstimate({ isArchived: true }),
+  ];
+
+  it('matches analyzeHistoricalPatterns (tolerance 0.2) on every pair', () => {
+    for (const params of paramsList) {
+      for (const candidate of candidates) {
+        expect(isSimilarEstimate(candidate, params, { areaTolerance: 0.2 }))
+          .toBe(oracleHistoricalPatterns(candidate, params));
+      }
+    }
+  });
+
+  it('matches smartEstimateBuilder (tolerance 0.3, empty-area matches) on every pair', () => {
+    // SmartWizardParams carries no region, so the region rule never fires there.
+    const builderParams = paramsList.map(({ region: _region, ...rest }) => rest);
+    for (const params of builderParams) {
+      for (const candidate of candidates) {
+        expect(isSimilarEstimate(candidate, params, { areaTolerance: 0.3, matchOnEmptyArea: true }))
+          .toBe(oracleBuilder(candidate, params));
+      }
+    }
+  });
+
+  it('honours the boundary of the area tolerance', () => {
+    // 119/100 = 0.19 < 0.2 — similar; 121/100 = 0.21 — not.
+    const near = historyEstimate({ area: 119.9 });
+    const over = historyEstimate({ area: 120.1 });
+    expect(isSimilarEstimate(near, { area: 100 }, { areaTolerance: 0.2 })).toBe(true);
+    expect(isSimilarEstimate(over, { area: 100 }, { areaTolerance: 0.2 })).toBe(false);
+  });
+
+  it('never matches a requested area of zero unless the caller opted in', () => {
+    const candidate = historyEstimate({});
+    expect(isSimilarEstimate(candidate, { area: 0 }, { areaTolerance: 0.3 })).toBe(false);
+    expect(isSimilarEstimate(candidate, { area: 0 }, { areaTolerance: 0.3, matchOnEmptyArea: true })).toBe(true);
   });
 });

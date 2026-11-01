@@ -14,6 +14,7 @@ import {
     normalizeKey,
     safeNumber,
 } from '../types';
+import { isSimilarEstimate } from './estimateIntelligence';
 import { getSectionDescription } from './estimateSections';
 
 const median = (arr: number[]): number => {
@@ -98,20 +99,9 @@ function findSimilarEstimates(
     approved: Estimate[],
     params: SmartWizardParams,
 ): Estimate[] {
-    const buildingType = normalizeKey(params.buildingType);
-    const area = params.area;
-
-    const similar = approved.filter(e => {
-        const typeMatch = buildingType
-            ? normalizeKey(e.buildingType) === buildingType
-            : true;
-        const areaMatch = area > 0 && e.area > 0
-            ? Math.abs(e.area - area) / area < 0.3
-            : true;
-        return typeMatch && areaMatch;
-    });
-
-    return similar;
+    // The wizard treats an unknown area as "match anything": different product
+    // rule from the AI prompt paths, kept explicit via matchOnEmptyArea.
+    return approved.filter(e => isSimilarEstimate(e, params, { areaTolerance: 0.3, matchOnEmptyArea: true }));
 }
 
 function buildItemStats(

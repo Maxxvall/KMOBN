@@ -80,6 +80,37 @@ export function filterToLatestEstimateVersions(estimates: Estimate[]): Estimate[
   return getLatestEstimateVersions(estimates).filter(estimate => !estimate.isArchived);
 }
 
+export type SimilarEstimateOptions = {
+  /** Relative area deviation that still counts as similar (0.2 / 0.25 / 0.3 in production). */
+  areaTolerance: number;
+  /** What a zero-or-negative requested area means: false — nothing matches, true — match on type/region alone. */
+  matchOnEmptyArea?: boolean;
+};
+
+/**
+ * Shared similarity predicate. Per-request area/type/region rules were
+ * identical across analyzeHistoricalPatterns (0.2), pickFewShotExamples (0.25)
+ * and smartEstimateBuilder (0.3) — only the tolerance and the empty-area
+ * policy actually differed, so those stay explicit options.
+ */
+export const isSimilarEstimate = (
+  candidate: Estimate,
+  params: { area: number; region?: string; buildingType?: string },
+  options: SimilarEstimateOptions,
+): boolean => {
+  if (params.area > 0 && candidate.area > 0) {
+    if (Math.abs(candidate.area - params.area) / params.area >= options.areaTolerance) return false;
+  } else if (!options.matchOnEmptyArea) {
+    return false;
+  }
+  if (params.buildingType && normalizeKey(candidate.buildingType) !== normalizeKey(params.buildingType)) return false;
+  if (params.region) {
+    const candidateRegion = normalizeKey(candidate.region || '');
+    if (candidateRegion && candidateRegion !== normalizeKey(params.region)) return false;
+  }
+  return true;
+};
+
 export function buildDependencyGraph(materials: Material[], works: Work[]): DependencyGraph {
   const workNames = new Set((works || []).map(w => normalizeKey(w.name)));
   const materialNames = new Set((materials || []).map(m => normalizeKey(m.name)));
@@ -180,14 +211,7 @@ export function analyzeHistoricalPatterns(
   const region = normalizeKey(params.region || '');
   const buildingType = normalizeKey(params.buildingType || '');
 
-  const similar = (latestOnly || []).filter(e => {
-    if (!e?.area || area <= 0) return false;
-    const areaClose = Math.abs(e.area - area) / area < 0.2;
-    const typeOk = buildingType ? normalizeKey(e.buildingType) === buildingType : true;
-    const estimateRegion = normalizeKey(e.region || '');
-    const regionOk = region && estimateRegion ? estimateRegion === region : true;
-    return areaClose && typeOk && regionOk;
-  });
+  const similar = (latestOnly || []).filter(e => isSimilarEstimate(e, { area, region, buildingType }, { areaTolerance: 0.2 }));
 
   const freq = new Map<string, number>();
   const presenceByEstimate: Array<Set<string>> = [];
@@ -434,15 +458,7 @@ export function pickFewShotExamples(
   const latestOnly = filterToLatestEstimateVersions(estimates || [])
     .filter(estimate => estimate.status === EstimateStatus.APPROVED && (estimate.items || []).length > 0);
   const patterns = analyzeHistoricalPatterns(latestOnly, params);
-  const similar = (latestOnly || []).filter(e => {
-    if (!e?.area || !params.area) return false;
-    const areaClose = Math.abs(e.area - params.area) / params.area < 0.25;
-    const typeOk = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
-    const estimateRegion = normalizeKey(e.region || '');
-    const requestedRegion = normalizeKey(params.region || '');
-    const regionOk = requestedRegion && estimateRegion ? estimateRegion === requestedRegion : true;
-    return areaClose && typeOk && regionOk;
-  });
+  const similar = (latestOnly || []).filter(e => isSimilarEstimate(e, params, { areaTolerance: 0.25 }));
 
   const scored = similar
     .map(e => {
