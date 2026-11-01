@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useId, useRef } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { findEstimateVersionDuplicates, getLatestEstimateVersions, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
@@ -421,24 +421,31 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [estimateList, allEstimatesList, archiveView, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
     
-    const getVersionHistory = (estimate: Estimate) => {
-        const groupKey = estimate.estimateNumber;
-        return allEstimatesList
-            .filter(e => e.estimateNumber === groupKey)
-            .sort((a, b) => b.version - a.version);
-    }
+    // Single grouping pass instead of a full-list filter per rendered row.
+    const estimatesByNumber = useMemo(() => {
+        const groups = new Map<string, Estimate[]>();
+        for (const estimate of allEstimatesList) {
+            const bucket = groups.get(estimate.estimateNumber);
+            if (bucket) bucket.push(estimate); else groups.set(estimate.estimateNumber, [estimate]);
+        }
+        return groups;
+    }, [allEstimatesList]);
+    const estimatesById = useMemo(() => new Map(allEstimatesList.map(estimate => [estimate.id, estimate])), [allEstimatesList]);
 
-    const getSelectedVersionEstimate = (estimate: Estimate): Estimate => {
-        const groupKey = estimate.estimateNumber;
-        const selectedVersionId = selectedVersions[groupKey];
-        
+    const getVersionHistory = useCallback((estimate: Estimate) => {
+        return (estimatesByNumber.get(estimate.estimateNumber) ?? [])
+            .slice()
+            .sort((a, b) => b.version - a.version);
+    }, [estimatesByNumber]);
+
+    const getSelectedVersionEstimate = useCallback((estimate: Estimate): Estimate => {
+        const selectedVersionId = selectedVersions[estimate.estimateNumber];
         if (selectedVersionId) {
-            const selectedEstimate = allEstimatesList.find(e => e.id === selectedVersionId);
+            const selectedEstimate = estimatesById.get(selectedVersionId);
             if (selectedEstimate) return selectedEstimate;
         }
-        
         return estimate;
-    }
+    }, [estimatesById, selectedVersions]);
 
     const handleVersionChange = (groupKey: string, versionId: string) => {
         setSelectedVersions(prev => ({
@@ -603,7 +610,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     <tbody className="text-text-primary">
                         {filteredEstimates.map(estimate => {
                             const groupKey = estimate.estimateNumber;
-                            const selectedEstimate = getSelectedVersionEstimate(estimate);
+                            const selectedEstimate: Estimate = getSelectedVersionEstimate(estimate);
                             const versionHistory = getVersionHistory(estimate);
                             
                             return (
@@ -658,7 +665,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             <div className="md:hidden space-y-3">
                 {filteredEstimates.map(estimate => {
                     const groupKey = estimate.estimateNumber;
-                    const selectedEstimate = getSelectedVersionEstimate(estimate);
+                    const selectedEstimate: Estimate = getSelectedVersionEstimate(estimate);
                     const versionHistory = getVersionHistory(estimate);
 
                     return (
