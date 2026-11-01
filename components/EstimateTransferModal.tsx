@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { downloadBlob } from '../services/download';
 import FocusLock from 'react-focus-lock';
 import type { Estimate } from '../types';
 import { createEstimateTransfer, parseEstimateTransfer } from '../services/database';
@@ -29,15 +30,8 @@ const copyToClipboard = async (text: string): Promise<void> => {
 
 const downloadTransfer = (estimate: Estimate) => {
     const blob = new Blob([createEstimateTransfer(estimate)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
     const safeNumber = estimate.estimateNumber.replace(/[^a-zа-яё0-9_-]+/gi, '-');
-    link.href = url;
-    link.download = `смета-${safeNumber || 'обмен'}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `смета-${safeNumber || 'обмен'}.json`);
 };
 
 const EstimateTransferModal: React.FC<EstimateTransferModalProps> = ({ mode, estimate, onClose, onImport }) => {

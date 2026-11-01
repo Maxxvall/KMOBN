@@ -19,6 +19,7 @@ import {
     YAxis,
 } from 'recharts';
 import { List, type RowComponentProps } from 'react-window';
+import { downloadBlob } from '../services/download';
 
 type AnalyticsItemComparison = {
     name: string;
@@ -102,17 +103,6 @@ const shiftMonths = (d: Date, months: number) => {
     const copy = new Date(d);
     copy.setMonth(copy.getMonth() + months);
     return copy;
-};
-
-const downloadBlob = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 };
 
 const exportToCsv = (rows: Record<string, any>[], filename: string) => {
