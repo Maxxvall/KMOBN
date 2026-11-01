@@ -761,7 +761,7 @@ const parseEstimateResponse = (rawText: string, fallbackCategory?: SectionId): {
   return { items, suggestions, warnings };
 };
 
-const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
+const toEstimateItemsWithIdPrefix = (aiItems: any[], idPrefix: string): EstimateItem[] => {
   const now = Date.now();
   return (aiItems || [])
     .map((it, index): EstimateItem | null => {
@@ -785,7 +785,7 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
               : classifySubgroup(name, unit);
 
       return {
-        id: `ai-${now}-${index}`,
+        id: `${idPrefix}-${now}-${index}`,
         name,
         unit,
         quantity,
@@ -827,41 +827,8 @@ const correctAIQuantities = (
   });
 };
 
-const toEstimateItemsWithPrefix = (aiItems: any[], idPrefix: string): EstimateItem[] => {
-  const now = Date.now();
-  return (aiItems || [])
-    .map((it, index): EstimateItem | null => {
-      const name = String(it?.name || '').trim();
-      if (!name) return null;
-
-      const unit = normalizeUnitText(String(it?.unit || 'шт'));
-      const quantity = Math.max(0, safeNumber(it?.quantity, 0));
-      const price = 0;
-      const category = normalizeEstimateCategory(it?.category) || EstimateCategory.GENERAL;
-
-      const subgroupFromAi = String(it?.subgroup || '').trim();
-      const subgroup: EstimateSubgroup =
-        subgroupFromAi === EstimateSubgroup.MATERIALS
-          ? EstimateSubgroup.MATERIALS
-          : subgroupFromAi === EstimateSubgroup.DELIVERY
-            ? EstimateSubgroup.DELIVERY
-            : subgroupFromAi === EstimateSubgroup.WORKS
-              ? EstimateSubgroup.WORKS
-              : classifySubgroup(name, unit);
-
-      return {
-        id: `${idPrefix}-${now}-${index}`,
-        name,
-        unit,
-        quantity,
-        price,
-        total: quantity * price,
-        category,
-        subgroup,
-      };
-    })
-    .filter(Boolean) as EstimateItem[];
-};
+const toEstimateItems = (aiItems: any[]): EstimateItem[] => toEstimateItemsWithIdPrefix(aiItems, 'ai');
+const toEstimateItemsWithPrefix = (aiItems: any[], idPrefix: string): EstimateItem[] => toEstimateItemsWithIdPrefix(aiItems, idPrefix);
 
 const normalizeTokens = (s: string): string[] => {
   const cleaned = normalizeKey(s)
