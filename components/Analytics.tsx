@@ -36,7 +36,7 @@ type AnalyticsItemComparison = {
 
 // Module-level so react-window keeps a stable row component between renders;
 // an inline definition remounts every visible row on each analytics render.
-const AnalyticsItemsRow = ({ ariaAttributes, index, style, items }: RowComponentProps<{ items: AnalyticsItemComparison[] }>) => {
+const AnalyticsItemsRow = ({ ariaAttributes, index, style, items, significantThreshold }: RowComponentProps<{ items: AnalyticsItemComparison[]; significantThreshold: number }>) => {
     const it = items[index];
     const zebra = index % 2 === 0 ? 'bg-background/20' : '';
     return (
@@ -48,7 +48,7 @@ const AnalyticsItemsRow = ({ ariaAttributes, index, style, items }: RowComponent
             <div className="text-right text-text-primary tabular-nums">{it.qty2 ?? '—'}</div>
             <div className="text-right text-text-primary tabular-nums">{it.price2 ?? '—'}</div>
             <div className="text-right text-text-primary tabular-nums">{formatRub(it.total2 ?? 0)}</div>
-            <div className={`text-right tabular-nums ${it.diff >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatRub(it.diff ?? 0)}</div>
+            <div className={`text-right tabular-nums ${(it.diff ?? 0) >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatRub(it.diff ?? 0)}</div>
             <div className={`text-right tabular-nums ${Math.abs(it.diffPct || 0) >= significantThreshold ? 'text-amber-200 font-semibold' : 'text-text-primary'}`}>{it.diffPct ?? 0}%</div>
         </div>
     );
@@ -2056,7 +2056,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                                             rowCount={filteredItems.length}
                                                                             rowHeight={44}
                                                                             rowComponent={AnalyticsItemsRow}
-                                                                            rowProps={{ items: filteredItems }}
+                                                                            rowProps={{ items: filteredItems, significantThreshold }}
                                                                             style={{ height: 360 }}
                                                                         />
                                                                     ) : (
