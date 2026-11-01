@@ -1412,8 +1412,6 @@ const App: React.FC = () => {
         }
         
         try {
-            // jsPDF + шрифты (~350 КБ) нужны только здесь: грузим генератор
-            // в момент выбора стиля экспорта, а не при старте приложения.
             if (style === 'simple') {
                 await exportEstimatePdfPlain(pendingExportEstimate, title);
             } else {

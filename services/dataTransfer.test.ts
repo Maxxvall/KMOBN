@@ -137,7 +137,6 @@ describe('importData', () => {
             estimates: [],
         }));
 
-        console.info('[test-debug] result:', JSON.stringify(result));
         expect(result.materials.updated).toBe(1);
         expect((await cachedMaterials())[0]).toMatchObject({ price: 150 });
     });
