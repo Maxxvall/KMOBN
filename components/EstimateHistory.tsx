@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, useEffect, useId, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { findEstimateVersionDuplicates, getLatestEstimateVersions, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
@@ -432,20 +432,20 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     }, [allEstimatesList]);
     const estimatesById = useMemo(() => new Map(allEstimatesList.map(estimate => [estimate.id, estimate])), [allEstimatesList]);
 
-    const getVersionHistory = useCallback((estimate: Estimate) => {
+    const getVersionHistory = (estimate: Estimate) => {
         return (estimatesByNumber.get(estimate.estimateNumber) ?? [])
             .slice()
             .sort((a, b) => b.version - a.version);
-    }, [estimatesByNumber]);
+    };
 
-    const getSelectedVersionEstimate = useCallback((estimate: Estimate): Estimate => {
+    const getSelectedVersionEstimate = (estimate: Estimate): Estimate => {
         const selectedVersionId = selectedVersions[estimate.estimateNumber];
         if (selectedVersionId) {
             const selectedEstimate = estimatesById.get(selectedVersionId);
             if (selectedEstimate) return selectedEstimate;
         }
         return estimate;
-    }, [estimatesById, selectedVersions]);
+    };
 
     const handleVersionChange = (groupKey: string, versionId: string) => {
         setSelectedVersions(prev => ({

@@ -16,7 +16,7 @@ type UseEstimateCrudParams = {
   setCurrentEstimate: React.Dispatch<React.SetStateAction<Estimate | null>>;
   setEditorValidationResult: React.Dispatch<React.SetStateAction<ReturnType<typeof validateEstimate> | null>>;
   setEditorDirty: React.Dispatch<React.SetStateAction<boolean>>;
-  setEditorDraft: React.Dispatch<React.SetStateAction<Estimate | null>>;
+  resetEditorDraft: () => void;
   setShowSaveOptions: React.Dispatch<React.SetStateAction<boolean>>;
   setShowUnsavedModal: React.Dispatch<React.SetStateAction<boolean>>;
   setPendingView: React.Dispatch<React.SetStateAction<View | null>>;
@@ -33,7 +33,7 @@ export const useEstimateCrud = ({
   setCurrentEstimate,
   setEditorValidationResult,
   setEditorDirty,
-  setEditorDraft,
+  resetEditorDraft,
   setShowSaveOptions,
   setShowUnsavedModal,
   setPendingView,
@@ -47,7 +47,7 @@ export const useEstimateCrud = ({
     setCurrentEstimate(null);
     setEditorValidationResult(null);
     setEditorDirty(false);
-    setEditorDraft(null);
+    resetEditorDraft();
     setPendingView(null);
     setShowSaveOptions(false);
     setShowUnsavedModal(false);
@@ -56,7 +56,7 @@ export const useEstimateCrud = ({
     setCurrentEstimate,
     setEditorValidationResult,
     setEditorDirty,
-    setEditorDraft,
+    resetEditorDraft,
     setPendingView,
     setShowSaveOptions,
     setShowUnsavedModal,
@@ -72,7 +72,7 @@ export const useEstimateCrud = ({
     setCurrentEstimate(nextEstimate);
     setEditorValidationResult(null);
     setEditorDirty(false);
-    setEditorDraft(null);
+    resetEditorDraft();
     setPendingView(null);
     setShowSaveOptions(false);
     setShowUnsavedModal(false);
@@ -83,7 +83,7 @@ export const useEstimateCrud = ({
     setCurrentEstimate,
     setEditorValidationResult,
     setEditorDirty,
-    setEditorDraft,
+    resetEditorDraft,
     setPendingView,
     setShowSaveOptions,
     setShowUnsavedModal,
@@ -122,7 +122,7 @@ export const useEstimateCrud = ({
     void saveEstimates(updatedEstimates).then(() => {
       setEstimates(updatedEstimates);
       setEditorDirty(false);
-      setEditorDraft(null);
+      resetEditorDraft();
       setShowSaveOptions(false);
       setPendingView(null);
       setShowUnsavedModal(false);
@@ -142,7 +142,7 @@ export const useEstimateCrud = ({
     setShowUnsavedModal,
     setPendingView,
     setEditorDirty,
-    setEditorDraft,
+    resetEditorDraft,
     setViewAfterSave,
     setSync,
   ]);

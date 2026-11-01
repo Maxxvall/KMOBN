@@ -181,6 +181,10 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             setVariants([]);
             setResult(null);
             setError(reason instanceof Error ? reason.message : 'Не удалось выполнить расчёт.');
+        } finally {
+            // Deferred recalculations resolve quickly; the explicit button run
+            // manages its own indicator through runRequestedCalculation.
+            setIsCalculating(false);
         }
     }, [applyVariants, deferredCalculationInput, historyLoaded]);
 

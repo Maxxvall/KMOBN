@@ -1265,12 +1265,15 @@ const App: React.FC = () => {
         estimates,
         goToView,
         recalculateWorkPrices,
+        resetEditorDraft: () => {
+            setEditorDraft(null);
+            editorDraftRef.current = null;
+        },
         setEstimates,
         setTemplates,
         setCurrentEstimate,
         setEditorValidationResult,
         setEditorDirty,
-        setEditorDraft,
         setShowSaveOptions,
         setShowUnsavedModal,
         setPendingView,

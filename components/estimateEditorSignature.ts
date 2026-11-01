@@ -1,4 +1,4 @@
-import type { Estimate, EstimateItem } from '../types';
+import { EstimateSubgroup, type Estimate, type EstimateItem } from '../types';
 
 // Pure dirty-signature hashing for the estimate editor. Extracted verbatim
 // from EstimateEditor so benchmarks and future callers share one definition.
@@ -37,14 +37,37 @@ export const buildEstimateDirtySignature = (value: Estimate): number => {
     }
 
     for (const item of value.items) {
-        hash = hashText(hash, item.id);
         hash = hashText(hash, item.name);
         hash = hashText(hash, item.unit);
         hash = hashNumber(hash, item.quantity || 0);
         hash = hashNumber(hash, item.price || 0);
+        hash = hashNumber(hash, item.total || 0);
         hash = hashText(hash, item.category);
-        hash = hashText(hash, item.subgroup || '');
+        hash = hashText(hash, item.subgroup || EstimateSubgroup.WORKS);
+        hash = hashText(hash, item.catalogMaterialId || '');
+        hash = hashBoolean(hash, Boolean(item.isActualOnly));
+        hash = hashText(hash, item.actual?.unit || '');
+        hash = hashNumber(hash, item.actual?.quantity ?? 0);
+        hash = hashNumber(hash, item.actual?.price ?? 0);
+        hash = hashText(hash, item.actual?.note || '');
+        hash = hashText(hash, item.actual?.source || '');
     }
+
+    if (value.crewToolPlan) {
+        hash = hashNumber(hash, value.crewToolPlan.crewSize);
+        for (const tool of value.crewToolPlan.requirements) {
+            hash = hashText(hash, tool.toolKey);
+            hash = hashText(hash, tool.name);
+            hash = hashNumber(hash, tool.quantity);
+            hash = hashText(hash, tool.quantityMode);
+            hash = hashText(hash, tool.source);
+        }
+        for (const [key, quantity] of Object.entries(value.crewToolPlan.quantityOverrides ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+            hash = hashText(hash, key);
+            hash = hashNumber(hash, quantity);
+        }
+    }
+
     return hash;
 };
 
