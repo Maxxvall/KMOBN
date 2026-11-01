@@ -68,13 +68,13 @@ const getStoreName = (key: CacheTableKey): string => STORE_NAMES[key];
 const buildRecordKey = (userId: string, id: string): string => `${userId}:${id}`;
 const buildMetadataKey = (userId: string, table: CacheTableKey): string => `${userId}:${table}`;
 
-const requestToPromise = <T>(request: IDBRequest<T>): Promise<T> =>
+export const requestToPromise = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 
-const waitForTransaction = (tx: IDBTransaction): Promise<void> =>
+export const waitForTransaction = (tx: IDBTransaction): Promise<void> =>
   new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);

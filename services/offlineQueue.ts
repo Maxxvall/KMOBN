@@ -1,5 +1,6 @@
 import type { CacheTableKey } from './indexedDbCache';
-import { isIndexedDbAvailable } from './indexedDbCache';
+import { isIndexedDbAvailable, requestToPromise, waitForTransaction } from './indexedDbCache';
+import { createOperationId } from './operationId';
 import { getOfflineUserId } from './offlineIdentity';
 
 export type PendingOperation = 'upsert' | 'delete';
@@ -73,13 +74,6 @@ const nextSequence = (): number => {
   return lastSequence;
 };
 
-const createOperationId = (): string => {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
-    const random = Math.floor(Math.random() * 16);
-    return (token === 'x' ? random : (random & 0x3) | 0x8).toString(16);
-  });
-};
 
 const isSameSnapshot = (
   current: PendingChange | undefined,
@@ -160,18 +154,6 @@ const openQueueDb = (): Promise<IDBDatabase> => {
   return cachedDbPromise;
 };
 
-const requestToPromise = <T>(request: IDBRequest<T>): Promise<T> =>
-  new Promise((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-
-const waitForTransaction = (tx: IDBTransaction): Promise<void> =>
-  new Promise((resolve, reject) => {
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
-  });
 
 const isScopedChange = (value: unknown): value is PendingChange => {
   if (!value || typeof value !== 'object') return false;

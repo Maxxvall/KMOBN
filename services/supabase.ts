@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createOperationId } from './operationId';
 
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) || '';
 const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || '';
@@ -211,13 +212,6 @@ export const fetchBundles = async (userId: string, options?: FetchTableOptions) 
 
 export const fetchEstimateSections = async (userId: string, options?: FetchTableOptions) => fetchTable('estimate_sections', userId, options);
 
-const createOperationId = (): string => {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
-    const random = Math.floor(Math.random() * 16);
-    return (token === 'x' ? random : (random & 0x3) | 0x8).toString(16);
-  });
-};
 
 export const saveEstimateSectionsRemote = async (document: any, userId: string) => {
   if (!supabase) return { data: null, error: new Error('Supabase not configured') };

@@ -109,7 +109,7 @@ const DELIVERY_KEYWORDS = ['достав', 'доставка', 'транспор
 
 const createAbortError = () => new DOMException('The operation was aborted.', 'AbortError');
 
-const isAbortError = (error: unknown): boolean => {
+export const isAbortError = (error: unknown): boolean => {
   return error instanceof DOMException
     ? error.name === 'AbortError'
     : error instanceof Error && error.name === 'AbortError';
@@ -595,28 +595,20 @@ const buildAdvancedContext = (opts: {
   };
 };
 
-const buildMaterialsCatalog = (materials: Material[]): string => {
-  // Keep context reasonably bounded: too long prompts increase failure rate.
+// Keep context reasonably bounded: too long prompts increase failure rate.
+const buildCatalogSummary = <T extends { name: string; price: number; category: string }>(items: T[]): string => {
   const maxChars = 22_000;
   let out = '';
-  for (const m of (materials || [])) {
-    const line = `- ${m.name} | ${m.price} ₽ | ${m.category}`;
+  for (const item of (items || [])) {
+    const line = `- ${item.name} | ${item.price} ₽ | ${item.category}`;
     if ((out.length + line.length + 1) > maxChars) break;
     out += (out ? '\n' : '') + line;
   }
   return out;
 };
 
-const buildWorksCatalog = (works: Work[]): string => {
-  const maxChars = 22_000;
-  let out = '';
-  for (const w of (works || [])) {
-    const line = `- ${w.name} | ${w.price} ₽ | ${w.category}`;
-    if ((out.length + line.length + 1) > maxChars) break;
-    out += (out ? '\n' : '') + line;
-  }
-  return out;
-};
+const buildMaterialsCatalog = (materials: Material[]): string => buildCatalogSummary(materials);
+const buildWorksCatalog = (works: Work[]): string => buildCatalogSummary(works);
 
 async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number; signal?: AbortSignal }) {
   if (!hasOpenRouterKey()) {

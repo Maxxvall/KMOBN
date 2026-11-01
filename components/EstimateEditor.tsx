@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
 import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
-import { generateEstimateWithAI } from '../services/openRouterService';
+import { generateEstimateWithAI, isAbortError } from '../services/openRouterService';
 import { buildEstimateDirtySignature, buildEstimateItemsSignature } from './estimateEditorSignature';
 import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
@@ -112,11 +112,6 @@ const MaterialPriceSyncButton: React.FC<{
     );
 };
 
-const isAbortError = (error: unknown): boolean => {
-    return error instanceof DOMException
-        ? error.name === 'AbortError'
-        : error instanceof Error && error.name === 'AbortError';
-};
 
 // Renders only the viewport-appropriate branch of the estimate table.
 const useIsDesktopViewport = (): boolean => {
