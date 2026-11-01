@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { downloadBlob } from '../services/download';
 import { User } from '@supabase/supabase-js';
 import { getActiveUsageMs } from '../services/appUsage';
-import { exportData } from '../services/database';
+import { exportData } from '../services/dataTransfer';
 import { closeIndexedDbCache } from '../services/indexedDbCache';
 import { offlineQueue } from '../services/offlineQueue';
 

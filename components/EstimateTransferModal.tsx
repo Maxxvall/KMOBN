@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { downloadBlob } from '../services/download';
 import FocusLock from 'react-focus-lock';
 import type { Estimate } from '../types';
-import { createEstimateTransfer, parseEstimateTransfer } from '../services/database';
+import { createEstimateTransfer, parseEstimateTransfer } from '../services/dataTransfer';
 
 type EstimateTransferModalProps = {
     mode: 'share' | 'import';
