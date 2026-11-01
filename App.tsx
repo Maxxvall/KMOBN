@@ -239,6 +239,10 @@ const App: React.FC = () => {
     const setEditorValidationResult = useCallback((v: React.SetStateAction<EstimateValidationResult | null>) => setEditorState(p => ({ ...p, editorValidationResult: typeof v === 'function' ? (v as (prev: EstimateValidationResult | null) => EstimateValidationResult | null)(p.editorValidationResult) : v })), []);
     const setEditorDirty = useCallback((v: React.SetStateAction<boolean>) => setEditorState(p => ({ ...p, editorDirty: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.editorDirty) : v })), []);
     const setEditorDraft = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, editorDraft: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.editorDraft) : v })), []);
+    // Keystroke-level draft mirror: the editor pushes every edit here without
+    // re-rendering App; the editorDraft state is synced from the ref only when
+    // a modal that reads it is about to open.
+    const editorDraftRef = useRef<Estimate | null>(null);
     const setViewAfterSave = useCallback((v: React.SetStateAction<View>) => setEditorState(p => ({ ...p, viewAfterSave: typeof v === 'function' ? (v as (prev: View) => View)(p.viewAfterSave) : v })), []);
     const setIsSaving = useCallback((v: React.SetStateAction<boolean>) => setSaveState(p => ({ ...p, isSaving: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.isSaving) : v })), []);
     const setLastSaved = useCallback((v: React.SetStateAction<Date | null>) => setSaveState(p => ({ ...p, lastSaved: typeof v === 'function' ? (v as (prev: Date | null) => Date | null)(p.lastSaved) : v })), []);
@@ -1219,6 +1223,7 @@ const App: React.FC = () => {
         setEditorValidationResult(null);
         setEditorDirty(false);
         setEditorDraft(null);
+        editorDraftRef.current = null;
         setPendingView(null);
         setShowSaveOptions(false);
         setShowUnsavedModal(false);
@@ -1293,16 +1298,22 @@ const App: React.FC = () => {
         setIsOfflineChangesOpen(false);
     }, [handleNavigationAttempt]);
 
+    const applyEditorDraft = useCallback((draft: Estimate) => {
+        const mirrored = { ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) };
+        editorDraftRef.current = mirrored;
+        return mirrored;
+    }, [sectionsDocument]);
+
     const handleDraftChange = useCallback((draft: Estimate) => {
-        setEditorDraft({ ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) });
-    }, [sectionsDocument, setEditorDraft]);
+        applyEditorDraft(draft);
+    }, [applyEditorDraft]);
 
     const handleDirtyChange = useCallback((dirty: boolean) => {
         setEditorDirty(dirty);
     }, [setEditorDirty]);
 
     const handleSaveRequest = useCallback((draft: Estimate) => {
-        setEditorDraft({ ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) });
+        setEditorDraft(applyEditorDraft(draft));
         setRestoreArchivedOnSave(true);
         setViewAfterSave(View.HISTORY);
         setShowSaveOptions(true);
@@ -1317,10 +1328,11 @@ const App: React.FC = () => {
 
     const handleUnsavedSave = useCallback(() => {
         const target = pendingView ?? View.HISTORY;
+        if (editorDraftRef.current) setEditorDraft(editorDraftRef.current);
         setViewAfterSave(target);
         setShowUnsavedModal(false);
         setShowSaveOptions(true);
-    }, [pendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
+    }, [pendingView, setEditorDraft, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
 
     const handleUnsavedDiscard = useCallback(() => {
         const target = pendingView ?? View.HISTORY;
@@ -1328,6 +1340,7 @@ const App: React.FC = () => {
         setPendingView(null);
         setEditorDirty(false);
         setEditorDraft(null);
+        editorDraftRef.current = null;
         goToView(target);
     }, [pendingView, goToView, setEditorDirty, setEditorDraft, setPendingView, setShowUnsavedModal]);
 
@@ -1349,6 +1362,7 @@ const App: React.FC = () => {
             setShowUnsavedModal(false);
             setEditorDirty(false);
             setEditorDraft(null);
+            editorDraftRef.current = null;
             setPendingView(null);
         }
     }, [view, setEditorDirty, setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal]);
@@ -1369,6 +1383,7 @@ const App: React.FC = () => {
             setCurrentEstimate(exportEstimate);
             setEditorDirty(false);
             setEditorDraft(null);
+            editorDraftRef.current = null;
             setPendingView(null);
             setShowSaveOptions(false);
             setShowUnsavedModal(false);
