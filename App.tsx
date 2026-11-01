@@ -40,6 +40,7 @@ import {
     updateUserSubscription,
 } from './services/subscriptionService';
 import { setupAppUsageTracking } from './services/appUsage';
+import { exportContractPdf, exportEstimatePdfColored, exportEstimatePdfPlain } from './services/documentExport';
 import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './services/offlineIdentity';
 import { buildCatalogDuplicateDeletePlan, type CatalogDuplicateDecision } from './services/duplicateManagement';
 import { recalculateEstimateWorkPrices } from './services/estimatePricing';
@@ -1414,11 +1415,9 @@ const App: React.FC = () => {
             // jsPDF + шрифты (~350 КБ) нужны только здесь: грузим генератор
             // в момент выбора стиля экспорта, а не при старте приложения.
             if (style === 'simple') {
-                const { generatePdf } = await import('./services/pdfGenerator');
-                await generatePdf(pendingExportEstimate, title);
+                await exportEstimatePdfPlain(pendingExportEstimate, title);
             } else {
-                const { generatePdf } = await import('./services/pdfGenerator2');
-                await generatePdf(pendingExportEstimate, materialsRef.current, title);
+                await exportEstimatePdfColored(pendingExportEstimate, materialsRef.current, title);
             }
         } catch (error) {
             console.error("PDF Generation Error:", error);
@@ -1433,8 +1432,7 @@ const App: React.FC = () => {
         if (!pendingExportEstimate) return;
 
         try {
-            const { generatePdfContract } = await import('./services/pdfContractGenerator');
-            await generatePdfContract(pendingExportEstimate, contractName);
+            await exportContractPdf(pendingExportEstimate, contractName);
         } catch (error) {
             console.error('PDF Contract Generation Error:', error);
             alert('Не удалось сгенерировать PDF документ.');

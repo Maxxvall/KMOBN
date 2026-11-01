@@ -1,5 +1,4 @@
-import { Estimate, EstimateStatus, ProjectTemplate, Material, Work, WorkBundle, normalizeKey, EstimateSectionsDocument } from '../types';
-import { generateEstimateNumber } from './estimateNumber';
+import { Estimate, ProjectTemplate, Material, Work, WorkBundle, EstimateSectionsDocument } from '../types';
 import {
   CacheTableKey,
   deleteCachedRecords,
@@ -14,8 +13,7 @@ import { offlineQueue, type PendingChange } from './offlineQueue';
 import { hashData } from './hashing';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
-import { normalizeEstimateSectionsDocument, prepareEstimateSectionsDocumentForSave } from './estimateSections';
-import { toClientEstimate } from './clientEstimate';
+import { prepareEstimateSectionsDocumentForSave } from './estimateSections';
 import supabase, {
   isSupabaseConfigured,
   fetchEstimates,
