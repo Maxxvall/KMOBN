@@ -63,7 +63,10 @@ const requiredByPackage: Record<HousePackage, HouseScopeId[]> = {
 export const getRequiredHouseScopeIds = (housePackage: HousePackage): HouseScopeId[] => [...requiredByPackage[housePackage]];
 
 const allScopeIds = Object.keys(labels) as HouseScopeId[];
-const normalize = (value: string): string => value.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+// Shared house-domain text rule: locale lowercase + ё→е, no trim and no
+// whitespace collapsing (callers that need more own their extra rules).
+export const normalizeRussianLower = (value: string): string => value.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+const normalize = normalizeRussianLower;
 const hasAny = (value: string, fragments: string[]): boolean => fragments.some(fragment => value.includes(fragment));
 
 export const detectHouseScopeId = (item: EstimateItem): HouseScopeId | null => {

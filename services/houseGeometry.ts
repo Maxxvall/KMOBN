@@ -1,5 +1,6 @@
 import { EstimateCategory, type EstimateItem } from '../types';
 import type { RoofShape } from './houseCalculator';
+import { normalizeRussianLower } from './houseScope';
 
 export type HouseFoundationGeometry =
     | { type: 'slab'; thickness: number }
@@ -110,7 +111,7 @@ const isSquareUnit = (unit: string): boolean => ['м²', 'м2', 'кв.м', 'кв
 const isCubicUnit = (unit: string): boolean => ['м³', 'м3', 'куб.м', 'куб.м.'].includes(normalizedUnit(unit));
 const isLinearUnit = (unit: string): boolean => ['м', 'м.п', 'м.п.', 'п.м', 'п.м.', 'пог.м', 'пог.м.'].includes(normalizedUnit(unit));
 const isPieceUnit = (unit: string): boolean => ['шт', 'шт.', 'штука', 'штук'].includes(normalizedUnit(unit));
-const normalizeText = (item: EstimateItem): string => `${item.name} ${item.note || ''}`.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+const normalizeText = (item: EstimateItem): string => normalizeRussianLower(`${item.name} ${item.note || ''}`);
 
 export function resolveHouseGeometryQuantity(item: EstimateItem, geometry: HouseGeometryResult): HouseGeometryQuantity | null {
     const text = normalizeText(item);
