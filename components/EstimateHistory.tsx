@@ -10,6 +10,8 @@ import { useOptionalCatalogContext } from '../contexts/CatalogContext';
 import SmartEstimateWizard from './SmartEstimateWizard';
 import EstimateDuplicateDialog from './EstimateDuplicateDialog';
 import EstimateTransferModal from './EstimateTransferModal';
+import { StatusBadge } from './estimate-editor/StatusBadge';
+import { DateRangePicker } from './ui/date-range-picker';
 
 interface EstimateHistoryProps {
     estimates?: Estimate[];
@@ -20,12 +22,6 @@ interface EstimateHistoryProps {
     onDeleteVersion?: (estimate: Estimate) => void;
     onGeneratePdf?: (estimate: Estimate) => void;
 }
-
-const statusColors: { [key in EstimateStatus]: string } = {
-    [EstimateStatus.DRAFT]: 'border border-amber-500/30 bg-amber-500/10 text-amber-200',
-    [EstimateStatus.SENT]: 'border border-sky-500/30 bg-sky-500/10 text-sky-200',
-    [EstimateStatus.APPROVED]: 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-200',
-};
 
 const HistoryActionsMenu: React.FC<{
     desktop?: boolean;
@@ -264,6 +260,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [filterBuildingType, setFilterBuildingType] = useState<string>('');
     const [filterAreaMin, setFilterAreaMin] = useState('');
     const [filterAreaMax, setFilterAreaMax] = useState('');
+    const [filterDateFrom, setFilterDateFrom] = useState('');
+    const [filterDateTo, setFilterDateTo] = useState('');
     const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
     const catalogContext = useOptionalCatalogContext();
     const materialsList = catalogContext?.materials ?? [];
@@ -274,8 +272,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [duplicateGroups, setDuplicateGroups] = useState<EstimateDuplicateGroup[]>([]);
     const [transferModal, setTransferModal] = useState<'share' | 'import' | null>(null);
     const [estimateToShare, setEstimateToShare] = useState<Estimate | null>(null);
-    const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '';
-    const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1);
+    const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '' || filterDateFrom !== '' || filterDateTo !== '';
+    const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax, filterDateFrom, filterDateTo].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1);
     const archiveCounts = useMemo(() => getLatestEstimateVersions(allEstimatesList).reduce((counts, estimate) => {
         counts[estimate.isArchived ? 'archive' : 'current'] += 1;
         return counts;
@@ -287,6 +285,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
         setFilterBuildingType('');
         setFilterAreaMin('');
         setFilterAreaMax('');
+        setFilterDateFrom('');
+        setFilterDateTo('');
     };
 
     const handleCheckDuplicates = () => {
@@ -412,8 +412,13 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 const max = filterAreaMax === '' ? Infinity : parseFloat(filterAreaMax);
                 return e.area >= min && e.area <= max;
             })
+            .filter(e => {
+                // estimate.date хранится как yyyy-mm-dd (notes.md), сравнение по дню без таймзон.
+                const day = e.date.slice(0, 10);
+                return (filterDateFrom === '' || day >= filterDateFrom) && (filterDateTo === '' || day <= filterDateTo);
+            })
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [estimateList, allEstimatesList, archiveView, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
+    }, [estimateList, allEstimatesList, archiveView, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax, filterDateFrom, filterDateTo]);
     
     // Single grouping pass instead of a full-list filter per rendered row.
     const estimatesByNumber = useMemo(() => {
@@ -546,6 +551,15 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     <span className="sr-only">Тип строения</span>
                     <input type="text" placeholder="Тип строения" className="h-9 w-44 rounded-lg border border-border bg-background/60 px-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterBuildingType} onChange={(e) => setFilterBuildingType(e.target.value)} />
                 </label>
+                <DateRangePicker
+                    from={filterDateFrom}
+                    to={filterDateTo}
+                    onFromChange={setFilterDateFrom}
+                    onToChange={setFilterDateTo}
+                    fromLabel="Дата сметы с"
+                    toLabel="Дата сметы по"
+                    className="h-9 [&_input]:min-h-0 [&_input]:h-7"
+                />
                 <div className="flex items-center gap-1.5" aria-label="Площадь">
                     <input type="number" placeholder="м² от" aria-label="Площадь от" className="h-9 w-24 rounded-lg border border-border bg-background/60 px-2.5 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterAreaMin} onChange={(e) => setFilterAreaMin(e.target.value)} />
                     <input type="number" placeholder="до" aria-label="Площадь до" className="h-9 w-20 rounded-lg border border-border bg-background/60 px-2.5 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterAreaMax} onChange={(e) => setFilterAreaMax(e.target.value)} />
@@ -575,6 +589,18 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         Тип строения
                         <input type="text" placeholder="Например, каркасный дом" className="mt-1 min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30" value={filterBuildingType} onChange={(e) => setFilterBuildingType(e.target.value)} />
                     </label>
+                    <fieldset>
+                        <legend className="text-xs font-medium text-text-secondary">Период смет</legend>
+                        <DateRangePicker
+                            from={filterDateFrom}
+                            to={filterDateTo}
+                            onFromChange={setFilterDateFrom}
+                            onToChange={setFilterDateTo}
+                            fromLabel="Дата сметы с"
+                            toLabel="Дата сметы по"
+                            className="mt-1 [&_input]:w-full [&_input]:flex-1"
+                        />
+                    </fieldset>
                     <fieldset>
                         <legend className="text-xs font-medium text-text-secondary">Площадь, м²</legend>
                         <div className="mt-1 flex gap-2">
@@ -624,9 +650,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                         />
                                     </td>
                                     <td className="px-3 py-2.5 text-center">
-                                        <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${statusColors[selectedEstimate.status]}`}>
-                                            {selectedEstimate.status}
-                                        </span>
+                                        <StatusBadge status={selectedEstimate.status} />
                                     </td>
                                     <td className="px-3 py-2.5 text-left">
                                         <div className="max-w-[180px] truncate text-sm">{selectedEstimate.buildingType || 'Не указан'}</div>
@@ -669,9 +693,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                     <div className="font-semibold text-text-primary truncate">{estimate.client || 'Без клиента'}</div>
                                     <div className="text-xs text-text-secondary">{estimate.estimateNumber} &middot; {estimate.area} м² &middot; {estimate.buildingType}</div>
                                 </div>
-                                <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusColors[selectedEstimate.status]}`}>
-                                    {selectedEstimate.status}
-                                </span>
+                                <StatusBadge status={selectedEstimate.status} className="shrink-0" />
                             </div>
                             <div className="text-xs text-text-secondary mb-2">
                                 {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}

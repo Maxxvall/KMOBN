@@ -1,0 +1,15 @@
+{
+  "tailwind": {
+    "config": "tailwind.config.js",
+    "css": "styles.css",
+    "baseColor": "neutral",
+    "cssVariables": true
+  },
+  "aliases": {
+    "components": "@/components",
+    "ui": "@/components/ui",
+    "lib": "@/lib",
+    "hooks": "@/hooks"
+  },
+  "path": "components/estimate-editor/ui"
+}

@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
-import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
+import { ESTIMATE_CATEGORIES } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
 import { generateEstimateWithAI, isAbortError } from '../services/openRouterService';
 import { buildEstimateDirtySignature, buildEstimateItemsSignature } from './estimateEditorSignature';
@@ -33,6 +33,11 @@ import {
 } from '../services/estimateActuals';
 import { applyCatalogMaterialPrice, buildMaterialPriceIndex, checkMaterialPrice, type MaterialPriceCheck } from '../services/estimatePricing';
 import { applyBoardMaterialSwitch, getEstimateBoardState, planBoardMaterialSwitch } from '../services/boardMaterialSwitch';
+import { EstimateEditorHeader } from './estimate-editor/EstimateEditorHeader';
+import { EstimateMetaFields } from './estimate-editor/EstimateMetaFields';
+import { EstimateExplanation } from './estimate-editor/EstimateExplanation';
+import { EstimateTemplateRow } from './estimate-editor/EstimateTemplateRow';
+import { EstimateToolbar } from './estimate-editor/EstimateToolbar';
 
 interface EstimateEditorProps {
     initialEstimate?: Estimate | null;
@@ -1345,6 +1350,23 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const inputStyles = "p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full";
 
+    // Проверки перед открытием AI-генерации (перенесены как есть из ряда шаблона).
+    const handleAiGenerateClick = () => {
+        if (!hasOpenRouterKey()) {
+            alert('AI не настроен: укажите защищённый AI gateway или локальный ключ для разработки.');
+            return;
+        }
+        if (!estimate.buildingType || !estimate.buildingType.trim()) {
+            alert('Укажите тип строения перед AI-генерацией.');
+            return;
+        }
+        if (!estimate.area || estimate.area <= 0) {
+            alert('Укажите площадь перед AI-генерацией.');
+            return;
+        }
+        setAiGenModalOpen(true);
+    };
+
     const hasValidationIssues = Boolean(validationResultValue && validationResultValue.issues.length > 0);
     const getFieldClass = (itemId: string, field: 'name' | 'quantity' | 'price', base: string) => {
         const invalid = Boolean(validationResultValue?.invalidFieldsByItemId?.[itemId]?.[field]);
@@ -1359,10 +1381,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     return (
         <div className="space-y-4">
             <div className="rounded-xl border border-border/70 bg-surface p-2 shadow-2xl sm:p-4 md:p-5">
-                <div className="mb-4 flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
-                    <h2 className="text-xl font-semibold text-text-primary">{initialEstimateValue ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
-                        <button onClick={() => onBackAction?.()} className="min-h-[44px] rounded-lg border border-border px-3 py-1.5 text-sm text-text-secondary transition-colors hover:bg-background hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 active:scale-95 md:min-h-9">&larr; Назад к истории</button>
-                </div>
+                <EstimateEditorHeader
+                    estimateNumber={initialEstimateValue ? estimate.estimateNumber : undefined}
+                    status={estimate.status}
+                    onBack={() => onBackAction?.()}
+                />
 
                 {initialEstimateValue?.isArchived && (
                     <div className="mb-4 rounded-lg border border-amber-500/35 bg-amber-500/10 p-3 text-sm text-amber-100">
@@ -1406,187 +1429,44 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                 )}
 
-                <div className="mb-3 grid grid-cols-6 gap-2 xl:grid-cols-[minmax(220px,1.5fr)_150px_170px_minmax(220px,1fr)_110px]">
-                    <label className="col-span-6 min-w-0 xl:col-auto">
-                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Клиент</span>
-                        <input type="text" value={estimate.client} onChange={e => setEstimate({ ...estimate, client: e.target.value })} placeholder="Имя клиента" className={inputStyles + " min-h-[44px] min-w-0 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
-                    </label>
-                    <label className="col-span-3 min-w-0 xl:col-auto">
-                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Дата</span>
-                        <input type="date" value={estimate.date} onChange={e => setEstimate({ ...estimate, date: e.target.value })} className={inputStyles + " min-h-[44px] min-w-0 tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
-                    </label>
-                    <label className="col-span-3 min-w-0 xl:col-auto">
-                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Статус</span>
-                        <select value={estimate.status} onChange={e => setEstimate({ ...estimate, status: e.target.value as EstimateStatus })} className={inputStyles + " min-h-[44px] min-w-0 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"}>
-                            {Object.values(EstimateStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    </label>
-                    <label className="col-span-4 min-w-0 xl:col-auto">
-                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Тип строения</span>
-                        <input type="text" value={estimate.buildingType} onChange={e => setEstimate({ ...estimate, buildingType: e.target.value })} placeholder="Например, дачный дом" className={inputStyles + " min-h-[44px] min-w-0 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
-                    </label>
-                    <label className="col-span-2 min-w-0 xl:col-auto">
-                        <span className="mb-1 block text-[11px] font-medium text-text-secondary">Площадь, м²</span>
-                        <input type="number" value={estimate.area || ''} onChange={e => setEstimate({ ...estimate, area: +e.target.value || 0 })} placeholder="0" className={inputStyles + " min-h-[44px] min-w-0 tabular-nums focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"} />
-                    </label>
-                </div>
+                <EstimateMetaFields estimate={estimate} setEstimate={setEstimate} />
 
-                <label className="mb-3 block min-w-0">
-                    <span className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[11px] font-medium text-text-secondary">
-                        <span>Пояснение для расчёта дома</span>
-                        <span className="font-normal">Внутреннее поле — не выводится в документах</span>
-                    </span>
-                    <textarea
-                        value={estimate.explanation || ''}
-                        onChange={e => setEstimate({ ...estimate, explanation: e.target.value })}
-                        maxLength={ESTIMATE_EXPLANATION_MAX_LENGTH}
-                        placeholder="Например: дом под ключ, тёплый контур, оптимальный или премиум"
-                        rows={2}
-                        className={inputStyles + " min-h-[72px] min-w-0 resize-y py-2 leading-5 focus:outline-none focus:ring-2 focus:ring-primary/50"}
-                    />
-                </label>
+                <EstimateExplanation
+                    value={estimate.explanation || ''}
+                    onChange={(value) => setEstimate({ ...estimate, explanation: value })}
+                />
 
-                <div className="mb-3 grid grid-cols-6 items-end gap-2 xl:grid-cols-[minmax(260px,1fr)_minmax(140px,220px)_72px_minmax(140px,180px)]">
-                    <div className="col-span-6 min-w-0 xl:col-auto">
-                        <label htmlFor="estimate-template" className="mb-1 block text-[11px] font-medium text-text-secondary">Шаблон генерации</label>
-                        <span className="flex min-w-0 gap-2">
-                            <select id="estimate-template" value={genParams.projectTemplateId} onChange={e => setGenParams({ ...genParams, projectTemplateId: e.target.value })} className={inputStyles + " min-h-[44px] min-w-0 flex-1 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"}>
-                                {templatesValue.map(template => <option key={template.id} value={template.id}>{template.name}</option>)}
-                            </select>
-                            <button
-                                type="button"
-                                onClick={() => onDeleteTemplateAction?.(genParams.projectTemplateId)}
-                                aria-label="Удалить выбранный шаблон"
-                                title="Удалить выбранный шаблон"
-                                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-transparent text-red-500 transition-colors hover:border-red-500/20 hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
-                            >
-                                ✖
-                            </button>
-                        </span>
-                    </div>
-                    <div className="col-span-6 grid min-w-0 grid-cols-3 gap-2 xl:col-span-3 xl:grid-cols-[minmax(140px,220px)_72px_minmax(140px,180px)]">
-                        <button onClick={handleGenerate} disabled={isLoading} className="min-h-[44px] min-w-0 rounded-md bg-primary px-2 py-2 text-sm font-semibold text-white transition-colors hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 md:min-h-9">
-                            {isLoading ? 'Генерация...' : 'По шаблону'}
-                        </button>
-                        <button
-                            onClick={() => {
-                                if (!hasOpenRouterKey()) {
-                                    alert('AI не настроен: укажите защищённый AI gateway или локальный ключ для разработки.');
-                                    return;
-                                }
-                                if (!estimate.buildingType || !estimate.buildingType.trim()) {
-                                    alert('Укажите тип строения перед AI-генерацией.');
-                                    return;
-                                }
-                                if (!estimate.area || estimate.area <= 0) {
-                                    alert('Укажите площадь перед AI-генерацией.');
-                                    return;
-                                }
-                                setAiGenModalOpen(true);
-                            }}
-                            disabled={isLoading}
-                            className="min-h-[44px] min-w-0 rounded-md bg-gray-600 px-2 py-2 font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 md:min-h-9"
-                        >
-                            AI
-                        </button>
-                        <button
-                            onClick={handleAnalyzeEstimate}
-                            disabled={isLoading}
-                            className="min-h-[44px] min-w-0 rounded-md bg-gray-600 px-2 py-2 text-sm font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-50 md:min-h-9"
-                        >
-                            🤖 AI-анализ
-                        </button>
-                    </div>
-                </div>
+                <EstimateTemplateRow
+                    templates={templatesValue}
+                    projectTemplateId={genParams.projectTemplateId}
+                    onTemplateChange={(templateId) => setGenParams({ ...genParams, projectTemplateId: templateId })}
+                    onDeleteTemplateAction={onDeleteTemplateAction}
+                    handleGenerate={handleGenerate}
+                    onAiGenerate={handleAiGenerateClick}
+                    handleAnalyzeEstimate={handleAnalyzeEstimate}
+                    isLoading={isLoading}
+                />
 
-                    <div className="grid min-w-0 gap-2 rounded-lg border border-border/70 bg-background/25 p-2 xl:grid-cols-[minmax(240px,auto)_minmax(330px,1fr)_minmax(480px,auto)] xl:items-center">
-                        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="text-xs font-semibold tabular-nums text-text-secondary">v{estimate.version} · {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                        {getPreviousVersion() && (
-                            <button onClick={() => setShowComparison(true)} className="min-h-[44px] rounded px-1.5 text-xs text-blue-400 transition-colors hover:bg-white/5 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">Сравнить</button>
-                        )}
-                        {initialEstimateValue && (
-                            <button onClick={() => onSaveAsTemplateAction?.(estimate)} className="min-h-[44px] rounded px-1.5 text-xs font-semibold text-green-400 transition-colors hover:bg-white/5 hover:text-green-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">В шаблон</button>
-                        )}
-                    </div>
-                    <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
-                        <button
-                            onClick={() => setBundlePickerOpen(true)}
-                            className="min-h-[44px] min-w-0 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary transition hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
-                        >
-                            Комплекты
-                        </button>
-                        <div
-                            role="group"
-                            aria-label="Выбрать тип доски во всей смете"
-                            className="grid min-h-[44px] grid-cols-[auto_1fr_1fr] items-stretch overflow-hidden rounded-md border border-border bg-background md:min-h-9"
-                            title={boardInventoryState === 'none' ? 'Сначала укажите параметры досок в разделе «Цены»' : 'Массовая замена доски во всей смете'}
-                        >
-                            <span className="flex items-center px-2 text-[11px] font-semibold text-text-secondary">Доска</span>
-                            {(['dry-planed', 'natural-moisture'] as BoardMoisture[]).map(moisture => {
-                                const label = moisture === 'dry-planed' ? 'СС' : 'ЕВ';
-                                const isCurrent = boardInventoryState === moisture;
-                                const disabled = boardInventoryState === 'none' || isCurrent || Boolean(initialEstimateValue?.isArchived);
-                                return (
-                                    <button
-                                        key={moisture}
-                                        type="button"
-                                        onClick={() => setBoardSwitchTarget(moisture)}
-                                        disabled={disabled}
-                                        aria-pressed={isCurrent}
-                                        className={`min-w-[44px] border-l border-border px-2 text-xs font-bold transition focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary/60 ${isCurrent ? 'bg-primary text-white' : 'text-text-primary hover:bg-white/5'} disabled:cursor-not-allowed disabled:opacity-50`}
-                                    >
-                                        {label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                        <div className="flex min-w-0 flex-col gap-1">
-                            <select
-                                aria-label="Добавить раздел"
-                                onChange={(e) => {
-                                    const val = e.target.value as SectionId;
-                                    if (val) {
-                                        addCategory(val);
-                                        e.target.value = '';
-                                    }
-                                }}
-                                className="min-h-[44px] min-w-0 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
-                                defaultValue=""
-                            >
-                                <option value="">+ Раздел...</option>
-                                {addableCategoryIds.map(cat => (
-                                    <option key={cat} value={cat} disabled={visibleCategories.includes(cat)}>{sectionLabel(cat)}</option>
-                                ))}
-                            </select>
-                            {onManageSectionsAction && (
-                                <button type="button" onClick={onManageSectionsAction} className="min-h-[32px] rounded px-1 text-left text-xs font-semibold text-blue-400 hover:bg-white/5 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-primary/50">
-                                    Управлять разделами
-                                </button>
-                            )}
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowActuals(prev => !prev)}
-                            aria-pressed={showActuals}
-                            className={`min-h-[44px] min-w-0 rounded-md border px-2 py-1 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 ${showActuals ? 'border-primary bg-primary text-white' : 'border-border bg-transparent text-text-secondary hover:border-primary hover:bg-background hover:text-text-primary'}`}
-                            title="Показать фактические количество, цену и отклонения"
-                        >
-                            Факт
-                        </button>
-                    </div>
-                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-                        <div className="grid min-w-0 grid-cols-3 gap-x-2 gap-y-1 text-[11px] tabular-nums">
-                            <span className="min-w-0 whitespace-nowrap text-text-secondary">Р: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="min-w-0 whitespace-nowrap text-text-secondary">М: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="min-w-0 whitespace-nowrap text-text-secondary">Д: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span></span>
-                            <span className="col-span-3 whitespace-nowrap text-sm font-bold text-primary">ИТОГО: {estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
-                        </div>
-                        <button onClick={handleSave} className="min-h-[44px] whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 active:scale-95 md:min-h-9">
-                            Сохранить
-                        </button>
-                    </div>
-                </div>
+                <EstimateToolbar
+                    estimate={estimate}
+                    canCompare={Boolean(getPreviousVersion())}
+                    setShowComparison={setShowComparison}
+                    canSaveAsTemplate={Boolean(initialEstimateValue)}
+                    onSaveAsTemplateAction={onSaveAsTemplateAction}
+                    setBundlePickerOpen={setBundlePickerOpen}
+                    boardInventoryState={boardInventoryState}
+                    setBoardSwitchTarget={setBoardSwitchTarget}
+                    isArchived={Boolean(initialEstimateValue?.isArchived)}
+                    addableCategoryIds={addableCategoryIds}
+                    visibleCategories={visibleCategories}
+                    sectionLabel={sectionLabel}
+                    addCategory={addCategory}
+                    onManageSectionsAction={onManageSectionsAction}
+                    showActuals={showActuals}
+                    setShowActuals={setShowActuals}
+                    subgroupTotals={subgroupTotals}
+                    handleSave={handleSave}
+                />
 
                 {boardSwitchNotice && (
                     <div role="status" className="mt-3 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
