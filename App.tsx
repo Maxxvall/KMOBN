@@ -17,9 +17,6 @@ import UpdateBanner from './components/UpdateBanner';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
 import { useOfflineSync } from './hooks/useOfflineSync';
-import { generatePdf } from './services/pdfGenerator';
-import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
-import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate, type EstimateValidationResult } from './services/estimateValidation';
 import { hashData } from './services/hashing';
 import { EstimateProvider } from './contexts/EstimateContext';
@@ -1414,10 +1411,14 @@ const App: React.FC = () => {
         }
         
         try {
+            // jsPDF + шрифты (~350 КБ) нужны только здесь: грузим генератор
+            // в момент выбора стиля экспорта, а не при старте приложения.
             if (style === 'simple') {
+                const { generatePdf } = await import('./services/pdfGenerator');
                 await generatePdf(pendingExportEstimate, title);
             } else {
-                await generatePdfColored(pendingExportEstimate, materialsRef.current, title);
+                const { generatePdf } = await import('./services/pdfGenerator2');
+                await generatePdf(pendingExportEstimate, materialsRef.current, title);
             }
         } catch (error) {
             console.error("PDF Generation Error:", error);
@@ -1432,6 +1433,7 @@ const App: React.FC = () => {
         if (!pendingExportEstimate) return;
 
         try {
+            const { generatePdfContract } = await import('./services/pdfContractGenerator');
             await generatePdfContract(pendingExportEstimate, contractName);
         } catch (error) {
             console.error('PDF Contract Generation Error:', error);
