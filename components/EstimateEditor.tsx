@@ -4,6 +4,7 @@ import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams
 import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
 import { generateEstimateWithAI } from '../services/openRouterService';
+import { buildEstimateDirtySignature, buildEstimateItemsSignature } from './estimateEditorSignature';
 import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
 import CrewToolPlanPanel from './CrewToolPlanPanel';
@@ -30,7 +31,7 @@ import {
     copyPlanToActual,
     shouldShowActualRow,
 } from '../services/estimateActuals';
-import { applyCatalogMaterialPrice, checkMaterialPrice, type MaterialPriceCheck } from '../services/estimatePricing';
+import { applyCatalogMaterialPrice, buildMaterialPriceIndex, checkMaterialPrice, type MaterialPriceCheck } from '../services/estimatePricing';
 import { applyBoardMaterialSwitch, getEstimateBoardState, planBoardMaterialSwitch } from '../services/boardMaterialSwitch';
 
 interface EstimateEditorProps {
@@ -117,87 +118,7 @@ const isAbortError = (error: unknown): boolean => {
         : error instanceof Error && error.name === 'AbortError';
 };
 
-const hashText = (seed: number, value: string): number => {
-    let next = seed;
-    for (let index = 0; index < value.length; index += 1) {
-        next = (next * 31 + value.charCodeAt(index)) | 0;
-    }
-    return (next * 31 + 124) | 0;
-};
 
-const hashNumber = (seed: number, value: number): number => {
-    return (seed * 31 + Math.round(value * 1000)) | 0;
-};
-
-const hashBoolean = (seed: number, value: boolean): number => {
-    return (seed * 31 + (value ? 1 : 0)) | 0;
-};
-
-const buildEstimateDirtySignature = (value: Estimate): number => {
-    let hash = 17;
-    hash = hashText(hash, value.client);
-    hash = hashText(hash, value.date);
-    hash = hashText(hash, value.status);
-    hash = hashText(hash, value.buildingType);
-    hash = hashNumber(hash, value.area || 0);
-    hash = hashText(hash, value.explanation || '');
-    hash = hashNumber(hash, value.total || 0);
-    hash = hashBoolean(hash, Boolean(value.needsPriceUpdate));
-    hash = hashText(hash, value.houseExecutionStatus || '');
-    hash = hashText(hash, value.houseActualBasis || '');
-    hash = hashText(hash, value.houseActualVerifiedAt || '');
-    for (const category of value.selectedSections ?? []) {
-        hash = hashText(hash, category);
-    }
-
-    for (const item of value.items) {
-        hash = hashText(hash, item.name);
-        hash = hashText(hash, item.unit);
-        hash = hashNumber(hash, item.quantity || 0);
-        hash = hashNumber(hash, item.price || 0);
-        hash = hashNumber(hash, item.total || 0);
-        hash = hashText(hash, item.category);
-        hash = hashText(hash, item.subgroup || EstimateSubgroup.WORKS);
-        hash = hashText(hash, item.catalogMaterialId || '');
-        hash = hashBoolean(hash, Boolean(item.isActualOnly));
-        hash = hashText(hash, item.actual?.unit || '');
-        hash = hashNumber(hash, item.actual?.quantity ?? 0);
-        hash = hashNumber(hash, item.actual?.price ?? 0);
-        hash = hashText(hash, item.actual?.note || '');
-        hash = hashText(hash, item.actual?.source || '');
-    }
-
-    if (value.crewToolPlan) {
-        hash = hashNumber(hash, value.crewToolPlan.crewSize);
-        for (const tool of value.crewToolPlan.requirements) {
-            hash = hashText(hash, tool.toolKey);
-            hash = hashText(hash, tool.name);
-            hash = hashNumber(hash, tool.quantity);
-            hash = hashText(hash, tool.quantityMode);
-            hash = hashText(hash, tool.source);
-        }
-        for (const [key, quantity] of Object.entries(value.crewToolPlan.quantityOverrides ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
-            hash = hashText(hash, key);
-            hash = hashNumber(hash, quantity);
-        }
-    }
-
-    return hash;
-};
-
-const buildEstimateItemsSignature = (items: EstimateItem[]): number => {
-    let hash = 17;
-    for (const item of items) {
-        hash = hashText(hash, item.id);
-        hash = hashText(hash, item.name);
-        hash = hashText(hash, item.unit);
-        hash = hashNumber(hash, item.quantity || 0);
-        hash = hashNumber(hash, item.price || 0);
-        hash = hashText(hash, item.category);
-        hash = hashText(hash, item.subgroup || '');
-    }
-    return hash;
-};
 
 const groupCatalogByCategory = <T extends Material | Work>(items: T[], categories: readonly SectionId[]): Map<SectionId, T[]> => {
     const grouped = new Map<SectionId, T[]>();
@@ -457,6 +378,18 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const filteredMaterialsByCategory = useMemo(() => groupCatalogByCategory(materialsValue, catalogCategoryIds), [catalogCategoryIds, materialsValue]);
 
     const filteredWorksByCategory = useMemo(() => groupCatalogByCategory(worksValue, catalogCategoryIds), [catalogCategoryIds, worksValue]);
+
+    // Normalized-name indices so per-item catalog checks stop rescanning the
+    // whole directory on every render. Buckets keep duplicates for ambiguity.
+    const materialPriceIndex = useMemo(() => buildMaterialPriceIndex(materialsValue), [materialsValue]);
+    const filteredMaterialNameSets = useMemo(() => {
+        const sets = new Map<SectionId, Set<string>>();
+        filteredMaterialsByCategory.forEach((items, category) => {
+            sets.set(category, new Set(items.map(material => normalizeKey(material.name))));
+        });
+        return sets;
+    }, [filteredMaterialsByCategory]);
+    const normalizedWorkNames = useMemo(() => new Set(worksValue.map(work => normalizeKey(work.name))), [worksValue]);
 
     const boardInventoryState = useMemo(
         () => getEstimateBoardState(estimate, materialsValue),
@@ -1834,12 +1767,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                             {renderedSubItems.map((item) => {
                                                                 const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                                 const filteredWorks = filteredWorksByCategory.get(category) || [];
-                                                                const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterials.some(material => normalizeKey(material.name) === normalizeKey(item.name));
-                                                                const workExistsInCatalog = worksValue.some(work => normalizeKey(work.name) === normalizeKey(item.name));
+                                                                const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterialNameSets.get(category)?.has(normalizeKey(item.name));
+                                                                const workExistsInCatalog = normalizedWorkNames.has(normalizeKey(item.name));
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD || !workExistsInCatalog;
                                                                 const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
                                                                 const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
-                                                                    ? checkMaterialPrice(item, materialsValue)
+                                                                    ? checkMaterialPrice(item, materialsValue, materialPriceIndex)
                                                                     : null;
                                                                 const isQuickBundleWorkRow = quickBundleWork?.id === item.id;
                                                                 const isQuickBundleLinked = quickBundleItemIds.has(item.id);
@@ -2042,12 +1975,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     {renderedSubItems.map((item) => {
                                                         const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                         const filteredWorks = filteredWorksByCategory.get(category) || [];
-                                                        const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterials.some(material => normalizeKey(material.name) === normalizeKey(item.name));
-                                                        const workExistsInCatalog = worksValue.some(work => normalizeKey(work.name) === normalizeKey(item.name));
+                                                        const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterialNameSets.get(category)?.has(normalizeKey(item.name));
+                                                        const workExistsInCatalog = normalizedWorkNames.has(normalizeKey(item.name));
                                                         const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD || !workExistsInCatalog;
                                                         const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
                                                         const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
-                                                            ? checkMaterialPrice(item, materialsValue)
+                                                            ? checkMaterialPrice(item, materialsValue, materialPriceIndex)
                                                             : null;
                                                         const isQuickBundleWorkRow = quickBundleWork?.id === item.id;
                                                         const isQuickBundleLinked = quickBundleItemIds.has(item.id);
