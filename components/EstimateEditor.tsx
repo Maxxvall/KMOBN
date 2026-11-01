@@ -1785,6 +1785,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 </tr>
                                                             )}
                                                             {renderedSubItems.map((item) => {
+                                                            const actualDelta = (calculateActualItemTotal(item) ?? item.total) - item.total;
                                                                 const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                                 const filteredWorks = filteredWorksByCategory.get(category) || [];
                                                                 const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterialNameSets.get(category)?.has(normalizeKey(item.name));
@@ -1961,8 +1962,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             </td>
                                                                             <td className="p-1 w-32"><input type="number" value={item.actual?.quantity ?? ''} onChange={e => updateActualItem(item.id, 'quantity', e.target.value)} className={inputStyles + " text-right text-sm"} /></td>
                                                                             <td className="p-1 w-32"><input type="number" value={item.actual?.price ?? ''} onChange={e => updateActualItem(item.id, 'price', e.target.value)} className={inputStyles + " text-right text-sm"} /></td>
-                                                                            <td className={`p-1 w-28 text-right font-semibold ${((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? 'text-red-300' : ((calculateActualItemTotal(item) ?? item.total) - item.total) < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>
-                                                                                {(((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? '+' : '')}{((calculateActualItemTotal(item) ?? item.total) - item.total).toLocaleString('ru-RU')} ₽
+                                                                            <td className={`p-1 w-28 text-right font-semibold ${actualDelta > 0 ? 'text-red-300' : actualDelta < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>
+                                                                                {(actualDelta > 0 ? '+' : '')}{actualDelta.toLocaleString('ru-RU')} ₽
                                                                             </td>
                                                                         </>
                                                                     )}
@@ -1995,6 +1996,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         <div className="text-sm text-text-secondary py-2">Нет позиций</div>
                                                     )}
                                                     {renderedSubItems.map((item) => {
+                                                    const actualDelta = (calculateActualItemTotal(item) ?? item.total) - item.total;
                                                         const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                         const filteredWorks = filteredWorksByCategory.get(category) || [];
                                                         const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterialNameSets.get(category)?.has(normalizeKey(item.name));
@@ -2131,8 +2133,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                     <div className="rounded-md border border-border bg-background/50 p-2">
                                                                         <div className="mb-2 flex items-center justify-between text-xs">
                                                                             <span className="font-semibold text-text-secondary">Факт</span>
-                                                                            <span className={`font-semibold ${((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? 'text-red-300' : ((calculateActualItemTotal(item) ?? item.total) - item.total) < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>
-                                                                                Δ {(((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? '+' : '')}{((calculateActualItemTotal(item) ?? item.total) - item.total).toLocaleString('ru-RU')} ₽
+                                                                            <span className={`font-semibold ${actualDelta > 0 ? 'text-red-300' : actualDelta < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>
+                                                                                Δ {(actualDelta > 0 ? '+' : '')}{actualDelta.toLocaleString('ru-RU')} ₽
                                                                             </span>
                                                                         </div>
                                                                         <div className="grid grid-cols-3 gap-2">
