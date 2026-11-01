@@ -34,7 +34,9 @@ export interface ActualSummary {
   actualOnlyItems: number;
 }
 
-const roundMoney = (value: number): number => Math.round(value * 100) / 100;
+/** Shared money rounding: two decimals, half-up. Single source for the
+  * estimate/house domains (previously four byte-identical copies). */
+export const roundMoney = (value: number): number => Math.round(value * 100) / 100;
 
 export const calculatePlanItemTotal = (item: EstimateItem): number => {
   if (item.isActualOnly) return 0;

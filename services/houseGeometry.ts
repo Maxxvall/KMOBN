@@ -1,6 +1,7 @@
 import { EstimateCategory, type EstimateItem } from '../types';
 import type { RoofShape } from './houseCalculator';
 import { normalizeRussianLower } from './houseScope';
+import { roundMoney } from './estimateActuals';
 
 export type HouseFoundationGeometry =
     | { type: 'slab'; thickness: number }
@@ -41,7 +42,7 @@ export interface HouseGeometryQuantity {
     basis: string;
 }
 
-const round = (value: number): number => Math.round(value * 100) / 100;
+const round = roundMoney;
 const finitePositive = (value: number): boolean => Number.isFinite(value) && value > 0;
 
 export function calculateHouseGeometry(input: HouseGeometryInput): HouseGeometryResult {

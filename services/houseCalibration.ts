@@ -1,4 +1,5 @@
 import { Estimate, SectionId } from '../types';
+import { roundMoney } from './estimateActuals';
 import { calculateActualItemTotal } from './estimateActuals';
 
 export interface HouseAccuracySection {
@@ -29,7 +30,7 @@ export interface HouseAccuracyReport {
     overall: HouseAccuracyOverall | null;
 }
 
-const round = (value: number): number => Math.round(value * 100) / 100;
+const round = roundMoney;
 
 const median = (values: number[]): number => {
     const sorted = [...values].sort((left, right) => left - right);

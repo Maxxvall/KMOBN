@@ -6,6 +6,7 @@ import {
     EstimateSubgroup,
     SectionId,
 } from '../types';
+import { roundMoney } from './estimateActuals';
 import { detectHouseScopeId, evaluateHouseScope, getRequiredHouseScopeIds, HouseScopeCheck } from './houseScope';
 import {
     calculateHouseGeometry,
@@ -138,7 +139,7 @@ const normalize = (value: string): string => value.toLocaleLowerCase('ru-RU')
     .replace(/\s+/g, ' ')
     .trim();
 
-const money = (value: number): number => Math.round(value * 100) / 100;
+const money = roundMoney;
 
 const dateOf = (estimate: Estimate): number => {
     const value = estimate.updated_at || estimate.date || estimate.created_at || '';
