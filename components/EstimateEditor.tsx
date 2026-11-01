@@ -118,6 +118,21 @@ const isAbortError = (error: unknown): boolean => {
         : error instanceof Error && error.name === 'AbortError';
 };
 
+// Renders only the viewport-appropriate branch of the estimate table.
+const useIsDesktopViewport = (): boolean => {
+    const [isDesktop, setIsDesktop] = useState<boolean>(() =>
+        typeof window === 'undefined' ? true : window.matchMedia('(min-width: 768px)').matches,
+    );
+    useEffect(() => {
+        const query = window.matchMedia('(min-width: 768px)');
+        const handleChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+        setIsDesktop(query.matches);
+        query.addEventListener('change', handleChange);
+        return () => query.removeEventListener('change', handleChange);
+    }, []);
+    return isDesktop;
+};
+
 
 
 const groupCatalogByCategory = <T extends Material | Work>(items: T[], categories: readonly SectionId[]): Map<SectionId, T[]> => {
@@ -349,6 +364,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     useEffect(() => {
         onDraftChangeAction?.(estimate);
     }, [estimate, onDraftChangeAction]);
+
+    // Renders only the viewport-appropriate table branch. The hidden CSS twin
+    // used to stay mounted, doubling the editor's render work.
+    const isDesktopViewport = useIsDesktopViewport();
 
     const materialsIndex = useMemo(() => {
         const index = new Map<string, Material>();
@@ -1736,6 +1755,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     <div className="font-semibold text-xs sm:text-sm">{subgroup === EstimateSubgroup.WORKS ? 'Работы' : subgroup === EstimateSubgroup.MATERIALS ? 'Материалы' : 'Доставка'}</div>
                                                     <div className="text-xs sm:text-sm font-medium text-text-secondary">{subTotal.toLocaleString('ru-RU')} ₽</div>
                                                 </div>
+                                                {isDesktopViewport && (
                                                 <div className="overflow-x-auto hidden md:block">
                                                     <table className="min-w-full">
                                                         <thead className="bg-gray-900/30">
@@ -1967,7 +1987,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         </tbody>
                                                     </table>
                                                 </div>
+                                                )}
                                                 {/* Mobile card list */}
+                                                {!isDesktopViewport && (
                                                 <div className="md:hidden space-y-2 p-1.5 sm:p-2">
                                                     {visibleSubItems.length === 0 && (
                                                         <div className="text-sm text-text-secondary py-2">Нет позиций</div>
@@ -2158,6 +2180,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         );
                                                     })}
                                                 </div>
+                                                )}
                                                 {visibleSubItems.length > MAX_RENDERED_SUBITEMS && (
                                                     <div className="px-2 pt-2 text-sm text-text-secondary flex items-center justify-between gap-3">
                                                         <span>
