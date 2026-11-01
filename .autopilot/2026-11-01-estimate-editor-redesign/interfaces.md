@@ -38,6 +38,16 @@
 - Существующие: `npm run typecheck` (tsc web+electron). Юнит-тесты на презентационные компоненты не вводим (в проекте их нет для UI).
 - Приёмка визуальная — пользователем; поведение фиксируется диффом (обработчики не менялись).
 
+## Построенное (интерфейсы тикета 01, добавляет оркестратор)
+- `components/estimate-editor/StatusBadge.tsx` — `<StatusBadge status: EstimateStatus, className? />`
+- `EstimateEditorHeader` — `{estimateNumber?, status, onBack?}`
+- `EstimateMetaFields` — `{estimate, setEstimate}`
+- `EstimateExplanation` — `{value, onChange}` (внутреннее состояние открытости — своё)
+- `EstimateTemplateRow` — `{templates, projectTemplateId, onTemplateChange, onDeleteTemplateAction?, handleGenerate, onAiGenerate, handleAnalyzeEstimate, isLoading}`
+- `EstimateToolbar` — `{estimate, canCompare, setShowComparison, canSaveAsTemplate, onSaveAsTemplateAction?, setBundlePickerOpen, boardInventoryState, setBoardSwitchTarget, isArchived, addableCategoryIds, visibleCategories, sectionLabel, addCategory, onManageSectionsAction?, showActuals, setShowActuals, subgroupTotals, handleSave}`
+- `components/ui/badge.tsx` — `Badge{tone, size}`; `delete-button.tsx` — `DeleteButton{onConfirm, label}`; `date-range-picker.tsx` — `DateRangePicker{from, to, onFromChange, onToChange}` (реализация без новых runtime-зависимостей; пикер — санкционированный фолбэк на пару date-инпутов)
+- `shared.ts` в `components/estimate-editor/` — общие константы классов панели
+
 ## Правила проекта (AGENTS.md + договорённости)
 - Стек: React 19.2 + TypeScript 5.8 + Vite 6 + Tailwind 3.4 (тёмная тема, токены в `tailwind.config.js`), Electron 43 поверх того же бандла. Node >= 20.
 - Установка: `npm install`. Запуск dev — **не делать автоматически** (пользователь проверяет сам).
