@@ -1,4 +1,5 @@
-import { AI_CONFIG, getAIRequestHeaders, getAIRequestUrl, hasOpenRouterKey } from './aiConfig';
+import { hasOpenRouterKey } from './aiConfig';
+import { callOpenRouterWithRetry, isAbortError } from './openRouterService';
 import { WIKI_ARTICLES } from './wikiDatabase';
 import { WikiArticle } from '../types';
 
@@ -126,26 +127,15 @@ export const askWikiAI = async (question: string): Promise<string> => {
     const prompt = `Доступные статьи: ${articleTitles}\n\n${contextBlocks}\n\n<question>${trimmed}</question>`;
 
     try {
-        const headers = await getAIRequestHeaders();
-        const response = await fetch(getAIRequestUrl(), {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                model: AI_CONFIG.model,
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: prompt },
-                ],
-                temperature: 0.1,
-            }),
-        });
-
-        if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            return toFriendlyError(response.status, text);
-        }
-
-        const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+        // Общий транспорт: retry для 429/5xx с учётом Retry-After и общий
+        // таймаут запроса — раньше здесь был «голый» fetch без ограничений.
+        const data = await callOpenRouterWithRetry(
+            [
+                { role: 'system', content: systemPrompt },
+                { role: 'user', content: prompt },
+            ],
+            { temperature: 0.1 },
+        ) as { choices?: Array<{ message?: { content?: string } }> };
         const content = data.choices?.[0]?.message?.content?.trim() || '';
         const fenced = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] || content;
         let parsed: { answer?: unknown; sourceIds?: unknown } | null = null;
@@ -167,7 +157,10 @@ export const askWikiAI = async (question: string): Promise<string> => {
         const source = relevantArticles.find(article => article.id === sourceIds[0]);
         if (!source) return 'Информации по этому вопросу нет в базе знаний. Рекомендую обратиться к специалисту.';
         return `${answer}\n\nИсточник: ${source.title}`;
-    } catch {
+    } catch (error) {
+        if (isAbortError(error)) return 'Запрос отменён.';
+        const status = Number(/HTTP (\d{3})/.exec(error instanceof Error ? error.message : '')?.[1]);
+        if (Number.isFinite(status)) return toFriendlyError(status, error instanceof Error ? error.message : '');
         return 'Не удалось подключиться к AI. Проверьте интернет и попробуйте ещё раз.';
     }
 };

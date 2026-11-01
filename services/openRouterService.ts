@@ -610,7 +610,12 @@ const buildCatalogSummary = <T extends { name: string; price: number; category: 
 const buildMaterialsCatalog = (materials: Material[]): string => buildCatalogSummary(materials);
 const buildWorksCatalog = (works: Work[]): string => buildCatalogSummary(works);
 
-async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number; signal?: AbortSignal }) {
+// Один запрос к провайдеру не должен висеть вечно: если вызывающий не
+// передал свой signal, применяется общий таймаут запроса. Отличие timeout от
+// ручной отмены — DOMException с name 'TimeoutError'.
+const AI_REQUEST_TIMEOUT_MS = 120_000;
+
+export async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number; signal?: AbortSignal }) {
   if (!hasOpenRouterKey()) {
     throw new Error('AI connection is not configured');
   }
@@ -636,6 +641,13 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
 
       const headers = await getAIRequestHeaders();
 
+      const timeoutSignal = typeof AbortSignal.timeout === 'function'
+        ? AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS)
+        : undefined;
+      const combinedSignal = opts?.signal && timeoutSignal
+        ? AbortSignal.any([opts.signal, timeoutSignal])
+        : opts?.signal ?? timeoutSignal;
+
       const res = await fetch(getAIRequestUrl(), {
         method: 'POST',
         headers,
@@ -645,7 +657,7 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
           temperature: opts?.temperature ?? 0.7,
           max_tokens: opts?.maxTokens ?? 4000,
         }),
-        signal: opts?.signal,
+        signal: combinedSignal,
       });
 
       if (res.status === 429) {
