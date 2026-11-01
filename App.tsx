@@ -1319,7 +1319,7 @@ const App: React.FC = () => {
         setShowSaveOptions(true);
         setShowUnsavedModal(false);
         setPendingView(null);
-    }, [sectionsDocument, setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
+    }, [applyEditorDraft, setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
 
     const handleConfirmSave = useCallback((mode: SaveMode) => {
         if (!editorDraft) return;
