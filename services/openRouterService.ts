@@ -1130,7 +1130,29 @@ export const createEstimateGenerationCacheKey = (req: AIEstimateRequest): string
   },
 );
 
+// In-flight dedup: identical concurrent generations share one promise chain
+// (4-6 paid LLM calls per run). Keyed by the same cache key as the result
+// cache; cleared on success, error and rejection — never held forever.
+const inFlightGenerations = new Map<string, Promise<AIEstimateResult>>();
+
 export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AIEstimateResult> {
+    if (req.signal?.aborted) throw createAbortError();
+    const cacheKey = createEstimateGenerationCacheKey(req);
+    const inFlight = inFlightGenerations.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    // The shared generation deliberately runs without the caller's abort
+    // signal: an aborting consumer just stops waiting, the result still lands
+    // in the cache for everyone else.
+    const { signal: _callerSignal, ...requestWithoutSignal } = req;
+    const generation = generateEstimateWithAIInternal(requestWithoutSignal, cacheKey).finally(() => {
+        if (inFlightGenerations.get(cacheKey) === generation) inFlightGenerations.delete(cacheKey);
+    });
+    inFlightGenerations.set(cacheKey, generation);
+    return generation;
+}
+
+async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: string): Promise<AIEstimateResult> {
   const params: GenerationParams = {
     area: req.area,
     region: req.region,
@@ -1164,8 +1186,6 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   const normativeMessages: OpenRouterChatMessage[] = appliesSp31
     ? [{ role: 'system', content: NORMATIVE_SYSTEM_PROMPT }]
     : [];
-
-  const cacheKey = createEstimateGenerationCacheKey(req);
 
   // Cache: only return if not marked bad by learning
   if (!isCacheKeyBad(cacheKey)) {
@@ -1223,7 +1243,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         ...normativeMessages,
         { role: 'user', content: stage1Prompt },
       ],
-      { maxTokens: 1600, temperature: 0.2, signal: req.signal },
+      { maxTokens: 1600, temperature: 0.2 },
     );
     const s1Content = String(s1?.choices?.[0]?.message?.content || '');
     console.info('[AI] Stage 1: received response (length:', String((s1Content || '').length) + ')');
@@ -1288,7 +1308,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
           ...normativeMessages,
           { role: 'user', content: stage2Prompt },
         ],
-        { maxTokens: 2200, temperature: 0.35, signal: req.signal },
+        { maxTokens: 2200, temperature: 0.35 },
       );
 
       const s2Content = String(s2?.choices?.[0]?.message?.content || '');
@@ -1322,7 +1342,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         ...normativeMessages,
         { role: 'user', content: stage3Prompt },
       ],
-      { maxTokens: 2600, temperature: 0.2, signal: req.signal },
+      { maxTokens: 2600, temperature: 0.2 },
     );
 
     const s3Content = String(s3?.choices?.[0]?.message?.content || '');
@@ -1353,7 +1373,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
           { role: 'system', content: 'Ты эксперт по строительным сметам. Отвечай ТОЛЬКО валидным JSON без пояснений.' },
           { role: 'user', content: compactPrompt },
         ],
-        { maxTokens: 4000, temperature: 0.7, signal: req.signal },
+        { maxTokens: 4000, temperature: 0.7 },
       );
       const content = data?.choices?.[0]?.message?.content;
       const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);

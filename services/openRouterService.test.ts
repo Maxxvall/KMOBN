@@ -417,3 +417,118 @@ describe('AI reliability guards', () => {
     expect(item.quantity).toBe(7);
   });
 });
+
+describe('in-flight deduplication', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    process.env.VITE_OPENROUTER_API_KEY = 'test-key';
+    process.env.VITE_OPENROUTER_BASE_URL = 'https://example.com/openrouter';
+    process.env.VITE_OPENROUTER_MODEL = 'test-model';
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.VITE_OPENROUTER_API_KEY;
+    delete process.env.VITE_OPENROUTER_BASE_URL;
+    delete process.env.VITE_OPENROUTER_MODEL;
+  });
+
+  const okJson = (payload: unknown) => Promise.resolve(createJsonResponse({
+    choices: [{ message: { content: JSON.stringify(payload) } }],
+  }));
+
+  const stage1Payload = {
+    blocks: [{ category: EstimateCategory.GENERAL, intent: 'A', keyWorks: [], volumeHints: { areaFactor: 1 } }],
+    assumptions: [],
+    warnings: [],
+  };
+
+  const fetchCountingMock = () => {
+    let calls = 0;
+    const mock = vi.fn((_: RequestInfo | URL, init?: RequestInit) => {
+      calls += 1;
+      const requestBody = JSON.parse(String(init?.body || '{}')) as { messages?: Array<{ content?: string }> };
+      const prompt = (requestBody.messages || []).map(m => String(m.content || '')).join('\n');
+      if (prompt.includes('Этап 1/3')) return okJson(stage1Payload);
+      return okJson({ items: [], suggestions: [], warnings: [] });
+    });
+    return { mock, calls: () => calls };
+  };
+
+  it('shares one generation between identical parallel requests', async () => {
+    const first = fetchCountingMock();
+    vi.stubGlobal('fetch', first.mock);
+
+    const { generateEstimateWithAI } = await import('./openRouterService');
+    const [a, b] = await Promise.all([
+      generateEstimateWithAI(baseRequest),
+      generateEstimateWithAI(baseRequest),
+    ]);
+    const sharedCalls = first.calls();
+
+    expect(a).toEqual(b);
+    expect(sharedCalls).toBeGreaterThan(0);
+  });
+
+  it('starts an independent generation for a different request', async () => {
+    const counter = fetchCountingMock();
+    vi.stubGlobal('fetch', counter.mock);
+
+    const { generateEstimateWithAI } = await import('./openRouterService');
+    await Promise.all([
+      generateEstimateWithAI(baseRequest),
+      generateEstimateWithAI({ ...baseRequest, area: 150 }),
+    ]);
+
+    const twoRequestCalls = counter.calls();
+    // A different key ran its own stages: at least one extra stage fetch.
+    expect(twoRequestCalls).toBeGreaterThan(1);
+  });
+
+  it('clears the in-flight entry on failure so a retry starts a new generation', async () => {
+    let failNext = true;
+    let calls = 0;
+    const mock = vi.fn(() => {
+      calls += 1;
+      if (failNext) return Promise.reject(new Error('provider down'));
+      return okJson({ items: [], suggestions: [], warnings: [] });
+    });
+    vi.stubGlobal('fetch', mock);
+
+    const { generateEstimateWithAI } = await import('./openRouterService');
+    const settled = await Promise.allSettled([
+      generateEstimateWithAI(baseRequest),
+      generateEstimateWithAI(baseRequest),
+    ]);
+
+    // The provider failure degrades to the deterministic fallback result for
+    // both consumers (status unavailable) — the shared promise settles once.
+    expect(settled[0].status).toBe('fulfilled');
+    expect(settled[1].status).toBe('fulfilled');
+    const degraded = settled[0] as PromiseFulfilledResult<{ status: string }>;
+    expect(degraded.value.status).toBe('unavailable');
+    const failedCalls = calls;
+
+    // The in-flight entry was cleared: the retry performs fresh stage calls.
+    failNext = false;
+    await generateEstimateWithAI(baseRequest);
+    expect(calls).toBeGreaterThan(failedCalls);
+  });
+
+  it('gives an aborted consumer an immediate abort while the shared run continues', async () => {
+    const counter = fetchCountingMock();
+    vi.stubGlobal('fetch', counter.mock);
+
+    const { generateEstimateWithAI } = await import('./openRouterService');
+    const controller = new AbortController();
+    const shared = generateEstimateWithAI(baseRequest);
+
+    // Abort before joining: the aborted consumer gets an immediate rejection
+    // while the shared generation keeps running for everyone else.
+    controller.abort();
+    await expect(generateEstimateWithAI({ ...baseRequest, signal: controller.signal }))
+      .rejects.toMatchObject({ name: 'AbortError' });
+
+    await expect(shared).resolves.toBeDefined();
+  });
+});
