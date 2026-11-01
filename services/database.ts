@@ -34,10 +34,6 @@ const ensureSupabase = () => {
   return supabase;
 };
 
-type LoadTableOptions = {
-  limit?: number;
-};
-
 const parseTimestamp = (value?: string | null): number | null => {
   if (!value) return null;
   const parsed = Date.parse(value);
@@ -166,7 +162,6 @@ const markRefreshed = (key: CacheTableKey, userId: string): void => {
 
 type TableFetcher = (
   userId: string,
-  options?: LoadTableOptions,
 ) => Promise<{ data: unknown[] | null; error: unknown }>;
 
 const OFFLINE_TABLE_FETCHERS: Partial<Record<CacheTableKey, TableFetcher>> = {
@@ -343,8 +338,7 @@ export const prepareLocalVersionForPendingChange = async (
 const refreshCacheInBackground = async <T extends { id: string }>(
   key: CacheTableKey,
   userId: string,
-  fetcher: (uid: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
-  options?: LoadTableOptions,
+  fetcher: (uid: string) => Promise<{ data: unknown[] | null; error: unknown }>,
 ): Promise<void> => {
   // estimate_sections keeps its conservative single-document flow: pending
   // changes and conflicts are resolved through the merge review.
@@ -379,8 +373,7 @@ const refreshCacheInBackground = async <T extends { id: string }>(
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
       markRefreshed(key, userId);
       if (changed) {
-        const visibleRecords = typeof options?.limit === 'number' ? merged.slice(0, options.limit) : merged;
-        dispatchCacheUpdate(key, visibleRecords);
+        dispatchCacheUpdate(key, merged);
       }
     });
   } catch (error) {
@@ -392,8 +385,7 @@ const refreshCacheInBackground = async <T extends { id: string }>(
 
 const readTableCached = async <T extends { id: string }>(
   key: CacheTableKey,
-  fetcher: (userId: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
-  options?: LoadTableOptions,
+  fetcher: (userId: string) => Promise<{ data: unknown[] | null; error: unknown }>,
 ): Promise<T[]> => {
   const userId = getWorkspaceUserId();
   const cacheUserId = getCacheUserId(userId);
@@ -403,7 +395,7 @@ const readTableCached = async <T extends { id: string }>(
   const canFetch = isSupabaseConfigured()
     && !!userId
     && (typeof navigator === 'undefined' || navigator.onLine);
-  const limitedCached = typeof options?.limit === 'number' ? cached.slice(0, options.limit) : cached;
+  const limitedCached = cached;
   const hasLocalConflict = key === 'estimate_sections'
     && cached.some(record => Boolean((record as unknown as EstimateSectionsDocument).syncConflict));
 
@@ -411,7 +403,7 @@ const readTableCached = async <T extends { id: string }>(
     // refreshCacheInBackground applies the snapshot around pending records;
     // only the estimate_sections merge review must hold it off.
     if (canFetch && !hasLocalConflict) {
-      void refreshCacheInBackground<T>(key, userId as string, fetcher, options);
+      void refreshCacheInBackground<T>(key, userId as string, fetcher);
     }
     return limitedCached;
   }
@@ -436,24 +428,23 @@ const readTableCached = async <T extends { id: string }>(
         await getCachedRecords<T>(key, cacheUserId),
         pendingAfterFetch,
       ));
-      return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
+      return local;
     }
     if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(cacheUserId)) {
       const local = normalizeStableOrder(await getCachedRecords<T>(key, cacheUserId));
-      return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
+      return local;
     }
     if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
     await syncCachedRecords(key, cacheUserId, records);
     if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
-    return typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
+    return records;
   });
   if (remoteResult) return remoteResult;
   return withTableMutationLock(refreshKey, async () => {
-    const local = normalizeStableOrder(applyPendingChanges(
+    return normalizeStableOrder(applyPendingChanges(
       await getCachedRecords<T>(key, cacheUserId),
       await offlineQueue.getForTable(cacheUserId, key),
     ));
-    return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
   });
 };
 
@@ -469,7 +460,7 @@ export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
   await saveLocalRecords('estimates', estimates);
 };
 
-export const loadEstimates = async (options?: LoadTableOptions): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates, options);
+export const loadEstimates = async (): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates);
 
 /** Fetches the signed-in user's estimates directly from Supabase for an explicit re-check. */
 export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
@@ -599,7 +590,7 @@ export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void>
   await saveLocalRecords('templates', templates);
 };
 
-export const loadTemplates = async (options?: LoadTableOptions): Promise<ProjectTemplate[]> => readTableCached<ProjectTemplate>('templates', fetchTemplates, options);
+export const loadTemplates = async (): Promise<ProjectTemplate[]> => readTableCached<ProjectTemplate>('templates', fetchTemplates);
 
 export const addTemplate = async (template: ProjectTemplate): Promise<void> => {
   await saveLocalRecords('templates', [template]);
@@ -613,7 +604,7 @@ export const saveMaterials = async (materials: Material[]): Promise<void> => {
   await saveLocalRecords('materials', materials);
 };
 
-export const loadMaterials = async (options?: LoadTableOptions): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials, options);
+export const loadMaterials = async (): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials);
 
 async function addOrUpdateRecord<T extends { id: string }>(
   table: CacheTableKey,
@@ -637,7 +628,7 @@ export const saveWorks = async (works: Work[]): Promise<void> => {
   await saveLocalRecords('works', works);
 };
 
-export const loadWorks = async (options?: LoadTableOptions): Promise<Work[]> => readTableCached<Work>('works', fetchWorks, options);
+export const loadWorks = async (): Promise<Work[]> => readTableCached<Work>('works', fetchWorks);
 
 export const addWork = (work: Work) => addOrUpdateRecord('works', work);
 export const updateWork = (work: Work) => addOrUpdateRecord('works', work);
@@ -654,8 +645,8 @@ export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
   await saveLocalRecords('bundles', bundles);
 };
 
-export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundle[]> => {
-  const raw = await readTableCached<WorkBundle>('bundles', fetchBundles, options);
+export const loadBundles = async (): Promise<WorkBundle[]> => {
+  const raw = await readTableCached<WorkBundle>('bundles', fetchBundles);
   return raw.map(b => ({
     ...b,
     items: Array.isArray(b.items) ? b.items : [],
@@ -673,8 +664,8 @@ export const deleteBundles = async (bundleIds: string[]): Promise<void> => {
   await deleteRecords('bundles', bundleIds);
 };
 
-export const loadEstimateSections = async (options?: LoadTableOptions): Promise<EstimateSectionsDocument[]> => (
-  readTableCached<EstimateSectionsDocument>('estimate_sections', fetchEstimateSections, options)
+export const loadEstimateSections = async (): Promise<EstimateSectionsDocument[]> => (
+  readTableCached<EstimateSectionsDocument>('estimate_sections', fetchEstimateSections)
 );
 
 export const saveEstimateSections = async (document: EstimateSectionsDocument): Promise<void> => {

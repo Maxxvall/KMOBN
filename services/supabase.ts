@@ -21,16 +21,7 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
 
 export const isSupabaseConfigured = (): boolean => !!supabase;
 
-type FetchTableOptions = {
-  limit?: number;
-};
-
 const FETCH_PAGE_SIZE = 1000;
-
-const normalizeLimit = (limit?: number): number | null => {
-  if (typeof limit !== 'number' || !Number.isFinite(limit)) return null;
-  return Math.max(1, Math.floor(limit));
-};
 
 const parseTimestamp = (value: unknown): number | null => {
   if (typeof value !== 'string' || !value) return null;
@@ -145,18 +136,14 @@ export const deleteOfflineRecord = async (
   });
 };
 
-export const fetchTable = async (table: string, userId?: string, options?: FetchTableOptions) => {
+export const fetchTable = async (table: string, userId?: string) => {
   if (!supabase) return { data: null, error: new Error('Supabase not configured') };
   if (!userId) return { data: null, error: new Error('User is not authenticated') };
 
-  const requestLimit = normalizeLimit(options?.limit);
   const rows: Record<string, unknown>[] = [];
 
-  while (requestLimit == null || rows.length < requestLimit) {
-    const remaining = requestLimit == null ? FETCH_PAGE_SIZE : requestLimit - rows.length;
-    const pageSize = Math.min(FETCH_PAGE_SIZE, remaining);
-    const from = rows.length;
-    const to = from + pageSize - 1;
+  for (let from = 0; ; from += FETCH_PAGE_SIZE) {
+    const to = from + FETCH_PAGE_SIZE - 1;
     const { data, error } = await supabase
       .from(table)
       .select('*')
@@ -200,17 +187,17 @@ export const fetchOfflineRecord = async (table: string, recordId: string, userId
   return { data: normalizeFetchedRows([data as Record<string, unknown>])[0] ?? null, error: null };
 };
 
-export const fetchEstimates = async (userId: string, options?: FetchTableOptions) => fetchTable('estimates', userId, options);
+export const fetchEstimates = async (userId: string) => fetchTable('estimates', userId);
 
-export const fetchTemplates = async (userId: string, options?: FetchTableOptions) => fetchTable('templates', userId, options);
+export const fetchTemplates = async (userId: string) => fetchTable('templates', userId);
 
-export const fetchMaterials = async (userId: string, options?: FetchTableOptions) => fetchTable('materials', userId, options);
+export const fetchMaterials = async (userId: string) => fetchTable('materials', userId);
 
-export const fetchWorks = async (userId: string, options?: FetchTableOptions) => fetchTable('works', userId, options);
+export const fetchWorks = async (userId: string) => fetchTable('works', userId);
 
-export const fetchBundles = async (userId: string, options?: FetchTableOptions) => fetchTable('bundles', userId, options);
+export const fetchBundles = async (userId: string) => fetchTable('bundles', userId);
 
-export const fetchEstimateSections = async (userId: string, options?: FetchTableOptions) => fetchTable('estimate_sections', userId, options);
+export const fetchEstimateSections = async (userId: string) => fetchTable('estimate_sections', userId);
 
 
 export const saveEstimateSectionsRemote = async (document: any, userId: string) => {

@@ -470,9 +470,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             // AI autocomplete as a fallback when local results are weak.
             // IMPORTANT: never blocks typing; runs after local results are shown.
             if (query.length >= 3 && results.length < 5) {
-                if (aiAccessValue && !aiAccessValue.canUseAi) {
-                    return;
-                }
                 // run AI autocomplete in idle time to avoid blocking typing/render
                 const runAi = () => {
                     delete scheduledAutocompleteTasksRef.current[itemId];
@@ -888,10 +885,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         windowCount?: number;
         doorCount?: number;
     }) => {
-        if (aiAccessValue && !aiAccessValue.canUseAi) {
-            alert('Лимит AI-запросов исчерпан. Обновите лимиты позже.');
-            return;
-        }
         if (!hasOpenRouterKey()) {
             alert('AI не настроен: укажите защищённый AI gateway или локальный ключ для разработки.');
             return;
@@ -1076,10 +1069,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, estimate.items, aiGenDescription, aiAccessValue, subscriptionContext?.subscription?.user_id]);
 
     const handleAnalyzeEstimate = useCallback(async () => {
-        if (aiAccessValue && !aiAccessValue.canUseAi) {
-            alert('Лимит AI-запросов исчерпан. Обновите лимиты позже.');
-            return;
-        }
 
         analysisAbortControllerRef.current?.abort();
         const analysisController = new AbortController();
@@ -1481,10 +1470,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         </button>
                         <button
                             onClick={() => {
-                                if (aiAccessValue && !aiAccessValue.canUseAi) {
-                                    alert('Лимит AI-запросов исчерпан. Обновите лимиты позже.');
-                                    return;
-                                }
                                 if (!hasOpenRouterKey()) {
                                     alert('AI не настроен: укажите защищённый AI gateway или локальный ключ для разработки.');
                                     return;

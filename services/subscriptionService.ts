@@ -42,13 +42,6 @@ const safeDateKey = (value?: string | null): string | null => {
     return formatDateKey(parsed);
 };
 
-const safeMonthKey = (value?: string | null): string | null => {
-    if (!value) return null;
-    const parsed = new Date(value);
-    if (Number.isNaN(parsed.getTime())) return null;
-    return formatMonthKey(parsed);
-};
-
 export const normalizeSubscriptionUsage = (subscription: UserSubscription, now = new Date()): {
     subscription: UserSubscription;
     updates: Partial<UserSubscription>;
@@ -66,18 +59,6 @@ export const normalizeSubscriptionUsage = (subscription: UserSubscription, now =
         };
         updates.ai_requests_today = 0;
         updates.last_ai_request_date = todayKey;
-    }
-
-    const monthKey = formatMonthKey(now);
-    const resetMonthKey = safeMonthKey(subscription.limits_reset_date);
-    if (resetMonthKey !== monthKey) {
-        next = {
-            ...next,
-            estimates_deleted_this_month: 0,
-            limits_reset_date: todayKey,
-        };
-        updates.estimates_deleted_this_month = 0;
-        updates.limits_reset_date = todayKey;
     }
 
     return { subscription: next, updates };
