@@ -99,9 +99,14 @@ function findSimilarEstimates(
     approved: Estimate[],
     params: SmartWizardParams,
 ): Estimate[] {
-    // The wizard treats an unknown area as "match anything": different product
-    // rule from the AI prompt paths, kept explicit via matchOnEmptyArea.
-    return approved.filter(e => isSimilarEstimate(e, params, { areaTolerance: 0.3, matchOnEmptyArea: true }));
+    // The wizard treats an unknown area as "match anything" (matchOnEmptyArea)
+    // and has NEVER filtered by region — SmartWizardParams.region is a client
+    // hint for the AI prompt, not a filter. Do not pass it into the predicate.
+    return approved.filter(e => isSimilarEstimate(
+        e,
+        { area: params.area, buildingType: params.buildingType },
+        { areaTolerance: 0.3, matchOnEmptyArea: true },
+    ));
 }
 
 function buildItemStats(

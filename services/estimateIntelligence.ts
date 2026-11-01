@@ -88,10 +88,13 @@ export type SimilarEstimateOptions = {
 };
 
 /**
- * Shared similarity predicate. Per-request area/type/region rules were
- * identical across analyzeHistoricalPatterns (0.2), pickFewShotExamples (0.25)
- * and smartEstimateBuilder (0.3) — only the tolerance and the empty-area
- * policy actually differed, so those stay explicit options.
+ * Shared similarity predicate for area/type/region filtering. The AI paths
+ * (0.2 / 0.25) always filtered by region; the wizard (0.3) never did and does
+ * not pass region here. A zero/negative requested area matches nothing
+ * (smartEstimateBuilder opts into match-on-empty instead) — note this is
+ * stricter than the old few-shot guard, which matched candidates on negative
+ * areas through a division artifact; that input only comes from broken AI
+ * parses.
  */
 export const isSimilarEstimate = (
   candidate: Estimate,

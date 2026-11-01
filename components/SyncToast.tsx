@@ -28,7 +28,9 @@ const accentFor = (t?: Props['type'], fallback = 'bg-sky-500 text-sky-200') => {
 };
 
 const autosaveAccentFor = (s: SaveStatus) =>
-  accentFor(s === 'saved' ? 'success' : s === 'error' ? 'error' : undefined, 'bg-slate-500 text-slate-200');
+  s === 'saving'
+    ? 'bg-sky-500 text-sky-200'
+    : accentFor(s === 'saved' ? 'success' : s === 'error' ? 'error' : undefined, 'bg-slate-500 text-slate-200');
 
 const iconFor = (t?: Props['type']) => {
   switch (t) {

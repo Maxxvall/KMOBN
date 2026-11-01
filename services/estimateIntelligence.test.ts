@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Estimate, EstimateCategory, EstimateStatus } from '../types';
+import { Estimate, EstimateCategory, EstimateStatus, normalizeKey } from '../types';
 import {
   buildEstimateDuplicateDeletePlan,
   isSimilarEstimate,
@@ -236,18 +236,28 @@ describe('buildEstimateDuplicateDeletePlan', () => {
 // ─── Differential oracles: the original inline filters ──────────────────────
 
 const oracleHistoricalPatterns = (e: Estimate, params: { area: number; region?: string; buildingType?: string }): boolean => {
-  const normalize = (v: string) => v.trim().toLowerCase();
   if (!e?.area || params.area <= 0) return false;
   const areaClose = Math.abs(e.area - params.area) / params.area < 0.2;
-  const typeOk = params.buildingType ? normalize(e.buildingType) === normalize(params.buildingType) : true;
-  const estimateRegion = normalize(e.region || '');
-  const regionOk = params.region && estimateRegion ? estimateRegion === normalize(params.region) : true;
+  const typeOk = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
+  const estimateRegion = normalizeKey(e.region || '');
+  const regionOk = params.region && estimateRegion ? estimateRegion === normalizeKey(params.region) : true;
   return areaClose && typeOk && regionOk;
 };
 
-const oracleBuilder = (e: Estimate, params: { area: number; region?: string; buildingType?: string }): boolean => {
-  const normalize = (v: string) => v.trim().toLowerCase();
-  const typeMatch = params.buildingType ? normalize(e.buildingType) === normalize(params.buildingType) : true;
+const oracleFewShot = (e: Estimate, params: { area: number; region?: string; buildingType?: string }): boolean => {
+  // Deliberately stricter than the old filter: a negative requested area used
+  // to match everything through a division artifact; the shared predicate
+  // rejects non-positive areas on all AI paths.
+  if (!e?.area || params.area <= 0) return false;
+  const areaClose = Math.abs(e.area - params.area) / params.area < 0.25;
+  const typeOk = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
+  const estimateRegion = normalizeKey(e.region || '');
+  const regionOk = params.region && estimateRegion ? estimateRegion === normalizeKey(params.region) : true;
+  return areaClose && typeOk && regionOk;
+};
+
+const oracleBuilder = (e: Estimate, params: { area: number; buildingType?: string }): boolean => {
+  const typeMatch = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
   const areaMatch = params.area > 0 && e.area > 0
     ? Math.abs(e.area - params.area) / params.area < 0.3
     : true;
@@ -300,8 +310,18 @@ describe('isSimilarEstimate (differential against original filters)', () => {
     }
   });
 
+  it('matches pickFewShotExamples (tolerance 0.25) on every pair', () => {
+    for (const params of paramsList) {
+      for (const candidate of candidates) {
+        expect(isSimilarEstimate(candidate, params, { areaTolerance: 0.25 }))
+          .toBe(oracleFewShot(candidate, params));
+      }
+    }
+  });
+
   it('matches smartEstimateBuilder (tolerance 0.3, empty-area matches) on every pair', () => {
-    // SmartWizardParams carries no region, so the region rule never fires there.
+    // The wizard call site passes {area, buildingType} only: SmartWizardParams
+    // region is an AI-prompt hint, not a filter — the region rule never fired there.
     const builderParams = paramsList.map(({ region: _region, ...rest }) => rest);
     for (const params of builderParams) {
       for (const candidate of candidates) {
@@ -309,6 +329,14 @@ describe('isSimilarEstimate (differential against original filters)', () => {
           .toBe(oracleBuilder(candidate, params));
       }
     }
+  });
+
+  it('still applies the region rule when the caller passes a region', () => {
+    // Region filtering is part of the shared predicate; only the wizard
+    // call site opts out by not passing a region.
+    const candidate = historyEstimate({ region: 'Свердловская область' });
+    const params = { area: 100, buildingType: 'Каркасный дом', region: 'Московская область' };
+    expect(isSimilarEstimate(candidate, params, { areaTolerance: 0.3 })).toBe(false);
   });
 
   it('honours the boundary of the area tolerance', () => {

@@ -1,3 +1,4 @@
+import { downloadBlob } from './download';
 import {
     AlignmentType,
     BorderStyle,
@@ -387,12 +388,5 @@ export async function buildHouseProposalDocx(input: HouseProposalDocxInput): Pro
 
 export async function downloadHouseProposalDocx(input: HouseProposalDocxInput): Promise<void> {
     const blob = await buildHouseProposalDocx(input);
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `Коммерческое предложение - каркасный дом ${input.area} м².docx`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `Коммерческое предложение - каркасный дом ${input.area} м².docx`);
 }
