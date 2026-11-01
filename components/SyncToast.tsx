@@ -15,29 +15,22 @@ type Props = {
   saveError?: string | null;
 };
 
-const accentFor = (t?: Props['type']) => {
+// One accent mapping for both toast APIs; only the idle fallback differs.
+const accentFor = (t?: Props['type'], fallback = 'bg-sky-500 text-sky-200') => {
   switch (t) {
     case 'success':
       return 'bg-emerald-500 text-emerald-200';
     case 'error':
       return 'bg-rose-500 text-rose-200';
     default:
-      return 'bg-sky-500 text-sky-200';
+      return fallback;
   }
 };
 
-const autosaveAccentFor = (s: SaveStatus) => {
-  switch (s) {
-    case 'saving':
-      return 'bg-sky-500 text-sky-200';
-    case 'saved':
-      return 'bg-emerald-500 text-emerald-200';
-    case 'error':
-      return 'bg-rose-500 text-rose-200';
-    default:
-      return 'bg-slate-500 text-slate-200';
-  }
-};
+const autosaveAccentFor = (s: SaveStatus) =>
+  s === 'saving'
+    ? 'bg-sky-500 text-sky-200'
+    : accentFor(s === 'saved' ? 'success' : s === 'error' ? 'error' : undefined, 'bg-slate-500 text-slate-200');
 
 const iconFor = (t?: Props['type']) => {
   switch (t) {

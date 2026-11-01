@@ -30,7 +30,7 @@ const declension = (value: number, forms: [string, string, string]) => {
     return forms[2];
 };
 
-const numberToWordsRu = (value: number) => {
+export const numberToWordsRu = (value: number) => {
     if (!Number.isFinite(value)) return '';
     let num = Math.floor(Math.abs(value));
     if (num === 0) return 'ноль рублей';
@@ -84,6 +84,37 @@ const numberToWordsRu = (value: number) => {
     return parts.join(' ').replace(/\s+/g, ' ').trim();
 };
 
+/**
+ * Полная сумма договора словами, включая копейки: юридическая строка должна
+ * совпадать с числовой суммой (раньше копейки молча отбрасывались через
+ * Math.round(total) и договор расходился сам с собой).
+ */
+export const sumInWordsRu = (total: number): string => {
+    if (!Number.isFinite(total)) return '';
+    const totalCents = Math.round(total * 100);
+    const rubles = Math.floor(Math.abs(totalCents) / 100);
+    const kopecks = Math.abs(totalCents) % 100;
+    const kopecksWords = kopecks === 0 ? 'ноль копеек' : kopeckWords(kopecks);
+    return `${numberToWordsRu(rubles)} ${kopecksWords}`.replace(/\s+/g, ' ').trim();
+};
+
+const kopeckWords = (value: number): string => {
+    const unitsFemale = ['', 'одна', 'две', 'три', 'четыре', 'пять', 'шесть', 'семь', 'восемь', 'девять'];
+    const teens = ['десять', 'одиннадцать', 'двенадцать', 'тринадцать', 'четырнадцать', 'пятнадцать', 'шестнадцать', 'семнадцать', 'восемнадцать', 'девятнадцать'];
+    const tens = ['', 'десять', 'двадцать', 'тридцать', 'сорок', 'пятьдесят', 'шестьдесят', 'семьдесят', 'восемьдесят', 'девяносто'];
+    const parts: string[] = [];
+    if (value >= 10 && value <= 19) {
+        parts.push(teens[value - 10]);
+    } else {
+        const t = Math.floor(value / 10);
+        const u = value % 10;
+        if (t) parts.push(tens[t]);
+        if (u) parts.push(unitsFemale[u]);
+    }
+    parts.push(declension(value, ['копейка', 'копейки', 'копеек']));
+    return parts.join(' ');
+};
+
 export const generatePdfContract = async (estimate: Estimate, contractName: string) => {
     const normalizedContractName = contractName.trim();
     const estimateDate = new Date(estimate.date).toLocaleDateString('ru-RU');
@@ -105,8 +136,10 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
 
     const calculatedTotal = estimate.items.reduce((sum, item) => sum + safeTotal(item), 0);
     const total = Number.isFinite(estimate.total) ? estimate.total : calculatedTotal;
-    const totalRounded = Math.round(total);
-    const totalWords = numberToWordsRu(totalRounded);
+    // Итог округляется до копеек и в числовой строке, и в прописной — раньше
+    // пропись отбрасывала копейки и договор расходился сам с собой.
+    const totalForDisplay = Math.round(total * 100) / 100;
+    const totalWords = sumInWordsRu(totalForDisplay);
 
     const doc = new jsPDF();
 
@@ -273,7 +306,7 @@ export const generatePdfContract = async (estimate: Estimate, contractName: stri
     });
     y += 3; // отступ после блока
 
-    addLine(`ОБЩИЙ ИТОГ: ${formatCurrency(total)} (${totalWords})`, { bold: true, size: 12 });
+    addLine(`ОБЩИЙ ИТОГ: ${totalForDisplay.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₽ (${totalWords})`, { bold: true, size: 12 });
     y += 3;
     // Блок согласования — печатаем без внутренних отступов между строками
     addLine('СОГЛАСОВАНО:', { bold: true });

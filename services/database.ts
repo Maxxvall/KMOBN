@@ -1,5 +1,4 @@
-import { Estimate, EstimateStatus, ProjectTemplate, Material, Work, WorkBundle, normalizeKey, EstimateSectionsDocument } from '../types';
-import { generateEstimateNumber } from './estimateNumber';
+import { Estimate, ProjectTemplate, Material, Work, WorkBundle, EstimateSectionsDocument } from '../types';
 import {
   CacheTableKey,
   deleteCachedRecords,
@@ -14,8 +13,7 @@ import { offlineQueue, type PendingChange } from './offlineQueue';
 import { hashData } from './hashing';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
-import { normalizeEstimateSectionsDocument, prepareEstimateSectionsDocumentForSave } from './estimateSections';
-import { toClientEstimate } from './clientEstimate';
+import { prepareEstimateSectionsDocumentForSave } from './estimateSections';
 import supabase, {
   isSupabaseConfigured,
   fetchEstimates,
@@ -32,10 +30,6 @@ const ensureSupabase = () => {
     throw new Error('Supabase is not configured');
   }
   return supabase;
-};
-
-type LoadTableOptions = {
-  limit?: number;
 };
 
 const parseTimestamp = (value?: string | null): number | null => {
@@ -80,7 +74,7 @@ const compareByStableOrder = <T extends { id: string }>(left: T, right: T): numb
   return String(left.id).localeCompare(String(right.id));
 };
 
-const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
+export const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
   if (records.length <= 1) return records;
   return [...records].sort(compareByStableOrder);
 };
@@ -122,7 +116,7 @@ const getAuthenticatedUserId = async (): Promise<string | null> => {
   return null;
 };
 
-const getWorkspaceUserId = (): string | null => getOfflineUserId() ?? findCachedUserId();
+export const getWorkspaceUserId = (): string | null => getOfflineUserId() ?? findCachedUserId();
 
 const requireWorkspaceUserId = (): string => {
   const userId = getWorkspaceUserId();
@@ -166,7 +160,6 @@ const markRefreshed = (key: CacheTableKey, userId: string): void => {
 
 type TableFetcher = (
   userId: string,
-  options?: LoadTableOptions,
 ) => Promise<{ data: unknown[] | null; error: unknown }>;
 
 const OFFLINE_TABLE_FETCHERS: Partial<Record<CacheTableKey, TableFetcher>> = {
@@ -182,6 +175,50 @@ export type OfflineWorkspaceRefreshResult = {
   refreshedTables: CacheTableKey[];
   skippedTables: CacheTableKey[];
   failedTables: CacheTableKey[];
+};
+
+/**
+ * Persists a remotely confirmed record into the cache under the table
+ * mutation lock, bumping the generation so an in-flight refresh of a stale
+ * snapshot defers to the confirmation instead of overwriting it.
+ */
+export const applyConfirmedRecordToCache = async (
+  table: CacheTableKey,
+  userId: string,
+  record: { id: string },
+): Promise<void> => {
+  const refreshKey = getRefreshKey(table, userId);
+  bumpMutationGeneration(refreshKey);
+  await withTableMutationLock(refreshKey, async () => {
+    await upsertCachedRecords(table, getCacheUserId(userId), [record]);
+  });
+};
+
+/**
+ * Applies a server snapshot while keeping records with pending local changes
+ * authoritative in the cache (outbox-first): the snapshot applies around them
+ * and the unconfirmed outbox forms are written back afterwards.
+ */
+const applySnapshotPreservingPending = async <T extends { id: string }>(
+  key: CacheTableKey,
+  cacheUserId: string,
+  records: T[],
+  pending: PendingChange[],
+): Promise<{ changed: boolean; merged: T[] }> => {
+  const pendingIds = new Set(pending.map(change => change.recordId));
+  const applyRecords = pendingIds.size ? records.filter(record => !pendingIds.has(record.id)) : records;
+  // The outbox is the single source of truth for unconfirmed forms: its
+  // upsert payloads are newer than anything on the server and may even be
+  // missing from the cache when a cache write failed after enqueueing.
+  const pendingUpserts = pending
+    .filter(change => change.operation === 'upsert' && change.data && typeof change.data === 'object')
+    .map(change => change.data as T);
+  const { changed } = await syncCachedRecords(key, cacheUserId, applyRecords);
+  if (pendingUpserts.length) {
+    await upsertCachedRecords(key, cacheUserId, pendingUpserts);
+  }
+  const merged = normalizeStableOrder(pendingIds.size ? [...applyRecords, ...pendingUpserts] : records);
+  return { changed: changed || pendingUpserts.length > 0, merged };
 };
 
 const hasUnresolvedEstimateSectionsConflict = async (userId: string): Promise<boolean> => (
@@ -200,11 +237,11 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
 
   for (const table of OFFLINE_TABLES) {
     const refreshKey = getRefreshKey(table, userId);
-    if ((await offlineQueue.getForTable(userId, table)).length > 0) {
-      result.skippedTables.push(table);
-      continue;
-    }
-    if (table === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) {
+    // estimate_sections keeps its conservative single-document flow: its
+    // pending changes and conflicts are resolved through the merge review.
+    if (table === 'estimate_sections'
+      && ((await offlineQueue.getForTable(userId, table)).length > 0
+        || await hasUnresolvedEstimateSectionsConflict(userId))) {
       result.skippedTables.push(table);
       continue;
     }
@@ -217,10 +254,11 @@ export const refreshOfflineWorkspace = async (userId: string): Promise<OfflineWo
       const records = normalizeStableOrder((data ?? []) as Array<{ id: string }>);
       const applied = await withTableMutationLock(refreshKey, async (): Promise<boolean> => {
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
-        if ((await offlineQueue.getForTable(userId, table)).length > 0) return false;
-        if (table === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return false;
+        const pending = await offlineQueue.getForTable(userId, table);
+        if (table === 'estimate_sections'
+          && (pending.length > 0 || await hasUnresolvedEstimateSectionsConflict(userId))) return false;
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
-        await syncCachedRecords(table, getCacheUserId(userId), records);
+        await applySnapshotPreservingPending(table, getCacheUserId(userId), records, pending);
         if (getMutationGeneration(refreshKey) !== refreshGeneration) return false;
         markRefreshed(table, userId);
         return true;
@@ -298,11 +336,13 @@ export const prepareLocalVersionForPendingChange = async (
 const refreshCacheInBackground = async <T extends { id: string }>(
   key: CacheTableKey,
   userId: string,
-  fetcher: (uid: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
-  options?: LoadTableOptions,
+  fetcher: (uid: string) => Promise<{ data: unknown[] | null; error: unknown }>,
 ): Promise<void> => {
-  if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
-  if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return;
+  // estimate_sections keeps its conservative single-document flow: pending
+  // changes and conflicts are resolved through the merge review.
+  if (key === 'estimate_sections'
+    && ((await offlineQueue.getForTable(userId, key)).length > 0
+      || await hasUnresolvedEstimateSectionsConflict(userId))) return;
   if (isRefreshThrottled(key, userId)) return;
   const refreshKey = getRefreshKey(key, userId);
   if (refreshesInFlight.has(refreshKey)) return;
@@ -311,7 +351,9 @@ const refreshCacheInBackground = async <T extends { id: string }>(
   try {
     // Cache a complete server snapshot. Subscription limits are applied only
     // to the returned UI slice; otherwise remote deletions outside a partial
-    // window can never invalidate stale local rows.
+    // window can never invalidate stale local rows. Records with pending
+    // local changes are excluded from the snapshot and their cached local
+    // forms are kept authoritative until the queue confirms them.
     const { data, error } = await fetcher(userId);
     if (error) {
       console.error('Supabase fetch error:', error);
@@ -321,15 +363,15 @@ const refreshCacheInBackground = async <T extends { id: string }>(
     const cacheUserId = getCacheUserId(userId);
     await withTableMutationLock(refreshKey, async () => {
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
-      if ((await offlineQueue.getForTable(userId, key)).length > 0) return;
-      if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(userId)) return;
+      const pending = await offlineQueue.getForTable(userId, key);
+      if (key === 'estimate_sections'
+        && (pending.length > 0 || await hasUnresolvedEstimateSectionsConflict(userId))) return;
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
-      const changed = (await syncCachedRecords(key, cacheUserId, records)).changed;
+      const { changed, merged } = await applySnapshotPreservingPending<T>(key, cacheUserId, records, pending);
       if (getMutationGeneration(refreshKey) !== refreshGeneration) return;
       markRefreshed(key, userId);
       if (changed) {
-        const visibleRecords = typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
-        dispatchCacheUpdate(key, visibleRecords);
+        dispatchCacheUpdate(key, merged);
       }
     });
   } catch (error) {
@@ -341,8 +383,7 @@ const refreshCacheInBackground = async <T extends { id: string }>(
 
 const readTableCached = async <T extends { id: string }>(
   key: CacheTableKey,
-  fetcher: (userId: string, options?: LoadTableOptions) => Promise<{ data: unknown[] | null; error: unknown }>,
-  options?: LoadTableOptions,
+  fetcher: (userId: string) => Promise<{ data: unknown[] | null; error: unknown }>,
 ): Promise<T[]> => {
   const userId = getWorkspaceUserId();
   const cacheUserId = getCacheUserId(userId);
@@ -352,13 +393,15 @@ const readTableCached = async <T extends { id: string }>(
   const canFetch = isSupabaseConfigured()
     && !!userId
     && (typeof navigator === 'undefined' || navigator.onLine);
-  const limitedCached = typeof options?.limit === 'number' ? cached.slice(0, options.limit) : cached;
+  const limitedCached = cached;
   const hasLocalConflict = key === 'estimate_sections'
     && cached.some(record => Boolean((record as unknown as EstimateSectionsDocument).syncConflict));
 
   if (cached.length > 0 || hasCompleteSnapshot) {
-    if (canFetch && pending.length === 0 && !hasLocalConflict) {
-      void refreshCacheInBackground<T>(key, userId as string, fetcher, options);
+    // refreshCacheInBackground applies the snapshot around pending records;
+    // only the estimate_sections merge review must hold it off.
+    if (canFetch && !hasLocalConflict) {
+      void refreshCacheInBackground<T>(key, userId as string, fetcher);
     }
     return limitedCached;
   }
@@ -383,24 +426,23 @@ const readTableCached = async <T extends { id: string }>(
         await getCachedRecords<T>(key, cacheUserId),
         pendingAfterFetch,
       ));
-      return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
+      return local;
     }
     if (key === 'estimate_sections' && await hasUnresolvedEstimateSectionsConflict(cacheUserId)) {
       const local = normalizeStableOrder(await getCachedRecords<T>(key, cacheUserId));
-      return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
+      return local;
     }
     if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
     await syncCachedRecords(key, cacheUserId, records);
     if (getMutationGeneration(refreshKey) !== refreshGeneration) return null;
-    return typeof options?.limit === 'number' ? records.slice(0, options.limit) : records;
+    return records;
   });
   if (remoteResult) return remoteResult;
   return withTableMutationLock(refreshKey, async () => {
-    const local = normalizeStableOrder(applyPendingChanges(
+    return normalizeStableOrder(applyPendingChanges(
       await getCachedRecords<T>(key, cacheUserId),
       await offlineQueue.getForTable(cacheUserId, key),
     ));
-    return typeof options?.limit === 'number' ? local.slice(0, options.limit) : local;
   });
 };
 
@@ -412,17 +454,11 @@ const deleteRecords = async (table: CacheTableKey, ids: string[]): Promise<void>
   await deleteLocalRecords(table, ids);
 };
 
-export const pickChangedRecordsByIds = <T extends { id: string }>(records: T[], changedIds: string[]): T[] => {
-  if (!records.length || !changedIds.length) return [];
-  const changedSet = new Set(changedIds);
-  return records.filter(record => changedSet.has(record.id));
-};
-
 export const saveEstimates = async (estimates: Estimate[]): Promise<void> => {
   await saveLocalRecords('estimates', estimates);
 };
 
-export const loadEstimates = async (options?: LoadTableOptions): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates, options);
+export const loadEstimates = async (): Promise<Estimate[]> => readTableCached<Estimate>('estimates', fetchEstimates);
 
 /** Fetches the signed-in user's estimates directly from Supabase for an explicit re-check. */
 export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
@@ -431,7 +467,7 @@ export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
     throw new Error('Нет подключения к базе данных пользователя.');
   }
   if ((await offlineQueue.getForTable(userId, 'estimates')).length > 0) {
-    throw new Error('РЎРЅР°С‡Р°Р»Р° СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓР№С‚Рµ Р»РѕРєР°Р»СЊРЅС‹Рµ РёР·РјРµРЅРµРЅРёСЏ СЃРјРµС‚.');
+    throw new Error('Сначала синхронизируйте локальные изменения смет.');
   }
 
   const refreshKey = getRefreshKey('estimates', userId);
@@ -441,7 +477,9 @@ export const refreshEstimatesFromRemote = async (): Promise<Estimate[]> => {
     throw new Error(`Не удалось обновить сметы из базы: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  const records = normalizeStableOrder((data ?? []) as Estimate[]);
+  // Rows come back from the JSONB payload RPC as generic records; the
+  // shape contract is enforced by the revision RPC on the server.
+  const records = normalizeStableOrder((data ?? []) as unknown as Estimate[]);
   return withTableMutationLock(refreshKey, async () => {
     if (getMutationGeneration(refreshKey) !== refreshGeneration) {
       throw new Error('Во время обновления появились локальные изменения смет. Данные из базы не применены.');
@@ -480,7 +518,7 @@ const getChangedRecords = <T extends { id: string }>(cached: T[], records: T[]):
   return records.filter(record => cachedHashes.get(record.id) !== hashData(record));
 };
 
-const saveLocalRecords = async <T extends { id: string }>(table: CacheTableKey, records: T[]): Promise<void> => {
+export const saveLocalRecords = async <T extends { id: string }>(table: CacheTableKey, records: T[]): Promise<void> => {
   if (!records.length) return;
   const knownOwnerId = getOfflineUserId();
   const knownMutationKey = knownOwnerId ? getRefreshKey(table, knownOwnerId) : null;
@@ -550,7 +588,7 @@ export const saveTemplates = async (templates: ProjectTemplate[]): Promise<void>
   await saveLocalRecords('templates', templates);
 };
 
-export const loadTemplates = async (options?: LoadTableOptions): Promise<ProjectTemplate[]> => readTableCached<ProjectTemplate>('templates', fetchTemplates, options);
+export const loadTemplates = async (): Promise<ProjectTemplate[]> => readTableCached<ProjectTemplate>('templates', fetchTemplates);
 
 export const addTemplate = async (template: ProjectTemplate): Promise<void> => {
   await saveLocalRecords('templates', [template]);
@@ -564,7 +602,7 @@ export const saveMaterials = async (materials: Material[]): Promise<void> => {
   await saveLocalRecords('materials', materials);
 };
 
-export const loadMaterials = async (options?: LoadTableOptions): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials, options);
+export const loadMaterials = async (): Promise<Material[]> => readTableCached<Material>('materials', fetchMaterials);
 
 async function addOrUpdateRecord<T extends { id: string }>(
   table: CacheTableKey,
@@ -588,7 +626,7 @@ export const saveWorks = async (works: Work[]): Promise<void> => {
   await saveLocalRecords('works', works);
 };
 
-export const loadWorks = async (options?: LoadTableOptions): Promise<Work[]> => readTableCached<Work>('works', fetchWorks, options);
+export const loadWorks = async (): Promise<Work[]> => readTableCached<Work>('works', fetchWorks);
 
 export const addWork = (work: Work) => addOrUpdateRecord('works', work);
 export const updateWork = (work: Work) => addOrUpdateRecord('works', work);
@@ -605,8 +643,8 @@ export const saveBundles = async (bundles: WorkBundle[]): Promise<void> => {
   await saveLocalRecords('bundles', bundles);
 };
 
-export const loadBundles = async (options?: LoadTableOptions): Promise<WorkBundle[]> => {
-  const raw = await readTableCached<WorkBundle>('bundles', fetchBundles, options);
+export const loadBundles = async (): Promise<WorkBundle[]> => {
+  const raw = await readTableCached<WorkBundle>('bundles', fetchBundles);
   return raw.map(b => ({
     ...b,
     items: Array.isArray(b.items) ? b.items : [],
@@ -624,515 +662,11 @@ export const deleteBundles = async (bundleIds: string[]): Promise<void> => {
   await deleteRecords('bundles', bundleIds);
 };
 
-export const loadEstimateSections = async (options?: LoadTableOptions): Promise<EstimateSectionsDocument[]> => (
-  readTableCached<EstimateSectionsDocument>('estimate_sections', fetchEstimateSections, options)
+export const loadEstimateSections = async (): Promise<EstimateSectionsDocument[]> => (
+  readTableCached<EstimateSectionsDocument>('estimate_sections', fetchEstimateSections)
 );
 
 export const saveEstimateSections = async (document: EstimateSectionsDocument): Promise<void> => {
   await saveLocalRecords('estimate_sections', [prepareEstimateSectionsDocumentForSave(document)]);
 };
 
-export const SCHEMA_VERSION = 3;
-
-const ESTIMATE_TRANSFER_FORMAT = 'kmobn-estimate';
-const ESTIMATE_TRANSFER_SCHEMA_VERSION = 2;
-const MAX_ESTIMATE_TRANSFER_SIZE = 10 * 1024 * 1024;
-
-type EstimateTransferPayload = {
-  format: typeof ESTIMATE_TRANSFER_FORMAT;
-  schemaVersion: typeof ESTIMATE_TRANSFER_SCHEMA_VERSION;
-  exportedAt: string;
-  estimate: Estimate;
-};
-
-export type ImportedSharedEstimate = {
-  estimate: Estimate;
-  numberChanged: boolean;
-};
-
-const isObject = (value: unknown): value is Record<string, unknown> => (
-  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-);
-
-export const createEstimateTransfer = (estimate: Estimate): string => {
-  const [exportableEstimate] = prepareEstimatesForExport([toClientEstimate(estimate)]);
-  const payload: EstimateTransferPayload = {
-    format: ESTIMATE_TRANSFER_FORMAT,
-    schemaVersion: ESTIMATE_TRANSFER_SCHEMA_VERSION,
-    exportedAt: new Date().toISOString(),
-    estimate: exportableEstimate,
-  };
-  return JSON.stringify(payload);
-};
-
-export const parseEstimateTransfer = (payloadText: string): Estimate => {
-  if (payloadText.length > MAX_ESTIMATE_TRANSFER_SIZE) {
-    throw new Error('Смета слишком большая для импорта (максимум 10 МБ).');
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payloadText);
-  } catch {
-    throw new Error('Не удалось прочитать данные сметы. Вставьте код, скопированный из приложения, или выберите файл.');
-  }
-
-  if (!isObject(parsed) || parsed.format !== ESTIMATE_TRANSFER_FORMAT) {
-    throw new Error('Это не файл обмена одной сметой КМОВН.');
-  }
-  if (parsed.schemaVersion !== 1 && parsed.schemaVersion !== ESTIMATE_TRANSFER_SCHEMA_VERSION) {
-    throw new Error('Формат этой сметы не поддерживается. Обновите приложение у отправителя и получателя.');
-  }
-  if (!isObject(parsed.estimate)) {
-    throw new Error('В файле нет данных сметы.');
-  }
-
-  const estimate = parsed.estimate as unknown as Estimate;
-  const requiredTextFields: Array<keyof Pick<Estimate, 'estimateNumber' | 'client' | 'date' | 'buildingType'>> = [
-    'estimateNumber', 'client', 'date', 'buildingType',
-  ];
-  if (requiredTextFields.some(field => typeof estimate[field] !== 'string')) {
-    throw new Error('В смете отсутствуют обязательные данные.');
-  }
-  if (!estimate.estimateNumber.trim()) {
-    throw new Error('У сметы не указан номер.');
-  }
-  if (!Object.values(EstimateStatus).includes(estimate.status)) {
-    throw new Error('У сметы указан неизвестный статус.');
-  }
-  if (!Array.isArray(estimate.items) || !Number.isFinite(estimate.area) || !Number.isFinite(estimate.total)) {
-    throw new Error('В смете некорректные позиции или итоговая сумма.');
-  }
-
-  return estimate;
-};
-
-export const prepareSharedEstimateImport = (
-  source: Estimate,
-  existingEstimateNumbers: string[],
-  now = new Date(),
-  newId = `sm-id-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-): ImportedSharedEstimate => {
-  const sourceNumber = source.estimateNumber.trim();
-  const numberChanged = existingEstimateNumbers.some(number => String(number) === sourceNumber);
-  const estimateNumber = numberChanged
-    ? generateEstimateNumber(existingEstimateNumbers, now)
-    : sourceNumber;
-  const timestamp = now.toISOString();
-
-  return {
-    numberChanged,
-    estimate: {
-      ...source,
-      id: newId,
-      parentId: undefined,
-      estimateNumber,
-      version: 1,
-      date: timestamp,
-      isArchived: false,
-      sortOrder: now.getTime(),
-      created_at: timestamp,
-      updated_at: timestamp,
-      items: source.items.map((item, index) => ({
-        ...item,
-        id: `${newId}-item-${index + 1}`,
-      })),
-    },
-  };
-};
-
-export const importSharedEstimate = async (payloadText: string): Promise<ImportedSharedEstimate> => {
-  const source = parseEstimateTransfer(payloadText);
-  const existingEstimates = await loadEstimates();
-  const imported = prepareSharedEstimateImport(source, existingEstimates.map(estimate => estimate.estimateNumber));
-
-  await saveLocalRecords('estimates', [imported.estimate]);
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
-  }
-  return imported;
-};
-
-export const prepareEstimatesForExport = (estimates: Estimate[]): Estimate[] => estimates.map(estimate => {
-  const { explanation: _internalExplanation, ...exportableEstimate } = estimate;
-  void _internalExplanation;
-  return exportableEstimate;
-});
-
-export const mergeImportedEstimate = (incoming: Estimate, existing?: Estimate): Estimate => {
-  if (!existing || Object.prototype.hasOwnProperty.call(incoming, 'explanation')) return incoming;
-  return existing.explanation === undefined
-    ? incoming
-    : { ...incoming, explanation: existing.explanation };
-};
-
-export const exportData = async (): Promise<string> => {
-  const [estimates, templates, materials, works, bundles, estimateSections] = await Promise.all([
-    loadEstimates(),
-    loadTemplates(),
-    loadMaterials(),
-    loadWorks(),
-    loadBundles(),
-    loadEstimateSections(),
-  ]);
-
-  const data = {
-    schemaVersion: SCHEMA_VERSION,
-    estimates: prepareEstimatesForExport(estimates),
-    templates,
-    materials,
-    works,
-    bundles,
-    estimateSections: estimateSections[0] ?? null,
-    exportedAt: new Date().toISOString(),
-  };
-
-  return JSON.stringify(data, null, 2);
-};
-
-type ImportValidationResult = { ok: true; data: Record<string, unknown> } | { ok: false; error: string };
-
-export const validateImportData = (jsonData: string): ImportValidationResult => {
-  if (jsonData.length > 50 * 1024 * 1024) {
-    return { ok: false, error: 'Файл слишком большой (максимум 50 МБ).' };
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonData);
-  } catch {
-    return { ok: false, error: 'Файл не является валидным JSON.' };
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, error: 'Неверный формат файла: ожидается объект.' };
-  }
-
-  const obj = parsed as Record<string, unknown>;
-
-  const version = obj.schemaVersion;
-  if (typeof version === 'number' && version > SCHEMA_VERSION) {
-    return { ok: false, error: `Файл создан в более новой версии (${version}). Обновите приложение.` };
-  }
-
-  const requiredArrays = ['estimates', 'templates', 'materials', 'works', 'bundles'];
-  for (const key of requiredArrays) {
-    if (obj[key] !== undefined && !Array.isArray(obj[key])) {
-      return { ok: false, error: `Поле «${key}» должно быть массивом.` };
-    }
-  }
-  if (obj.estimateSections !== undefined && obj.estimateSections !== null && !isObject(obj.estimateSections)) {
-    return { ok: false, error: 'Поле «estimateSections» должно быть объектом.' };
-  }
-
-  return { ok: true, data: obj };
-};
-
-export interface ImportResult {
-  estimates: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
-  templates: { added: number; updated: number; unchanged: number };
-  materials: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
-  works: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
-  bundles: { added: number; updated: number; unchanged: number; inFileDuplicates: number };
-}
-
-export const importData = async (jsonData: string): Promise<ImportResult> => {
-  const validation = validateImportData(jsonData);
-  if (validation.ok === false) {
-    throw new Error(validation.error);
-  }
-
-  try {
-    const data = validation.data;
-    const randomSuffix = () => Math.random().toString(36).slice(2, 8);
-    const generateId = (prefix: string): string => `${prefix}-${Date.now()}-${randomSuffix()}`;
-    const baseSortOrder = Date.now();
-    const makeSortOrder = (index: number): number => baseSortOrder + index;
-    const asArray = <T>(value: unknown): T[] => Array.isArray(value) ? (value as T[]) : [];
-
-    const dedupById = <T extends { id: string }>(items: T[]): { result: T[]; removedCount: number } => {
-      const seen = new Map<string, T>();
-      let removedCount = 0;
-      for (const item of items) {
-        if (!seen.has(item.id)) {
-          seen.set(item.id, item);
-        } else {
-          removedCount++;
-        }
-      }
-      return { result: Array.from(seen.values()), removedCount };
-    };
-
-    const hasMaterialChanged = (existing: Material, incoming: Material): boolean => {
-      return existing.price !== incoming.price ||
-        (existing.link ?? '') !== (incoming.link ?? '') ||
-        existing.category !== incoming.category ||
-        JSON.stringify(existing.boardSpec ?? null) !== JSON.stringify(incoming.boardSpec ?? null);
-    };
-
-    const hasWorkChanged = (existing: Work, incoming: Work): boolean => {
-      return existing.price !== incoming.price ||
-        existing.category !== incoming.category;
-    };
-
-    const hasTemplateChanged = (existing: ProjectTemplate, incoming: ProjectTemplate): boolean => {
-      if (existing.baseArea !== incoming.baseArea) return true;
-      if ((existing.items?.length ?? 0) !== (incoming.items?.length ?? 0)) return true;
-      if (JSON.stringify(existing.items) !== JSON.stringify(incoming.items)) return true;
-      return false;
-    };
-
-    const hasBundleChanged = (existing: WorkBundle, incoming: WorkBundle): boolean => {
-      if (existing.category !== incoming.category) return true;
-      if ((existing.items?.length ?? 0) !== (incoming.items?.length ?? 0)) return true;
-      if (JSON.stringify(existing.items) !== JSON.stringify(incoming.items)) return true;
-      return false;
-    };
-
-    const hasEstimateChanged = (existing: Estimate, incoming: Estimate): boolean => {
-      if (existing.client !== incoming.client) return true;
-      if (existing.date !== incoming.date) return true;
-      if (existing.status !== incoming.status) return true;
-      if (existing.area !== incoming.area) return true;
-      if (existing.buildingType !== incoming.buildingType) return true;
-      if (
-        Object.prototype.hasOwnProperty.call(incoming, 'explanation')
-        && (existing.explanation ?? '') !== (incoming.explanation ?? '')
-      ) return true;
-      if ((existing.items?.length ?? 0) !== (incoming.items?.length ?? 0)) return true;
-      if (JSON.stringify(existing.items) !== JSON.stringify(incoming.items)) return true;
-      return false;
-    };
-
-    const rawEstimates = asArray<Estimate>(data.estimates);
-    const rawTemplates = asArray<ProjectTemplate>(data.templates);
-    const rawMaterials = asArray<Material>(data.materials);
-    const rawWorks = asArray<Work>(data.works);
-
-    const existingMaterials = await loadMaterials();
-    const existingWorks = await loadWorks();
-    const existingEstimates = await loadEstimates();
-    const existingTemplates = await loadTemplates();
-    const existingBundles = await loadBundles();
-
-    const existingMaterialByName = new Map<string, Material>();
-    for (const m of existingMaterials) {
-      existingMaterialByName.set(normalizeKey(m.name), m);
-    }
-    const existingWorkByName = new Map<string, Work>();
-    for (const w of existingWorks) {
-      existingWorkByName.set(normalizeKey(w.name), w);
-    }
-
-    const existingEstimateByNumberVersion = new Map<string, Estimate>();
-    for (const e of existingEstimates) {
-      const key = `${e.estimateNumber}::v${e.version ?? 0}`;
-      existingEstimateByNumberVersion.set(key, e);
-    }
-
-    const existingTemplateByName = new Map<string, ProjectTemplate>();
-    for (const t of existingTemplates) {
-      existingTemplateByName.set(normalizeKey(t.name), t);
-    }
-
-    const existingBundleByName = new Map<string, WorkBundle>();
-    for (const b of existingBundles) {
-      existingBundleByName.set(normalizeKey(b.name), b);
-    }
-    const rawBundles = asArray<WorkBundle>(data.bundles);
-    const rawEstimateSections = isObject(data.estimateSections)
-      ? data.estimateSections as unknown as EstimateSectionsDocument
-      : null;
-
-    let estimatesAdded = 0, estimatesUpdated = 0, estimatesUnchanged = 0;
-    const estimateIdMap = new Map<string, string>();
-    rawEstimates.forEach(e => {
-      const key = `${e.estimateNumber}::v${e.version ?? 0}`;
-      const existing = existingEstimateByNumberVersion.get(key);
-      if (existing) {
-        estimateIdMap.set(e.id, existing.id);
-        if (hasEstimateChanged(existing, e)) {
-          estimatesUpdated++;
-        } else {
-          estimatesUnchanged++;
-        }
-      } else {
-        estimateIdMap.set(e.id, generateId('sm-id'));
-        estimatesAdded++;
-      }
-    });
-
-    let templatesAdded = 0, templatesUpdated = 0, templatesUnchanged = 0;
-    const templates = rawTemplates.map((t, index) => {
-      const existing = existingTemplateByName.get(normalizeKey(t.name));
-      if (existing) {
-        if (hasTemplateChanged(existing, t)) {
-          templatesUpdated++;
-        } else {
-          templatesUnchanged++;
-        }
-        return {
-          ...existing,
-          items: Array.isArray(t.items) ? t.items : existing.items,
-          baseArea: t.baseArea ?? existing.baseArea,
-        };
-      }
-      templatesAdded++;
-      return {
-        ...t,
-        id: generateId('template'),
-        items: Array.isArray(t.items) ? t.items : [],
-        sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : makeSortOrder(index),
-      };
-    });
-
-    const estimates = rawEstimates.map((e, index) => {
-      const mappedId = estimateIdMap.get(e.id) as string;
-      const key = `${e.estimateNumber}::v${e.version ?? 0}`;
-      const merged = mergeImportedEstimate(e, existingEstimateByNumberVersion.get(key));
-      return {
-        ...merged,
-        id: mappedId,
-        parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
-        items: Array.isArray(e.items) ? e.items : [],
-        sortOrder: typeof e.sortOrder === 'number' ? e.sortOrder : makeSortOrder(index),
-      };
-    });
-
-    let materialsAdded = 0, materialsUpdated = 0, materialsUnchanged = 0;
-    const materials = rawMaterials.map((m, index) => {
-      const existing = existingMaterialByName.get(normalizeKey(m.name));
-      if (existing) {
-        if (hasMaterialChanged(existing, m)) {
-          materialsUpdated++;
-        } else {
-          materialsUnchanged++;
-        }
-        return {
-          ...existing,
-          price: m.price ?? existing.price,
-          link: m.link ?? existing.link,
-          category: m.category ?? existing.category,
-          boardSpec: m.boardSpec ?? existing.boardSpec,
-          lastUpdated: m.lastUpdated ?? existing.lastUpdated,
-        };
-      }
-      materialsAdded++;
-      return {
-        ...m,
-        id: generateId('material'),
-        sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : makeSortOrder(index),
-      };
-    });
-
-    const dedupMaterialsResult = dedupById(materials);
-    const dedupMaterials = dedupMaterialsResult.result;
-
-    let worksAdded = 0, worksUpdated = 0, worksUnchanged = 0;
-    const works = rawWorks.map((w, index) => {
-      const existing = existingWorkByName.get(normalizeKey(w.name));
-      if (existing) {
-        if (hasWorkChanged(existing, w)) {
-          worksUpdated++;
-        } else {
-          worksUnchanged++;
-        }
-        return {
-          ...existing,
-          price: w.price ?? existing.price,
-          category: w.category ?? existing.category,
-        };
-      }
-      worksAdded++;
-      return {
-        ...w,
-        id: generateId('work'),
-        sortOrder: typeof w.sortOrder === 'number' ? w.sortOrder : makeSortOrder(index),
-      };
-    });
-
-    const dedupWorksResult = dedupById(works);
-    const dedupWorks = dedupWorksResult.result;
-
-    let bundlesAdded = 0, bundlesUpdated = 0, bundlesUnchanged = 0;
-    const bundles = rawBundles.map((b, index) => {
-      const existing = existingBundleByName.get(normalizeKey(b.name));
-      if (existing) {
-        if (hasBundleChanged(existing, b)) {
-          bundlesUpdated++;
-        } else {
-          bundlesUnchanged++;
-        }
-        return {
-          ...existing,
-          items: Array.isArray(b.items) ? b.items : existing.items,
-          category: b.category ?? existing.category,
-        };
-      }
-      bundlesAdded++;
-      return {
-        ...b,
-        id: generateId('bundle'),
-        items: Array.isArray(b.items) ? b.items : [],
-        sortOrder: typeof b.sortOrder === 'number' ? b.sortOrder : makeSortOrder(index),
-      };
-    });
-
-    const dedupBundlesResult = dedupById(bundles);
-    const dedupBundles = dedupBundlesResult.result;
-
-    const importTable = async <T extends { id: string }>(
-      tableName: CacheTableKey,
-      records: T[],
-    ) => {
-      if (!records.length) return;
-      await saveLocalRecords(tableName, records);
-    };
-
-    if (rawEstimateSections) {
-      const userId = getWorkspaceUserId();
-      if (userId) {
-        await saveEstimateSections({
-          ...normalizeEstimateSectionsDocument(rawEstimateSections, userId),
-          id: userId,
-          serverRevision: 0,
-          baseDocument: undefined,
-          operationId: undefined,
-          syncConflict: undefined,
-        });
-      }
-    }
-
-    await Promise.all([
-      importTable('estimates', estimates),
-      importTable('templates', templates),
-      importTable('materials', dedupMaterials),
-      importTable('works', dedupWorks),
-      importTable('bundles', dedupBundles),
-    ]);
-
-    const importResult: ImportResult = {
-      estimates: { added: estimatesAdded, updated: estimatesUpdated, unchanged: estimatesUnchanged, inFileDuplicates: rawEstimates.length - estimatesAdded - estimatesUpdated - estimatesUnchanged },
-      templates: { added: templatesAdded, updated: templatesUpdated, unchanged: templatesUnchanged },
-      materials: { added: materialsAdded, updated: materialsUpdated, unchanged: materialsUnchanged, inFileDuplicates: dedupMaterialsResult.removedCount },
-      works: { added: worksAdded, updated: worksUpdated, unchanged: worksUnchanged, inFileDuplicates: dedupWorksResult.removedCount },
-      bundles: { added: bundlesAdded, updated: bundlesUpdated, unchanged: bundlesUnchanged, inFileDuplicates: dedupBundlesResult.removedCount },
-    };
-
-    window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
-
-    console.log('Data imported successfully', importResult);
-    return importResult;
-  } catch (error) {
-    console.error('Failed to import data:', error);
-    if (error instanceof Error) {
-      throw new Error(`Ошибка при импорте: ${error.message}`);
-    }
-    throw new Error('Ошибка при импорте данных. Проверьте формат файла.');
-  }
-};
-
-export const exportUserData = async (): Promise<Blob> => {
-  const data = await exportData();
-  return new Blob([data], { type: 'application/json' });
-};

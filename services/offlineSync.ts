@@ -2,7 +2,8 @@ import type { CacheTableKey } from './indexedDbCache';
 import { isWorkspacePendingChange, offlineQueue, type PendingChange } from './offlineQueue';
 import { deleteOfflineRecord, saveOfflineRecord } from './supabase';
 import { fetchEstimateSections, saveEstimateSectionsRemote } from './supabase';
-import { upsertCachedRecords } from './indexedDbCache';
+import { getCachedRecords, getCacheUserId } from './indexedDbCache';
+import { applyConfirmedRecordToCache, normalizeStableOrder } from './database';
 import type { EstimateSectionsDocument } from '../types';
 import { tryMergeEstimateSectionsDocuments } from './estimateSections';
 
@@ -31,18 +32,6 @@ export type OfflineSyncResult = {
   syncedTables: CacheTableKey[];
   pendingCount: number;
 };
-
-export class OfflineSyncError extends Error {
-  readonly change: PendingChange;
-  readonly retryable: boolean;
-
-  constructor(change: PendingChange, cause: unknown, retryable: boolean) {
-    super(cause instanceof Error ? cause.message : String(cause));
-    this.name = 'OfflineSyncError';
-    this.change = change;
-    this.retryable = retryable;
-  }
-}
 
 export const isRetryableSyncError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') return true;
@@ -81,11 +70,13 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
       if (error && (String((error as { code?: unknown }).code) === '40001' || /ESTIMATE_SECTIONS_CONFLICT/.test(String((error as { message?: unknown }).message)))) {
         const remoteResult = await fetchEstimateSections(userId);
         if (remoteResult.error || !remoteResult.data?.[0]) throw remoteResult.error ?? error;
-        const remote = remoteResult.data[0] as EstimateSectionsDocument;
+        // The row arrives from the JSONB payload RPC; the document shape is
+        // enforced server-side by the estimate_sections revision contract.
+        const remote = remoteResult.data[0] as unknown as EstimateSectionsDocument;
         const merged = tryMergeEstimateSectionsDocuments(local, remote);
         if (merged) {
           await offlineQueue.enqueueUpserts(userId, 'estimate_sections', [merged]);
-          await upsertCachedRecords('estimate_sections', userId, [merged]);
+          await applyConfirmedRecordToCache('estimate_sections', userId, merged);
           if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key: 'estimate_sections', data: [merged] } }));
           }
@@ -99,7 +90,7 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
             detectedAt: new Date().toISOString(),
           },
         };
-        await upsertCachedRecords('estimate_sections', userId, [conflict]);
+        await applyConfirmedRecordToCache('estimate_sections', userId, conflict);
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key: 'estimate_sections', data: [conflict] } }));
         }
@@ -151,6 +142,32 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
 
 const inFlightByUser = new Map<string, Promise<OfflineSyncResult>>();
 
+// The kmobn:cache-update contract carries a full table snapshot for collection
+// tables (see dispatchCacheUpdate in database.ts). Rebuild that snapshot from
+// the cache after a confirmation so the UI update cannot drop records that were
+// not part of the confirmed change. estimate_sections keeps its
+// single-document contract: App reads detail.data[0] as the whole document.
+const dispatchConfirmedRecords = async (
+  table: CacheTableKey,
+  userId: string,
+  record: { id: string },
+): Promise<void> => {
+  if (typeof window === 'undefined' || typeof CustomEvent === 'undefined') return;
+  if (table === 'estimate_sections') {
+    window.dispatchEvent(new CustomEvent('kmobn:cache-update', { detail: { key: table, data: [record] } }));
+    return;
+  }
+  try {
+    const cached = await getCachedRecords<{ id: string }>(table, getCacheUserId(userId));
+    window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
+      detail: { key: table, data: normalizeStableOrder(cached) },
+    }));
+  } catch {
+    // The confirmed record is already persisted in the cache; the next
+    // background refresh reconciles the UI. Never fail the sync for this.
+  }
+};
+
 const runQueue = async (userId: string, executeChange: ExecutePendingChange): Promise<OfflineSyncResult> => {
   let syncedCount = 0;
   const syncedTables = new Set<CacheTableKey>();
@@ -163,27 +180,20 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
       const acknowledged = await offlineQueue.acknowledge(change.id, change.sequence, change.operationId);
       if (acknowledged) {
         if (result && result.confirmedSections) {
-          await upsertCachedRecords('estimate_sections', userId, [result.confirmedSections]);
-          if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
-              detail: { key: 'estimate_sections', data: [result.confirmedSections] },
-            }));
-          }
+          await applyConfirmedRecordToCache('estimate_sections', userId, result.confirmedSections);
+          await dispatchConfirmedRecords('estimate_sections', userId, result.confirmedSections);
         }
         if (result && result.confirmedRecord) {
-          await upsertCachedRecords(
+          await applyConfirmedRecordToCache(
             result.confirmedRecord.table,
             userId,
-            [result.confirmedRecord.data],
+            result.confirmedRecord.data,
           );
-          if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
-              detail: {
-                key: result.confirmedRecord.table,
-                data: [result.confirmedRecord.data],
-              },
-            }));
-          }
+          await dispatchConfirmedRecords(
+            result.confirmedRecord.table,
+            userId,
+            result.confirmedRecord.data,
+          );
         }
         syncedCount += 1;
         syncedTables.add(change.table);
@@ -197,16 +207,8 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
             confirmed,
           );
           if (rebased?.operation === 'upsert' && rebased.data && typeof rebased.data === 'object') {
-            await upsertCachedRecords(
-              rebased.table,
-              userId,
-              [rebased.data as { id: string }],
-            );
-            if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
-                detail: { key: rebased.table, data: [rebased.data] },
-              }));
-            }
+            await applyConfirmedRecordToCache(rebased.table, userId, rebased.data as { id: string });
+            await dispatchConfirmedRecords(rebased.table, userId, rebased.data as { id: string });
           }
         }
       }
@@ -222,7 +224,9 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
       // The failed snapshot may already have been replaced by a newer local
       // version. Do not block that newer version behind a stale failure.
       if (!stillCurrent) continue;
-      if (retryable) throw new OfflineSyncError(change, error, true);
+      // A transient failure keeps its change queued (with backoff metadata)
+      // while independent changes continue syncing. The manual-retry gate
+      // engages through result.pendingCount and the queued lastError.
       // Keep a permanently invalid record for repair without blocking
       // independent changes later in the queue.
     }

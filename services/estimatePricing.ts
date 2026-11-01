@@ -10,9 +10,25 @@ export type MaterialPriceCheck =
       matchedBy: 'id' | 'name';
     };
 
+/**
+ * Prebuilt normalized-name index for checkMaterialPrice. Buckets keep every
+ * duplicate so the ambiguous case stays identical to the linear scan.
+ */
+export const buildMaterialPriceIndex = (materials: Material[]): ReadonlyMap<string, Material[]> => {
+  const index = new Map<string, Material[]>();
+  for (const material of materials) {
+    const key = normalizeKey(material.name);
+    if (!key) continue;
+    const bucket = index.get(key);
+    if (bucket) bucket.push(material); else index.set(key, [material]);
+  }
+  return index;
+};
+
 export const checkMaterialPrice = (
   item: Pick<EstimateItem, 'name' | 'price' | 'catalogMaterialId'>,
   materials: Material[],
+  nameIndex?: ReadonlyMap<string, Material[]>,
 ): MaterialPriceCheck => {
   if (item.catalogMaterialId) {
     const linkedMaterial = materials.find(material => material.id === item.catalogMaterialId);
@@ -29,7 +45,9 @@ export const checkMaterialPrice = (
   const normalizedName = normalizeKey(item.name);
   if (!normalizedName) return { status: 'missing' };
 
-  const matches = materials.filter(material => normalizeKey(material.name) === normalizedName);
+  const matches = nameIndex
+    ? nameIndex.get(normalizedName) ?? []
+    : materials.filter(material => normalizeKey(material.name) === normalizedName);
   if (matches.length === 0) return { status: 'missing' };
   if (matches.length > 1) return { status: 'ambiguous' };
 

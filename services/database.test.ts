@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { Estimate } from '../types';
 import { EstimateCategory, EstimateStatus } from '../types';
+
 import {
   createEstimateTransfer,
   mergeImportedEstimate,
   parseEstimateTransfer,
-  pickChangedRecordsByIds,
   prepareEstimatesForExport,
   prepareSharedEstimateImport,
-} from './database';
+} from './dataTransfer';
 
 const createEstimate = (id: string): Estimate => ({
   id,
@@ -21,25 +21,6 @@ const createEstimate = (id: string): Estimate => ({
   total: 0,
   buildingType: 'Каркасный дом',
   area: 100,
-});
-
-describe('pickChangedRecordsByIds', () => {
-  it('returns only records with changed ids', () => {
-    const records = [createEstimate('a'), createEstimate('b'), createEstimate('c')];
-
-    const result = pickChangedRecordsByIds(records, ['b']);
-
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('b');
-  });
-
-  it('returns empty when changed list is empty', () => {
-    const records = [createEstimate('a')];
-
-    const result = pickChangedRecordsByIds(records, []);
-
-    expect(result).toEqual([]);
-  });
 });
 
 describe('prepareEstimatesForExport', () => {

@@ -81,8 +81,8 @@ const sendJson = (response: ServerResponse, status: number, body: unknown, extra
 
 export const startMockSupabaseServer = async (port = 54329) => {
   const logs: RequestLog[] = [];
-  const rows: Record<OfflineTable, StoredRow[]> = Object.fromEntries(
-    OFFLINE_TABLES.map(table => [table, []]),
+  const rows = Object.fromEntries(
+    OFFLINE_TABLES.map(table => [table, [] as StoredRow[]]),
   ) as Record<OfflineTable, StoredRow[]>;
   rows.estimates.push({ id: 'seed-estimate', user_id: USER_ID, payload: {
     id: 'seed-estimate', estimateNumber: 'KM-E2E-001', client: 'Клиент E2E', date: '2026-07-13',

@@ -26,7 +26,6 @@ export const useOfflineSync = (userId: string | null) => {
   const [workspaceStatus, setWorkspaceStatus] = useState<WorkspaceStatus>('checking');
   const [missingTables, setMissingTables] = useState<CacheTableKey[]>([]);
   const [lastPreparedAt, setLastPreparedAt] = useState<string | null>(null);
-  const [retryAt, setRetryAt] = useState<string | null>(null);
   const [workspaceVersion, setWorkspaceVersion] = useState(0);
   const [syncedCount, setSyncedCount] = useState(0);
   const [syncedTables, setSyncedTables] = useState<string[]>([]);
@@ -135,7 +134,6 @@ export const useOfflineSync = (userId: string | null) => {
     syncingRef.current = true;
     setSyncStatus('syncing');
     setSyncedCount(0);
-    setRetryAt(null);
     try {
       const result = await prepareOfflineWorkspace(userId, true, {
         onPhase: setWorkspaceStatus,
@@ -175,7 +173,6 @@ export const useOfflineSync = (userId: string | null) => {
     if (syncingRef.current || !navigator.onLine || !userId || userId === 'anon') return;
     syncingRef.current = true;
     setSyncStatus('syncing');
-    setRetryAt(null);
     try {
       const result = await processOfflineQueue(userId);
       if (result.pendingCount > 0) {
@@ -201,7 +198,6 @@ export const useOfflineSync = (userId: string | null) => {
   const syncNow = useCallback(() => {
     preparedUserRef.current = null;
     manualRetryRequiredRef.current = false;
-    setRetryAt(null);
     void runPreparation();
   }, [runPreparation]);
 
@@ -214,7 +210,6 @@ export const useOfflineSync = (userId: string | null) => {
   }, [refreshPending, userId]);
 
   useEffect(() => {
-    setRetryAt(null);
     if (!pendingChangesLoaded) return;
     if (!isOnline || !userId || userId === 'anon' || syncingRef.current) return;
     if (manualRetryRequiredRef.current) return;
@@ -235,7 +230,6 @@ export const useOfflineSync = (userId: string | null) => {
     workspaceStatus,
     missingTables,
     lastPreparedAt,
-    retryAt,
     workspaceVersion,
     syncNow,
     syncedCount,

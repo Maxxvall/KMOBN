@@ -22,7 +22,7 @@ jobs:
           node-version: 22
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci
 
       - name: Build Electron
         run: npm run build:electron:win -- --publish never

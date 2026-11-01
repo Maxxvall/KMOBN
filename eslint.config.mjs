@@ -55,4 +55,36 @@ export default [
       'no-undef': 'off',
     },
   },
+  // Serverless API and the Electron main process run in Node, not the browser.
+  {
+    files: ['api/**/*.ts', 'electron/**/*.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+        ...globals.es2022,
+      },
+    },
+  },
+  // Preload runs in a renderer context with Node APIs exposed by Electron.
+  {
+    files: ['electron/preload.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.es2022,
+      },
+    },
+  },
+  // Playwright specs run under Node and drive a browser context.
+  {
+    files: ['e2e/**/*.ts', 'playwright.electron.config.ts'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.es2022,
+      },
+    },
+  },
 ];

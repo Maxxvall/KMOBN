@@ -19,6 +19,41 @@ import {
     YAxis,
 } from 'recharts';
 import { List, type RowComponentProps } from 'react-window';
+import { downloadBlob } from '../services/download';
+
+type AnalyticsItemComparison = {
+    name: string;
+    unit?: string;
+    qty1?: number;
+    price1?: number;
+    total1?: number;
+    qty2?: number;
+    price2?: number;
+    total2?: number;
+    category?: string;
+    diff?: number;
+    diffPct?: number;
+};
+
+// Module-level so react-window keeps a stable row component between renders;
+// an inline definition remounts every visible row on each analytics render.
+const AnalyticsItemsRow = ({ ariaAttributes, index, style, items, significantThreshold }: RowComponentProps<{ items: AnalyticsItemComparison[]; significantThreshold: number }>) => {
+    const it = items[index];
+    const zebra = index % 2 === 0 ? 'bg-background/20' : '';
+    return (
+        <div {...ariaAttributes} style={style} className={`grid grid-cols-[minmax(220px,1fr)_90px_110px_110px_90px_110px_110px_110px_80px] gap-2 px-3 py-2 border-t border-border hover:bg-background/40 transition ${zebra}`}>
+            <div className="text-text-primary truncate" title={`${it.name}${it.unit ? ` (${it.unit})` : ''}`}>{it.name}{it.unit ? ` (${it.unit})` : ''}</div>
+            <div className="text-right text-text-primary tabular-nums">{it.qty1 ?? '—'}</div>
+            <div className="text-right text-text-primary tabular-nums">{it.price1 ?? '—'}</div>
+            <div className="text-right text-text-primary tabular-nums">{formatRub(it.total1 ?? 0)}</div>
+            <div className="text-right text-text-primary tabular-nums">{it.qty2 ?? '—'}</div>
+            <div className="text-right text-text-primary tabular-nums">{it.price2 ?? '—'}</div>
+            <div className="text-right text-text-primary tabular-nums">{formatRub(it.total2 ?? 0)}</div>
+            <div className={`text-right tabular-nums ${(it.diff ?? 0) >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatRub(it.diff ?? 0)}</div>
+            <div className={`text-right tabular-nums ${Math.abs(it.diffPct || 0) >= significantThreshold ? 'text-amber-200 font-semibold' : 'text-text-primary'}`}>{it.diffPct ?? 0}%</div>
+        </div>
+    );
+};
 import * as XLSX from 'xlsx';
 
 interface AnalyticsProps {
@@ -68,17 +103,6 @@ const shiftMonths = (d: Date, months: number) => {
     const copy = new Date(d);
     copy.setMonth(copy.getMonth() + months);
     return copy;
-};
-
-const downloadBlob = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 };
 
 const exportToCsv = (rows: Record<string, any>[], filename: string) => {
@@ -1959,23 +1983,6 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                             else exportToXlsx(rows, 'Items', `${base}.xlsx`);
                                         };
 
-                                        const VirtualRow = ({ ariaAttributes, index, style, items }: RowComponentProps<{ items: typeof filteredItems }>) => {
-                                            const it = items[index];
-                                            const zebra = index % 2 === 0 ? 'bg-background/20' : '';
-                                            return (
-                                                <div {...ariaAttributes} style={style} className={`grid grid-cols-[minmax(220px,1fr)_90px_110px_110px_90px_110px_110px_110px_80px] gap-2 px-3 py-2 border-t border-border hover:bg-background/40 transition ${zebra}`}>
-                                                    <div className="text-text-primary truncate" title={`${it.name}${it.unit ? ` (${it.unit})` : ''}`}>{it.name}{it.unit ? ` (${it.unit})` : ''}</div>
-                                                    <div className="text-right text-text-primary tabular-nums">{it.qty1 ?? '—'}</div>
-                                                    <div className="text-right text-text-primary tabular-nums">{it.price1 ?? '—'}</div>
-                                                    <div className="text-right text-text-primary tabular-nums">{formatRub(it.total1 ?? 0)}</div>
-                                                    <div className="text-right text-text-primary tabular-nums">{it.qty2 ?? '—'}</div>
-                                                    <div className="text-right text-text-primary tabular-nums">{it.price2 ?? '—'}</div>
-                                                    <div className="text-right text-text-primary tabular-nums">{formatRub(it.total2 ?? 0)}</div>
-                                                    <div className={`text-right tabular-nums ${it.diff >= 0 ? 'text-green-300' : 'text-red-300'}`}>{formatRub(it.diff ?? 0)}</div>
-                                                    <div className={`text-right tabular-nums ${Math.abs(it.diffPct || 0) >= significantThreshold ? 'text-amber-200 font-semibold' : 'text-text-primary'}`}>{it.diffPct ?? 0}%</div>
-                                                </div>
-                                            );
-                                        };
 
                                         return (
                                             <div key={category} className="bg-background/30 border border-border rounded-xl overflow-hidden">
@@ -2034,12 +2041,12 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                                         <button onClick={() => setItemSort(s => ({ key: 'diffPct', dir: s.key === 'diffPct' && s.dir === 'asc' ? 'desc' : 'asc' }))} className="text-right hover:text-text-primary transition">%Δ {itemSort.key === 'diffPct' ? (itemSort.dir === 'asc' ? '▲' : '▼') : ''}</button>
                                                                     </div>
 
-                                                                    {filteredItems.length > 45 ? (
+                                                                    {isOpen && (filteredItems.length > 45 ? (
                                                                         <List
                                                                             rowCount={filteredItems.length}
                                                                             rowHeight={44}
-                                                                            rowComponent={VirtualRow}
-                                                                            rowProps={{ items: filteredItems }}
+                                                                            rowComponent={AnalyticsItemsRow}
+                                                                            rowProps={{ items: filteredItems, significantThreshold }}
                                                                             style={{ height: 360 }}
                                                                         />
                                                                     ) : (
@@ -2058,7 +2065,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                                                 </div>
                                                                             ))}
                                                                         </div>
-                                                                    )}
+                                                                    ))}
                                                                 </div>
                                                             </div>
                                                         </div>

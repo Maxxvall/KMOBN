@@ -1,3 +1,4 @@
+import { createOperationId } from './operationId';
 import {
     ESTIMATE_SECTION_DEFINITIONS,
     EstimateCategory,
@@ -41,13 +42,6 @@ export const isCustomSectionId = (value: unknown): value is CustomSectionId => (
     typeof value === 'string' && /^custom:[0-9a-f-]{8,}$/i.test(value)
 );
 
-const createUuid = (): string => {
-    if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
-        const random = Math.floor(Math.random() * 16);
-        return (token === 'x' ? random : (random & 0x3) | 0x8).toString(16);
-    });
-};
 
 export const createEstimateSectionsDocument = (userId: string): EstimateSectionsDocument => ({
     id: userId,
@@ -244,7 +238,7 @@ const touchDocument = (
     // Using the already-mutated document makes a concurrent local change look
     // unchanged and can silently choose the remote value.
     baseDocument: sourceBeforeMutation.baseDocument ?? snapshotDocument(sourceBeforeMutation),
-    operationId: createUuid(),
+    operationId: createOperationId(),
     syncConflict: undefined,
 });
 
@@ -256,7 +250,7 @@ export const addUserEstimateSection = (
     document: EstimateSectionsDocument,
     label: string,
     now = new Date(),
-    id: CustomSectionId = `custom:${createUuid()}`,
+    id: CustomSectionId = `custom:${createOperationId()}`,
 ): EstimateSectionsDocument => {
     if (document.definitions.length >= MAX_USER_ESTIMATE_SECTIONS) throw new Error(`Можно создать не более ${MAX_USER_ESTIMATE_SECTIONS} разделов.`);
     const clean = validateNewLabel(document, label);

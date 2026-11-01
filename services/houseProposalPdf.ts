@@ -4,6 +4,7 @@ import type { HouseVariantResult } from './houseCalculator';
 import type { HouseProposalDocxInput } from './houseProposalDocx';
 import { loadPremiumPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 import { HOUSE_SCOPE_STATUS_LABELS } from './houseScope';
+import { PREMIUM_PDF_COLORS } from './premiumPdfBrand';
 
 type Rgb = [number, number, number];
 type PdfWithTable = jsPDF & { lastAutoTable?: { finalY: number } };
@@ -30,19 +31,8 @@ export interface HouseProposalPdfModel {
 
 export const HOUSE_PROPOSAL_PRELIMINARY_TEXT = 'Расчёт является предварительным. Окончательная стоимость будет указана после выбора проекта и согласования дополнительных деталей.';
 
-const COLORS = {
-    graphite: [16, 19, 24] as Rgb,
-    graphiteSoft: [23, 27, 33] as Rgb,
-    red: [239, 65, 54] as Rgb,
-    paper: [244, 241, 233] as Rgb,
-    white: [255, 255, 255] as Rgb,
-    row: [251, 250, 247] as Rgb,
-    line: [216, 210, 199] as Rgb,
-    text: [23, 26, 31] as Rgb,
-    muted: [105, 112, 120] as Rgb,
-    paleRed: [252, 235, 232] as Rgb,
-    positive: [23, 107, 77] as Rgb,
-} as const;
+// Бренд-палитра едина с premiumPdf (positive входит в бренд).
+const COLORS = PREMIUM_PDF_COLORS;
 
 const PAGE_WIDTH = 210;
 const PAGE_HEIGHT = 297;

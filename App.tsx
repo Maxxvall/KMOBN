@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
-import { BoardSpec, Estimate, View, EstimateStatus, ProjectTemplate, Material, Work, EstimateSubgroup, WorkBundle, SubscriptionTier, UserSubscription, SubscriptionLimits, SubscriptionUsage, normalizeKey, findDuplicates, EstimateSectionsDocument, CustomSectionId, SectionId } from './types';
+import { BoardSpec, Estimate, View, EstimateStatus, ProjectTemplate, Material, Work, EstimateSubgroup, WorkBundle, UserSubscription, normalizeKey, findDuplicates, EstimateSectionsDocument, CustomSectionId, SectionId } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
 import StatusIndicators from './components/StatusIndicators';
@@ -17,9 +17,6 @@ import UpdateBanner from './components/UpdateBanner';
 import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
 import { useOfflineSync } from './hooks/useOfflineSync';
-import { generatePdf } from './services/pdfGenerator';
-import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
-import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate, type EstimateValidationResult } from './services/estimateValidation';
 import { hashData } from './services/hashing';
 import { EstimateProvider } from './contexts/EstimateContext';
@@ -37,21 +34,13 @@ import { useEstimateCrud } from './hooks/useEstimateCrud';
 import { normalizeEstimateChains } from './services/estimateLifecycle';
 import { toClientEstimate } from './services/clientEstimate';
 import {
-    canCreateBundle,
-    canCreateMaterial,
-    canCreateWork,
-    canUseAi,
-    deriveSubscriptionUsage,
-    getSubscriptionLimits,
-    getVisibleSubscriptionData,
     getUserSubscription,
     incrementAiUsage,
-    incrementDeletedEstimates,
     normalizeSubscriptionUsage,
     updateUserSubscription,
 } from './services/subscriptionService';
-import { createPayment } from './services/paymentService';
 import { setupAppUsageTracking } from './services/appUsage';
+import { exportContractPdf, exportEstimatePdfColored, exportEstimatePdfPlain } from './services/documentExport';
 import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './services/offlineIdentity';
 import { buildCatalogDuplicateDeletePlan, type CatalogDuplicateDecision } from './services/duplicateManagement';
 import { recalculateEstimateWorkPrices } from './services/estimatePricing';
@@ -64,7 +53,6 @@ const Bundles = lazy(() => import('./components/Bundles'));
 const HouseCalculator = lazy(() => import('./components/HouseCalculator'));
 const Analytics = lazy(() => import('./components/Analytics'));
 const Cutting = lazy(() => import('./components/Cutting'));
-const Subscriptions = lazy(() => import('./components/Subscriptions'));
 const Wiki = lazy(() => import('./components/Wiki'));
 const EstimateSectionsSettings = lazy(() => import('./components/EstimateSectionsSettings'));
 
@@ -82,7 +70,6 @@ const hasRecoveryFlagInUrl = (): boolean => {
 };
 
 type SyncState = { visible: boolean; message: string; type: 'success' | 'error' | 'info' };
-type AccessModalState = { title: string; description: string } | null;
 type EditorValidationState = ReturnType<typeof validateEstimate> | null;
 
 type UiState = {
@@ -95,14 +82,12 @@ type UiState = {
     showSaveOptions: boolean;
     showUnsavedModal: boolean;
     pendingView: View | null;
-    accessModal: AccessModalState;
 };
 
 type AuthState = {
     supabaseUser: User | null;
     subscription: UserSubscription | null;
     subscriptionLoading: boolean;
-    paymentLoading: boolean;
     recoveryRequired: boolean;
     recoveryPassword: string;
     recoverySubmitting: boolean;
@@ -148,7 +133,6 @@ const initialUiState: UiState = {
     showSaveOptions: false,
     showUnsavedModal: false,
     pendingView: null,
-    accessModal: null,
 };
 
 const initialEditorState: EditorState = {
@@ -170,7 +154,6 @@ const createInitialAuthState = (): AuthState => ({
     supabaseUser: typeof navigator !== 'undefined' && !navigator.onLine ? getOfflineUser() : null,
     subscription: null,
     subscriptionLoading: false,
-    paymentLoading: false,
     recoveryRequired: (() => {
         try {
             return localStorage.getItem(RECOVERY_STORAGE_KEY) === 'true' || hasRecoveryFlagInUrl();
@@ -206,7 +189,6 @@ const App: React.FC = () => {
         supabaseUser,
         subscription,
         subscriptionLoading,
-        paymentLoading,
         recoveryRequired,
         recoveryPassword,
         recoverySubmitting,
@@ -238,7 +220,6 @@ const App: React.FC = () => {
     const setSupabaseUser = useCallback((v: React.SetStateAction<User | null>) => setAuthState(p => ({ ...p, supabaseUser: typeof v === 'function' ? (v as (prev: User | null) => User | null)(p.supabaseUser) : v })), []);
     const setSubscription = useCallback((v: React.SetStateAction<UserSubscription | null>) => setAuthState(p => ({ ...p, subscription: typeof v === 'function' ? (v as (prev: UserSubscription | null) => UserSubscription | null)(p.subscription) : v })), []);
     const setSubscriptionLoading = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, subscriptionLoading: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.subscriptionLoading) : v })), []);
-    const setPaymentLoading = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, paymentLoading: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.paymentLoading) : v })), []);
     const setRecoveryRequired = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, recoveryRequired: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.recoveryRequired) : v })), []);
     const setRecoveryPassword = useCallback((v: React.SetStateAction<string>) => setAuthState(p => ({ ...p, recoveryPassword: typeof v === 'function' ? (v as (prev: string) => string)(p.recoveryPassword) : v })), []);
     const setRecoverySubmitting = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, recoverySubmitting: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.recoverySubmitting) : v })), []);
@@ -256,6 +237,10 @@ const App: React.FC = () => {
     const setEditorValidationResult = useCallback((v: React.SetStateAction<EstimateValidationResult | null>) => setEditorState(p => ({ ...p, editorValidationResult: typeof v === 'function' ? (v as (prev: EstimateValidationResult | null) => EstimateValidationResult | null)(p.editorValidationResult) : v })), []);
     const setEditorDirty = useCallback((v: React.SetStateAction<boolean>) => setEditorState(p => ({ ...p, editorDirty: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.editorDirty) : v })), []);
     const setEditorDraft = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, editorDraft: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.editorDraft) : v })), []);
+    // Keystroke-level draft mirror: the editor pushes every edit here without
+    // re-rendering App; the editorDraft state is synced from the ref only when
+    // a modal that reads it is about to open.
+    const editorDraftRef = useRef<Estimate | null>(null);
     const setViewAfterSave = useCallback((v: React.SetStateAction<View>) => setEditorState(p => ({ ...p, viewAfterSave: typeof v === 'function' ? (v as (prev: View) => View)(p.viewAfterSave) : v })), []);
     const setIsSaving = useCallback((v: React.SetStateAction<boolean>) => setSaveState(p => ({ ...p, isSaving: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.isSaving) : v })), []);
     const setLastSaved = useCallback((v: React.SetStateAction<Date | null>) => setSaveState(p => ({ ...p, lastSaved: typeof v === 'function' ? (v as (prev: Date | null) => Date | null)(p.lastSaved) : v })), []);
@@ -308,31 +293,6 @@ const App: React.FC = () => {
     const [sectionsDocument, setSectionsDocument] = useState<EstimateSectionsDocument>(() => createEstimateSectionsDocument('local'));
     const [sectionsLoading, setSectionsLoading] = useState(true);
     const [sectionsError, setSectionsError] = useState<string | null>(null);
-    const subscriptionTier: SubscriptionTier = subscriptionLoading
-        ? (subscription?.subscription_tier ?? 'premium') // Don't downgrade during loading
-        : (subscription?.subscription_tier ?? 'free');
-    const subscriptionLimits: SubscriptionLimits = useMemo(() => getSubscriptionLimits(subscriptionTier), [subscriptionTier]);
-    const visibleSubscriptionData = useMemo(() => getVisibleSubscriptionData({
-        limits: subscriptionLimits,
-        estimates,
-        materials,
-        works,
-        bundles,
-    }), [subscriptionLimits, estimates, materials, works, bundles]);
-    const subscriptionUsage: SubscriptionUsage = useMemo(() => {
-        return deriveSubscriptionUsage({
-            subscription,
-            estimates: visibleSubscriptionData.estimates,
-            materials: visibleSubscriptionData.materials,
-            works: visibleSubscriptionData.works,
-            bundles: visibleSubscriptionData.bundles,
-        });
-    }, [subscription, visibleSubscriptionData]);
-    const headerSubscriptionSummary = useMemo(() => ({
-        tier: subscriptionTier,
-        usage: subscriptionUsage,
-        limits: subscriptionLimits,
-    }), [subscriptionTier, subscriptionUsage, subscriptionLimits]);
     const [isLoading, setIsLoading] = useState(true);
     const [loadedFlags, setLoadedFlags] = useState({
         estimates: false,
@@ -497,14 +457,14 @@ const App: React.FC = () => {
                     }, 2000);
                 } else {
                     if (!isMounted) return;
-                    // Keep subscriptionLoading true — we use premium fallback during loading
+                    // Keep subscriptionLoading true — AI usage stays optimistic until the first load
                 }
             }
         };
 
         void loadSubscription();
 
-        // Periodic refresh every 60 seconds to pick up webhook updates
+        // Periodic refresh every 60 seconds to keep the AI usage counter fresh
         const pollInterval = setInterval(() => {
             if (isMounted) void loadSubscription(0);
         }, 60_000);
@@ -541,7 +501,7 @@ const App: React.FC = () => {
             throw new Error(error.message);
         }
         if (isElectron && data?.url) {
-            await window.electronAPI.openExternal(data.url);
+            await window.electronAPI?.openExternal?.(data.url);
         }
     }, []);
 
@@ -792,13 +752,14 @@ const App: React.FC = () => {
 
     // Handle OAuth callback from custom protocol (Electron)
     useEffect(() => {
-        if (!window.electronAPI?.onAuthCallback || !supabase) return;
+        const authClient = supabase;
+        if (!window.electronAPI?.onAuthCallback || !authClient) return;
         const handler = (url: string) => {
             try {
                 const parsedUrl = new URL(url);
                 const code = parsedUrl.searchParams.get('code');
                 if (code) {
-                    supabase.auth.exchangeCodeForSession(code).then(({ data, error }) => {
+                    authClient.auth.exchangeCodeForSession(code).then(({ data, error }) => {
                         if (error) {
                             console.error('OAuth exchange error:', error);
                         } else if (data?.user) {
@@ -1002,7 +963,7 @@ const App: React.FC = () => {
     const loadMaterialsData = useCallback(async () => {
         if (loadedFlags.materials) return;
         try {
-            const loaded = await loadMaterials({ limit: subscriptionLimits.materials.max ?? undefined });
+            const loaded = await loadMaterials();
             setMaterials(loaded || []);
             setLoadedFlags(prev => ({ ...prev, materials: true }));
             setDataHashes(prev => ({ ...prev, materials: hashData(loaded || []) }));
@@ -1010,12 +971,12 @@ const App: React.FC = () => {
             console.error('Failed to load materials:', error);
             setMaterials([]);
         }
-    }, [loadedFlags.materials, subscriptionLimits.materials.max]);
+    }, [loadedFlags.materials]);
 
     const loadWorksData = useCallback(async () => {
         if (loadedFlags.works) return;
         try {
-            const loaded = await loadWorks({ limit: subscriptionLimits.works.max ?? undefined });
+            const loaded = await loadWorks();
             setWorks(loaded || []);
             setLoadedFlags(prev => ({ ...prev, works: true }));
             setDataHashes(prev => ({ ...prev, works: hashData(loaded || []) }));
@@ -1023,12 +984,12 @@ const App: React.FC = () => {
             console.error('Failed to load works:', error);
             setWorks([]);
         }
-    }, [loadedFlags.works, subscriptionLimits.works.max]);
+    }, [loadedFlags.works]);
 
     const loadBundlesData = useCallback(async () => {
         if (loadedFlags.bundles) return;
         try {
-            const loaded = await loadBundles({ limit: subscriptionLimits.bundles.max ?? undefined });
+            const loaded = await loadBundles();
             setBundles(loaded || []);
             setLoadedFlags(prev => ({ ...prev, bundles: true }));
             setDataHashes(prev => ({ ...prev, bundles: hashData(loaded || []) }));
@@ -1036,16 +997,7 @@ const App: React.FC = () => {
             console.error('Failed to load bundles:', error);
             setBundles([]);
         }
-    }, [loadedFlags.bundles, subscriptionLimits.bundles.max]);
-
-    useEffect(() => {
-        setLoadedFlags(prev => ({
-            ...prev,
-            materials: false,
-            works: false,
-            bundles: false,
-        }));
-    }, [subscriptionTier]);
+    }, [loadedFlags.bundles]);
 
     useEffect(() => {
         if (!isAuthenticated) return;
@@ -1269,6 +1221,7 @@ const App: React.FC = () => {
         setEditorValidationResult(null);
         setEditorDirty(false);
         setEditorDraft(null);
+        editorDraftRef.current = null;
         setPendingView(null);
         setShowSaveOptions(false);
         setShowUnsavedModal(false);
@@ -1280,16 +1233,6 @@ const App: React.FC = () => {
         [works],
     );
 
-    const consumeDeleteLimit = useCallback(() => {
-        if (!subscription || !supabaseUser) return;
-        const next = incrementDeletedEstimates(subscription);
-        setSubscription(next);
-        void updateUserSubscription(supabaseUser.id, {
-            estimates_deleted_this_month: next.estimates_deleted_this_month ?? 0,
-            limits_reset_date: next.limits_reset_date ?? null,
-        });
-    }, [subscription, supabaseUser, setSubscription]);
-
     const consumeAiLimit = useCallback(() => {
         if (!subscription || !supabaseUser) return;
         const next = incrementAiUsage(subscription);
@@ -1300,16 +1243,11 @@ const App: React.FC = () => {
         });
     }, [subscription, supabaseUser, setSubscription]);
 
-    const aiAccess = useMemo(() => {
-        const canUse = canUseAi(subscriptionUsage, subscriptionLimits);
-        const limit = subscriptionLimits.aiRequestsPerDay;
-        const remaining = limit == null ? null : Math.max(0, limit - subscriptionUsage.aiRequestsToday);
-        return {
-            canUseAi: canUse,
-            remaining,
-            onConsume: consumeAiLimit,
-        };
-    }, [subscriptionUsage, subscriptionLimits, consumeAiLimit]);
+    const aiAccess = useMemo(() => ({
+        canUseAi: true,
+        remaining: null,
+        onConsume: consumeAiLimit,
+    }), [consumeAiLimit]);
 
     const {
         handleCreateNew,
@@ -1323,18 +1261,17 @@ const App: React.FC = () => {
         handleDeleteTemplate,
     } = useEstimateCrud({
         estimates,
-        subscriptionUsage,
-        subscriptionLimits,
-        subscriptionLoading,
         goToView,
         recalculateWorkPrices,
-        consumeDeleteLimit,
+        resetEditorDraft: () => {
+            setEditorDraft(null);
+            editorDraftRef.current = null;
+        },
         setEstimates,
         setTemplates,
         setCurrentEstimate,
         setEditorValidationResult,
         setEditorDirty,
-        setEditorDraft,
         setShowSaveOptions,
         setShowUnsavedModal,
         setPendingView,
@@ -1362,22 +1299,28 @@ const App: React.FC = () => {
         setIsOfflineChangesOpen(false);
     }, [handleNavigationAttempt]);
 
+    const applyEditorDraft = useCallback((draft: Estimate) => {
+        const mirrored = { ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) };
+        editorDraftRef.current = mirrored;
+        return mirrored;
+    }, [sectionsDocument]);
+
     const handleDraftChange = useCallback((draft: Estimate) => {
-        setEditorDraft({ ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) });
-    }, [sectionsDocument, setEditorDraft]);
+        applyEditorDraft(draft);
+    }, [applyEditorDraft]);
 
     const handleDirtyChange = useCallback((dirty: boolean) => {
         setEditorDirty(dirty);
     }, [setEditorDirty]);
 
     const handleSaveRequest = useCallback((draft: Estimate) => {
-        setEditorDraft({ ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft, sectionsDocument) });
+        setEditorDraft(applyEditorDraft(draft));
         setRestoreArchivedOnSave(true);
         setViewAfterSave(View.HISTORY);
         setShowSaveOptions(true);
         setShowUnsavedModal(false);
         setPendingView(null);
-    }, [sectionsDocument, setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
+    }, [applyEditorDraft, setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
 
     const handleConfirmSave = useCallback((mode: SaveMode) => {
         if (!editorDraft) return;
@@ -1386,10 +1329,11 @@ const App: React.FC = () => {
 
     const handleUnsavedSave = useCallback(() => {
         const target = pendingView ?? View.HISTORY;
+        if (editorDraftRef.current) setEditorDraft(editorDraftRef.current);
         setViewAfterSave(target);
         setShowUnsavedModal(false);
         setShowSaveOptions(true);
-    }, [pendingView, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
+    }, [pendingView, setEditorDraft, setShowSaveOptions, setShowUnsavedModal, setViewAfterSave]);
 
     const handleUnsavedDiscard = useCallback(() => {
         const target = pendingView ?? View.HISTORY;
@@ -1397,6 +1341,7 @@ const App: React.FC = () => {
         setPendingView(null);
         setEditorDirty(false);
         setEditorDraft(null);
+        editorDraftRef.current = null;
         goToView(target);
     }, [pendingView, goToView, setEditorDirty, setEditorDraft, setPendingView, setShowUnsavedModal]);
 
@@ -1418,6 +1363,7 @@ const App: React.FC = () => {
             setShowUnsavedModal(false);
             setEditorDirty(false);
             setEditorDraft(null);
+            editorDraftRef.current = null;
             setPendingView(null);
         }
     }, [view, setEditorDirty, setEditorDraft, setPendingView, setShowSaveOptions, setShowUnsavedModal]);
@@ -1438,6 +1384,7 @@ const App: React.FC = () => {
             setCurrentEstimate(exportEstimate);
             setEditorDirty(false);
             setEditorDraft(null);
+            editorDraftRef.current = null;
             setPendingView(null);
             setShowSaveOptions(false);
             setShowUnsavedModal(false);
@@ -1466,9 +1413,9 @@ const App: React.FC = () => {
         
         try {
             if (style === 'simple') {
-                await generatePdf(pendingExportEstimate, title);
+                await exportEstimatePdfPlain(pendingExportEstimate, title);
             } else {
-                await generatePdfColored(pendingExportEstimate, materialsRef.current, title);
+                await exportEstimatePdfColored(pendingExportEstimate, materialsRef.current, title);
             }
         } catch (error) {
             console.error("PDF Generation Error:", error);
@@ -1483,7 +1430,7 @@ const App: React.FC = () => {
         if (!pendingExportEstimate) return;
 
         try {
-            await generatePdfContract(pendingExportEstimate, contractName);
+            await exportContractPdf(pendingExportEstimate, contractName);
         } catch (error) {
             console.error('PDF Contract Generation Error:', error);
             alert('Не удалось сгенерировать PDF документ.');
@@ -1559,10 +1506,6 @@ const App: React.FC = () => {
         link?: string,
         boardSpec?: BoardSpec,
     ): Promise<Material | null> => {
-        if (!canCreateMaterial(subscriptionUsage, subscriptionLimits)) {
-            return null;
-        }
-
         const normalizedInput = normalizeKey(name);
         const existing = materialsRef.current.find(m => normalizeKey(m.name) === normalizedInput);
 
@@ -1608,7 +1551,7 @@ const App: React.FC = () => {
             alert('Не удалось добавить материал.');
             return null;
         }
-    }, [subscriptionUsage, subscriptionLimits, markDraftEstimatesWithPriceChange]);
+    }, [markDraftEstimatesWithPriceChange]);
 
     const handleForceAddMaterial = useCallback(async (material: Material) => {
         try {
@@ -1668,10 +1611,6 @@ const App: React.FC = () => {
     }, []);
 
     const handleAddWork = useCallback(async (name: string, category: SectionId, price: number): Promise<Work | null> => {
-        if (!canCreateWork(subscriptionUsage, subscriptionLimits)) {
-            return null;
-        }
-
         const normalizedInput = normalizeKey(name);
         const existing = works.find(w => normalizeKey(w.name) === normalizedInput);
 
@@ -1711,7 +1650,7 @@ const App: React.FC = () => {
             alert('Не удалось добавить работу.');
             return null;
         }
-    }, [works, subscriptionUsage, subscriptionLimits, markDraftEstimatesWithPriceChange]);
+    }, [works, markDraftEstimatesWithPriceChange]);
 
     const handleForceAddWork = useCallback(async (work: Work) => {
         try {
@@ -1803,9 +1742,6 @@ const App: React.FC = () => {
     }, []);
 
     const handleAddBundle = useCallback(async (bundle: WorkBundle) => {
-        if (!canCreateBundle(subscriptionUsage, subscriptionLimits)) {
-            return;
-        }
         const nextBundle: WorkBundle = {
             ...bundle,
             sortOrder: bundle.sortOrder ?? Date.now(),
@@ -1817,7 +1753,7 @@ const App: React.FC = () => {
             console.error('Failed to add bundle:', error);
             alert('Не удалось добавить комплект.');
         }
-    }, [subscriptionUsage, subscriptionLimits]);
+    }, []);
 
     const handleUpdateBundle = useCallback(async (bundle: WorkBundle) => {
         try {
@@ -1841,62 +1777,11 @@ const App: React.FC = () => {
         }
     }, []);
 
-    const handleStartPayment = useCallback(async (tier: SubscriptionTier) => {
-        if (!supabaseUser) {
-            showToast('Для оплаты нужна авторизация.', 'info');
-            return;
-        }
-        if (tier === 'free') return;
-
-        setPaymentLoading(true);
-        try {
-            const redirectBase = window.location.origin;
-            const { paymentUrl } = await createPayment({
-                tier,
-                userId: supabaseUser.id,
-                successUrl: redirectBase,
-                cancelUrl: redirectBase,
-            });
-            try {
-                const a = document.createElement('a');
-                a.href = paymentUrl;
-                a.target = '_blank';
-                a.rel = 'noopener noreferrer';
-                // some browsers require the element to be in DOM
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-            } catch {
-                window.location.href = paymentUrl;
-            }
-        } catch (error) {
-            console.error('Failed to start payment:', error);
-            const errorMessage = error instanceof Error ? error.message : '';
-            const errorCode = error instanceof Error ? (error as Error & { code?: string }).code : undefined;
-            const isInvalidKey = errorCode === 'INVALID_API_KEY' || /invalid api key/i.test(errorMessage);
-            const isMissingKey = /NOWPAYMENTS_API_KEY is missing/i.test(errorMessage);
-            const isCurrencyUnavailable = errorCode === 'CURRENCY_UNAVAILABLE' || /currency.*unavailable/i.test(errorMessage);
-            const isAmountMinimal = errorCode === 'AMOUNT_MINIMAL_ERROR' || /less than minimal|minimal/i.test(errorMessage);
-            if (isInvalidKey) {
-                showToast('Платёжный ключ недействителен. Проверьте NOWPAYMENTS_API_KEY.', 'error', 6000);
-            } else if (isMissingKey) {
-                showToast('Платёжный сервис не настроен: отсутствует NOWPAYMENTS_API_KEY.', 'error', 6000);
-            } else if (isCurrencyUnavailable) {
-                showToast('USDT временно недоступен. Попробуйте ещё раз чуть позже.', 'error', 6000);
-            } else if (isAmountMinimal) {
-                showToast('Сумма меньше минимальной для выбранной сети. Попробуйте ещё раз.', 'error', 6000);
-            } else {
-                showToast('Не удалось создать платёж. Попробуйте позже.', 'error');
-            }
-        } finally {
-            setPaymentLoading(false);
-        }
-    }, [showToast, supabaseUser, setPaymentLoading]);
 
     const estimateContextValue = useMemo(() => ({
         view,
         setView,
-        estimates: visibleSubscriptionData.estimates,
+        estimates,
         allEstimates: estimates,
         setEstimates,
         templates,
@@ -1922,7 +1807,6 @@ const App: React.FC = () => {
         },
     }), [
         view,
-        visibleSubscriptionData.estimates,
         estimates,
         templates,
         currentEstimate,
@@ -1946,11 +1830,11 @@ const App: React.FC = () => {
     ]);
 
     const catalogContextValue = useMemo(() => ({
-        materials: visibleSubscriptionData.materials,
+        materials,
         materialsTotalCount: materials.length,
-        works: visibleSubscriptionData.works,
+        works,
         worksTotalCount: works.length,
-        bundles: visibleSubscriptionData.bundles,
+        bundles,
         bundlesTotalCount: bundles.length,
         onAddMaterial: handleAddMaterial,
         onForceAddMaterial: handleForceAddMaterial,
@@ -1969,12 +1853,9 @@ const App: React.FC = () => {
         findWorkDuplicates,
         onMergeCatalogDuplicates: handleMergeCatalogDuplicates,
     }), [
-        visibleSubscriptionData.materials,
-        materials.length,
-        visibleSubscriptionData.works,
-        works.length,
-        visibleSubscriptionData.bundles,
-        bundles.length,
+        materials,
+        works,
+        bundles,
         handleAddMaterial,
         handleForceAddMaterial,
         handleUpdateMaterial,
@@ -2023,24 +1904,8 @@ const App: React.FC = () => {
     const subscriptionContextValue = useMemo(() => ({
         subscription,
         subscriptionLoading,
-        paymentLoading,
-        subscriptionTier,
-        subscriptionLimits,
-        subscriptionUsage,
-        headerSubscriptionSummary,
         aiAccess,
-        onStartPayment: handleStartPayment,
-    }), [
-        subscription,
-        subscriptionLoading,
-        paymentLoading,
-        subscriptionTier,
-        subscriptionLimits,
-        subscriptionUsage,
-        headerSubscriptionSummary,
-        aiAccess,
-        handleStartPayment,
-    ]);
+    }), [subscription, subscriptionLoading, aiAccess]);
 
     const syncContextValue = useMemo(() => ({
         sync,
@@ -2160,7 +2025,6 @@ const App: React.FC = () => {
                 onLogout={handleLogout}
                 onUserNameClick={handleOpenPasswordChange}
                 onProfileClick={() => setIsProfileModalOpen(true)}
-                subscriptionSummary={headerSubscriptionSummary}
                 isElectron={!!window.electronAPI?.isElectron}
                 mobileStatus={(
                     <StatusIndicators
@@ -2174,7 +2038,6 @@ const App: React.FC = () => {
                         workspaceStatus={offlineSync.workspaceStatus}
                         missingTableCount={offlineSync.missingTables.length}
                         lastPreparedAt={offlineSync.lastPreparedAt}
-                        retryAt={offlineSync.retryAt}
                         syncError={syncErrorMessage}
                         onSync={offlineSync.syncNow}
                         onPendingChangesClick={() => setIsOfflineChangesOpen(true)}
@@ -2206,7 +2069,6 @@ const App: React.FC = () => {
                     workspaceStatus={offlineSync.workspaceStatus}
                     missingTableCount={offlineSync.missingTables.length}
                     lastPreparedAt={offlineSync.lastPreparedAt}
-                    retryAt={offlineSync.retryAt}
                     syncError={syncErrorMessage}
                     onSync={offlineSync.syncNow}
                     onPendingChangesClick={() => setIsOfflineChangesOpen(true)}
@@ -2233,9 +2095,6 @@ const App: React.FC = () => {
                         {view === View.BUNDLES && (
                             <Bundles />
                         )}
-                        {view === View.SUBSCRIPTIONS && (
-                            <Subscriptions />
-                        )}
                         {view === View.HOUSE_CALCULATOR && (
                             <HouseCalculator
                                 estimates={estimates}
@@ -2248,7 +2107,7 @@ const App: React.FC = () => {
                         )}
                         {view === View.ANALYTICS && (
                             <Analytics
-                                estimates={visibleSubscriptionData.estimates}
+                                estimates={estimates}
                                 isLoading={isLoading}
                             />
                         )}

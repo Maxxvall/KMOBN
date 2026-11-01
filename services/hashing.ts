@@ -3,7 +3,12 @@ const stableStringify = (value: unknown): string => {
     return `[${value.map(stableStringify).join(',')}]`;
   }
   if (value && typeof value === 'object') {
+    // Canonical form matches the JSON wire shape: JSON.stringify drops keys
+    // whose value is undefined, so the hash must drop them too or records that
+    // only differ by explicit undefined keys (e.g. `parentId` after
+    // normalizeEstimateChains) hash apart from their cached server form.
     const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
     return `{${entries.join(',')}}`;

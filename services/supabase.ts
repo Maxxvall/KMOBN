@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createOperationId } from './operationId';
 
 const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL as string) || '';
 const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY as string) || '';
@@ -20,18 +21,7 @@ if (SUPABASE_URL && SUPABASE_ANON_KEY) {
 
 export const isSupabaseConfigured = (): boolean => !!supabase;
 
-const UPSERT_BATCH_SIZE = 100;
-
-type FetchTableOptions = {
-  limit?: number;
-};
-
 const FETCH_PAGE_SIZE = 1000;
-
-const normalizeLimit = (limit?: number): number | null => {
-  if (typeof limit !== 'number' || !Number.isFinite(limit)) return null;
-  return Math.max(1, Math.floor(limit));
-};
 
 const parseTimestamp = (value: unknown): number | null => {
   if (typeof value !== 'string' || !value) return null;
@@ -107,63 +97,6 @@ const normalizeFetchedRows = (rows: Record<string, unknown>[]): Record<string, u
   return normalized;
 };
 
-export const upsertTable = async (table: string, records: any[], userId?: string) => {
-  if (!supabase) return { error: new Error('Supabase not configured') };
-  if (!userId) return { error: new Error('User is not authenticated') };
-
-  const recordsWithUserId = records.map(record => {
-    const payload = record && typeof record === 'object' ? record : { value: record };
-    const base: Record<string, unknown> = { user_id: userId, payload };
-    if (payload && (payload as any).id != null) {
-      base.id = (payload as any).id;
-    }
-    return base;
-  });
-
-  // Batch upserts to avoid exceeding PostgREST body size limits
-  if (recordsWithUserId.length <= UPSERT_BATCH_SIZE) {
-    const { data, error } = await supabase.from(table).upsert(recordsWithUserId).select();
-    return { data, error };
-  }
-
-  const allData: any[] = [];
-  for (let i = 0; i < recordsWithUserId.length; i += UPSERT_BATCH_SIZE) {
-    const batch = recordsWithUserId.slice(i, i + UPSERT_BATCH_SIZE);
-    const { data, error } = await supabase.from(table).upsert(batch).select();
-    if (error) return { data: null, error };
-    if (data) allData.push(...data);
-  }
-  return { data: allData, error: null };
-};
-
-export const deleteTableRecords = async (table: string, recordIds: string[], userId?: string) => {
-  if (!supabase) return { data: null, error: new Error('Supabase not configured') };
-  if (!userId) return { data: null, error: new Error('User is not authenticated') };
-  if (!recordIds.length) return { data: [], error: null };
-
-  const { data, error } = await supabase
-    .from(table)
-    .delete()
-    .in('id', recordIds)
-    .eq('user_id', userId)
-    .select('id');
-  if (error || (data?.length ?? 0) > 0) return { data, error };
-
-  // A policy can turn a delete into a zero-row success. Verify that no target
-  // row visible to this user remains before acknowledging the outbox item.
-  const { data: remaining, error: verifyError } = await supabase
-    .from(table)
-    .select('id')
-    .in('id', recordIds)
-    .eq('user_id', userId)
-    .limit(1);
-  if (verifyError) return { data: null, error: verifyError };
-  if ((remaining?.length ?? 0) > 0) {
-    return { data: null, error: new Error(`Supabase did not delete ${table} record`) };
-  }
-  return { data: [], error: null };
-};
-
 export const saveOfflineRecord = async (
   table: string,
   record: Record<string, unknown>,
@@ -203,18 +136,14 @@ export const deleteOfflineRecord = async (
   });
 };
 
-export const fetchTable = async (table: string, userId?: string, options?: FetchTableOptions) => {
+export const fetchTable = async (table: string, userId?: string) => {
   if (!supabase) return { data: null, error: new Error('Supabase not configured') };
   if (!userId) return { data: null, error: new Error('User is not authenticated') };
 
-  const requestLimit = normalizeLimit(options?.limit);
   const rows: Record<string, unknown>[] = [];
 
-  while (requestLimit == null || rows.length < requestLimit) {
-    const remaining = requestLimit == null ? FETCH_PAGE_SIZE : requestLimit - rows.length;
-    const pageSize = Math.min(FETCH_PAGE_SIZE, remaining);
-    const from = rows.length;
-    const to = from + pageSize - 1;
+  for (let from = 0; ; from += FETCH_PAGE_SIZE) {
+    const to = from + FETCH_PAGE_SIZE - 1;
     const { data, error } = await supabase
       .from(table)
       .select('*')
@@ -258,31 +187,18 @@ export const fetchOfflineRecord = async (table: string, recordId: string, userId
   return { data: normalizeFetchedRows([data as Record<string, unknown>])[0] ?? null, error: null };
 };
 
-export const upsertEstimates = async (estimates: any[], userId: string) => upsertTable('estimates', estimates, userId);
-export const fetchEstimates = async (userId: string, options?: FetchTableOptions) => fetchTable('estimates', userId, options);
+export const fetchEstimates = async (userId: string) => fetchTable('estimates', userId);
 
-export const upsertTemplates = async (templates: any[], userId: string) => upsertTable('templates', templates, userId);
-export const fetchTemplates = async (userId: string, options?: FetchTableOptions) => fetchTable('templates', userId, options);
+export const fetchTemplates = async (userId: string) => fetchTable('templates', userId);
 
-export const upsertMaterials = async (materials: any[], userId: string) => upsertTable('materials', materials, userId);
-export const fetchMaterials = async (userId: string, options?: FetchTableOptions) => fetchTable('materials', userId, options);
+export const fetchMaterials = async (userId: string) => fetchTable('materials', userId);
 
-export const upsertWorks = async (works: any[], userId: string) => upsertTable('works', works, userId);
-export const fetchWorks = async (userId: string, options?: FetchTableOptions) => fetchTable('works', userId, options);
+export const fetchWorks = async (userId: string) => fetchTable('works', userId);
 
-export const upsertBundles = async (bundles: any[], userId: string) => upsertTable('bundles', bundles, userId);
-export const fetchBundles = async (userId: string, options?: FetchTableOptions) => fetchTable('bundles', userId, options);
+export const fetchBundles = async (userId: string) => fetchTable('bundles', userId);
 
-export const upsertEstimateSections = async (documents: any[], userId: string) => upsertTable('estimate_sections', documents, userId);
-export const fetchEstimateSections = async (userId: string, options?: FetchTableOptions) => fetchTable('estimate_sections', userId, options);
+export const fetchEstimateSections = async (userId: string) => fetchTable('estimate_sections', userId);
 
-const createOperationId = (): string => {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
-    const random = Math.floor(Math.random() * 16);
-    return (token === 'x' ? random : (random & 0x3) | 0x8).toString(16);
-  });
-};
 
 export const saveEstimateSectionsRemote = async (document: any, userId: string) => {
   if (!supabase) return { data: null, error: new Error('Supabase not configured') };

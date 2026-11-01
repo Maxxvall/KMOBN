@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { downloadBlob } from '../services/download';
 import { User } from '@supabase/supabase-js';
 import { getActiveUsageMs } from '../services/appUsage';
-import { exportData } from '../services/database';
+import { exportData } from '../services/dataTransfer';
 import { closeIndexedDbCache } from '../services/indexedDbCache';
 import { offlineQueue } from '../services/offlineQueue';
 
@@ -84,14 +85,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
     try {
       const data = await exportData();
       const blob = new Blob([data], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `karkas-master-export-${new Date().toISOString().split('T')[0]}.json`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `karkas-master-export-${new Date().toISOString().split('T')[0]}.json`);
       setExportStatus('Экспорт подготовлен');
     } catch (error) {
       setExportStatus(error instanceof Error ? error.message : 'Не удалось подготовить экспорт');

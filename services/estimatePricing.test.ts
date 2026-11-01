@@ -7,7 +7,7 @@ import {
   type EstimateItem,
   type Material,
 } from '../types';
-import { applyCatalogMaterialPrice, checkMaterialPrice, recalculateEstimateWorkPrices } from './estimatePricing';
+import { applyCatalogMaterialPrice, buildMaterialPriceIndex, checkMaterialPrice, recalculateEstimateWorkPrices } from './estimatePricing';
 
 const makeMaterial = (id: string, patch: Partial<Material> = {}): Material => ({
   id,
@@ -99,6 +99,50 @@ describe('checkMaterialPrice', () => {
     );
 
     expect(result.status).toBe(expected);
+  });
+});
+
+describe('checkMaterialPrice with a prebuilt name index', () => {
+  // ё/е, case, and whitespace must match exactly like the linear scan.
+  const catalog = [
+    makeMaterial('m1', { name: 'OSB 9 mm' }),
+    makeMaterial('m2', { name: 'Ёлка обрезная' }),
+    makeMaterial('m3', { name: 'ёлка Обрезная' }),
+    makeMaterial('m4', { name: 'Плёнка  200 мкм' }),
+    makeMaterial('m5', { name: 'Плёнка 200 мкм' }),
+    makeMaterial('m6', { name: 'Уникальная позиция' }),
+  ];
+  const index = buildMaterialPriceIndex(catalog);
+  const items = [
+    makeItem({ name: 'osb 9 MM', price: 800 }),
+    makeItem({ name: 'ЁЛКА ОБРЕЗНАЯ', price: 700 }),
+    makeItem({ name: 'плёнка 200 мкм' }),
+    makeItem({ name: 'Нет в каталоге' }),
+    makeItem({ name: '   ' }),
+    makeItem({ name: 'Catalog name', catalogMaterialId: 'm1' }),
+  ];
+
+  it('returns the same verdicts as the linear scan for every item', () => {
+    for (const item of items) {
+      expect(checkMaterialPrice(item, catalog, index)).toEqual(checkMaterialPrice(item, catalog));
+    }
+  });
+
+  it('keeps the ambiguous verdict for duplicate names', () => {
+    // m2 and m3 normalize to the same key (normalizeKey keeps ё but lowercases).
+    expect(checkMaterialPrice(items[1], catalog, index)).toEqual({ status: 'ambiguous' });
+  });
+
+  it('reports missing for absent and empty names', () => {
+    expect(checkMaterialPrice(items[3], catalog, index)).toEqual({ status: 'missing' });
+    expect(checkMaterialPrice(items[4], catalog, index)).toEqual({ status: 'missing' });
+  });
+
+  it('respects the edited item price for current/outdated without rescans', () => {
+    expect(checkMaterialPrice(items[0], catalog, index)).toMatchObject({
+      status: 'current',
+      matchedBy: 'name',
+    });
   });
 });
 

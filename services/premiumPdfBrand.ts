@@ -22,7 +22,13 @@ export const PREMIUM_PDF_COLORS = {
     text: [23, 26, 31] as PremiumPdfRgb,
     muted: [105, 112, 120] as PremiumPdfRgb,
     paleRed: [252, 235, 232] as PremiumPdfRgb,
+    // Используется коммерческим предложением (PDF/DOCX) для положительных дельт.
+    positive: [23, 107, 77] as PremiumPdfRgb,
 } as const;
+
+/** HEX-строка без решётки для docx-потребителей бренд-палитры. */
+export const premiumPdfColorHex = (color: PremiumPdfRgb): string =>
+    color.map(channel => channel.toString(16).padStart(2, '0')).join('').toUpperCase();
 
 export const PREMIUM_PDF_PAGE = {
     width: 210,

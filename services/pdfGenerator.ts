@@ -5,6 +5,11 @@ import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
 import { getEstimateCategories, getSectionLabel, getSectionSubgroups } from './estimateSections';
 import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 
+// @ts-nocheck остаётся: типы jspdf-autotable v5 не описывают используемые
+// здесь расширения doc (lastAutoTable, colSpan в теле таблицы). Правка
+// типизации отрисовки — отдельная задача, не смешивается с логикой.
+
+
 export const generatePdf = async (estimate: Estimate, title?: string) => {
     const doc = new jsPDF();
     const FONT_NAME = PDF_FONT_NAME;
@@ -40,11 +45,9 @@ export const generatePdf = async (estimate: Estimate, title?: string) => {
         doc.text('Каркас Мастер', margin, 20);
         doc.setTextColor(0);
 
-        // Add logo if available (LOGO_BASE64 or logoBase64)
+        // Add logo if available (loaded from the assets by loadPdfResources)
         try {
-            if (typeof LOGO_BASE64 === 'string' && LOGO_BASE64.length > 100) {
-                doc.addImage(LOGO_BASE64, 'PNG', pageWidth - margin - 30, 6, 30, 30);
-            } else if (typeof logoBase64 === 'string' && logoBase64.length > 100) {
+            if (typeof logoBase64 === 'string' && logoBase64.length > 100) {
                 doc.addImage(logoBase64, 'PNG', pageWidth - margin - 30, 6, 30, 30);
             }
         } catch (e) {

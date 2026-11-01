@@ -28,8 +28,6 @@ vi.mock('./supabase', () => ({
   saveEstimateSectionsRemote: remote.saveSections,
   saveOfflineRecord: remote.saveRecord,
   deleteOfflineRecord: remote.deleteRecord,
-  upsertTable: vi.fn(),
-  deleteTableRecords: vi.fn(),
 }));
 
 const USER_ID = 'offline-reliability-user';
@@ -87,6 +85,44 @@ describe('offline reliability regressions', () => {
     await Promise.all(DATABASES.map(deleteDatabase));
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it('keeps a queued change when Supabase returns no acknowledgement', async () => {
+    await offlineQueue.enqueueUpserts(USER_ID, 'materials', [{
+      id: 'material-unacked', name: 'Доска', price: 100,
+    }]);
+    remote.saveRecord.mockResolvedValue({ data: null });
+
+    const result = await processOfflineQueue(USER_ID);
+
+    expect(result.syncedCount).toBe(0);
+    expect(result.pendingCount).toBe(1);
+    const [pending] = await offlineQueue.getAll(USER_ID);
+    expect(pending).toMatchObject({
+      table: 'materials',
+      recordId: 'material-unacked',
+      failureKind: 'transient',
+      lastError: expect.stringContaining('did not acknowledge'),
+    });
+  });
+
+  it('keeps a queued change when Supabase returns a malformed acknowledgement', async () => {
+    await offlineQueue.enqueueUpserts(USER_ID, 'materials', [{
+      id: 'material-garbage', name: 'Брус', price: 200,
+    }]);
+    remote.saveRecord.mockResolvedValue({ data: 'not-a-record' });
+
+    const result = await processOfflineQueue(USER_ID);
+
+    expect(result.syncedCount).toBe(0);
+    expect(result.pendingCount).toBe(1);
+    const [pending] = await offlineQueue.getAll(USER_ID);
+    expect(pending).toMatchObject({
+      table: 'materials',
+      recordId: 'material-garbage',
+      failureKind: 'transient',
+      lastError: expect.stringContaining('did not acknowledge'),
+    });
   });
 
   it('keeps local writes owned by the remembered account when the online session is temporarily absent', async () => {

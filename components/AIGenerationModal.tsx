@@ -260,7 +260,6 @@ const computeDbCoverage = (
 
 export type AIGenerationPayload = {
   description: string;
-  enableAiPriceSearch: boolean;
   selectedPreset: BuildingTypePreset;
   selectedSections: SectionId[];
   area: number;
@@ -275,7 +274,6 @@ export type AIGenerationPayload = {
 const AIGenerationModal = ({
   isOpen,
   initialValue,
-  initialEnableAiPriceSearch,
   onCancel,
   onConfirm,
   allEstimates,
@@ -286,7 +284,6 @@ const AIGenerationModal = ({
 }: {
   isOpen: boolean;
   initialValue?: string;
-  initialEnableAiPriceSearch?: boolean;
   onCancel: () => void;
   onConfirm: (payload: AIGenerationPayload) => void;
   allEstimates?: Estimate[];
@@ -309,7 +306,6 @@ const AIGenerationModal = ({
   const [buildingType, setBuildingType] = useState(currentBuildingType || '');
   const [selectedSections, setSelectedSections] = useState<SectionId[]>([]);
   const [customDescription, setCustomDescription] = useState(initialValue || '');
-  const [enableAiPriceSearch, setEnableAiPriceSearch] = useState(Boolean(initialEnableAiPriceSearch));
   const [referenceEstimateId, setReferenceEstimateId] = useState<string | undefined>();
   const [windowCount, setWindowCount] = useState(6);
   const [doorCount, setDoorCount] = useState(4);
@@ -343,13 +339,12 @@ const AIGenerationModal = ({
     setBuildingType(currentBuildingType || '');
     setSelectedSections([]);
     setCustomDescription(initialValue || '');
-    setEnableAiPriceSearch(Boolean(initialEnableAiPriceSearch));
     setReferenceEstimateId(undefined);
     // Smart defaults for doors/windows based on area
     const defaultArea = currentArea || 120;
     setWindowCount(Math.max(4, Math.ceil(defaultArea / 15)));
     setDoorCount(Math.max(2, Math.ceil(defaultArea / 20)));
-  }, [isOpen, initialValue, initialEnableAiPriceSearch, currentArea, currentBuildingType]);
+  }, [isOpen, initialValue, currentArea, currentBuildingType]);
 
   const handlePresetSelect = useCallback((preset: BuildingTypePreset) => {
     setSelectedPresetId(preset.id);
@@ -388,7 +383,6 @@ const AIGenerationModal = ({
 
     onConfirm({
       description: descParts.join(' '),
-      enableAiPriceSearch,
       selectedPreset,
       selectedSections,
       area,
@@ -397,7 +391,7 @@ const AIGenerationModal = ({
       windowCount: selectedSections.includes(EstimateCategory.WINDOWS) ? windowCount : undefined,
       doorCount: selectedSections.includes(EstimateCategory.WINDOWS) ? doorCount : undefined,
     });
-  }, [selectedPreset, customDescription, selectedSections, enableAiPriceSearch, area, buildingType, referenceEstimateId, windowCount, doorCount, onConfirm, allSections]);
+  }, [selectedPreset, customDescription, selectedSections, area, buildingType, referenceEstimateId, windowCount, doorCount, onConfirm, allSections]);
 
   if (!isOpen) return null;
 
@@ -559,16 +553,6 @@ const AIGenerationModal = ({
           placeholder="Например: без сантехники, утепление 200мм, кровля из профлиста..."
         />
       </div>
-
-      {/* AI price search toggle */}
-      <label className="flex items-center gap-2 text-sm text-text-primary">
-        <input
-          type="checkbox"
-          checked={enableAiPriceSearch}
-          onChange={e => setEnableAiPriceSearch(e.target.checked)}
-        />
-        Проставлять цены материалов через AI (если цена = 0)
-      </label>
 
       <div className="flex justify-between pt-2">
         <button

@@ -1,4 +1,4 @@
-import { Estimate, EstimateItem, EstimateSubgroup, normalizeKey, safeNumber, SectionId } from '../types';
+import { Estimate, EstimateItem, EstimateSubgroup, safeNumber, SectionId } from '../types';
 
 export type ActualFilter = 'all' | 'different' | 'missing' | 'actualOnly';
 
@@ -34,7 +34,9 @@ export interface ActualSummary {
   actualOnlyItems: number;
 }
 
-const roundMoney = (value: number): number => Math.round(value * 100) / 100;
+/** Shared money rounding: two decimals, half-up. Single source for the
+  * estimate/house domains (previously four byte-identical copies). */
+export const roundMoney = (value: number): number => Math.round(value * 100) / 100;
 
 export const calculatePlanItemTotal = (item: EstimateItem): number => {
   if (item.isActualOnly) return 0;
@@ -137,6 +139,3 @@ export const shouldShowActualRow = (item: EstimateItem, filter: ActualFilter): b
   if (filter === 'missing') return !row.isActualComplete;
   return row.isActualOnly || Math.abs(row.diff) > 0.009 || row.planUnit !== row.actualUnit;
 };
-
-export const actualComparisonKey = (item: Pick<EstimateItem, 'name' | 'unit' | 'category'>): string =>
-  `${normalizeKey(item.name)}::${normalizeKey(item.unit)}::${item.category}`;

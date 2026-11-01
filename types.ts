@@ -185,7 +185,6 @@ export enum View {
     BUNDLES = 4,
     HOUSE_CALCULATOR = 6,
     ANALYTICS = 7,
-    SUBSCRIPTIONS = 8,
     CUTTING = 9,
     WIKI = 10,
     SECTIONS = 11,
@@ -194,39 +193,6 @@ export enum View {
 export type SubscriptionTier = 'free' | 'basic' | 'premium';
 
 export type SubscriptionStatus = 'active' | 'expired' | 'cancelled';
-
-export type SubscriptionFeatures = {
-    analytics: boolean;
-    wiki: boolean;
-};
-
-export interface SubscriptionLimits {
-    estimates: {
-        max: number | null;
-        canDelete: boolean;
-        deletePerMonth?: number | null;
-    };
-    materials: {
-        max: number | null;
-    };
-    works: {
-        max: number | null;
-    };
-    bundles: {
-        max: number | null;
-    };
-    aiRequestsPerDay: number | null;
-    features: SubscriptionFeatures;
-}
-
-export interface SubscriptionUsage {
-    estimatesCreated: number;
-    estimatesDeletedThisMonth: number;
-    materialsCreated: number;
-    worksCreated: number;
-    bundlesCreated: number;
-    aiRequestsToday: number;
-}
 
 export interface UserSubscription {
     id: string;

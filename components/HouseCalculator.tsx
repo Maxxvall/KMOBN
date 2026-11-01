@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { ESTIMATE_EXPLANATION_MAX_LENGTH, Estimate, EstimateCategory, EstimateItem, EstimateStatus, EstimateSubgroup, Material, Work } from '../types';
 import {
     calculateHouseVariants,
@@ -165,27 +165,28 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
         return { variants: nextVariants, selected };
     }, [selectedTier]);
 
-    const runCalculation = useCallback(() => {
-        if (!historyLoaded) {
-            setIsCalculating(true);
-            return;
-        }
-        setIsCalculating(true);
+    // The deferred input keeps sliders fully responsive: React re-runs the
+    // ~80ms variant calculation in a concurrent render and drops stale runs
+    // instead of blocking every tick of the slider.
+    const deferredCalculationInput = useDeferredValue(calculationInput);
+
+    useEffect(() => {
+        if (!historyLoaded) return;
         setError('');
         setAiExplanation('');
         setAiError('');
         try {
-            applyVariants(calculationInput);
+            applyVariants(deferredCalculationInput);
         } catch (reason) {
             setVariants([]);
             setResult(null);
             setError(reason instanceof Error ? reason.message : 'Не удалось выполнить расчёт.');
         } finally {
+            // Deferred recalculations resolve quickly; the explicit button run
+            // manages its own indicator through runRequestedCalculation.
             setIsCalculating(false);
         }
-    }, [applyVariants, calculationInput, historyLoaded]);
-
-    useEffect(() => { runCalculation(); }, [runCalculation]);
+    }, [applyVariants, deferredCalculationInput, historyLoaded]);
 
     const runRequestedCalculation = async () => {
         setIsCalculating(true);

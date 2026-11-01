@@ -1,3 +1,5 @@
+import { hashData } from './hashing';
+
 export type CacheTableKey =
   | 'estimates'
   | 'templates'
@@ -66,13 +68,13 @@ const getStoreName = (key: CacheTableKey): string => STORE_NAMES[key];
 const buildRecordKey = (userId: string, id: string): string => `${userId}:${id}`;
 const buildMetadataKey = (userId: string, table: CacheTableKey): string => `${userId}:${table}`;
 
-const requestToPromise = <T>(request: IDBRequest<T>): Promise<T> =>
+export const requestToPromise = <T>(request: IDBRequest<T>): Promise<T> =>
   new Promise((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
 
-const waitForTransaction = (tx: IDBTransaction): Promise<void> =>
+export const waitForTransaction = (tx: IDBTransaction): Promise<void> =>
   new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -128,35 +130,6 @@ const openDb = (): Promise<IDBDatabase> => {
   });
 
   return cachedDbPromise;
-};
-
-const stableStringify = (value: unknown): string => {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableStringify).join(',')}]`;
-  }
-  if (value && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => `${JSON.stringify(k)}:${stableStringify(v)}`);
-    return `{${entries.join(',')}}`;
-  }
-  return JSON.stringify(value);
-};
-
-const hashRecord = (record: unknown): string => stableStringify(record);
-
-// In-memory hash cache — avoids recomputing hashes for records that haven't changed
-const hashMemoryCache = new Map<string, string>();
-
-const getOrComputeHash = (table: CacheTableKey, id: string, record: unknown): string => {
-  const cacheKey = `${table}:${id}`;
-  const newHash = hashRecord(record);
-  hashMemoryCache.set(cacheKey, newHash);
-  return newHash;
-};
-
-const clearHashCache = (table: CacheTableKey, id: string): void => {
-  hashMemoryCache.delete(`${table}:${id}`);
 };
 
 const getAllEntriesByUser = async <T>(table: CacheTableKey, userId: string): Promise<CacheRecord<T>[]> => {
@@ -231,7 +204,7 @@ export const upsertCachedRecords = async <T extends { id: string }>(
 
   records.forEach(record => {
     if (!record?.id) throw new Error(`Cached ${table} record requires an id`);
-    const hash = getOrComputeHash(table, record.id, record);
+    const hash = hashData(record);
     const payload: CacheRecord<T> = {
       key: buildRecordKey(userId, record.id),
       id: record.id,
@@ -259,7 +232,6 @@ export const deleteCachedRecords = async (
   const store = tx.objectStore(getStoreName(table));
   recordIds.forEach(recordId => {
     store.delete(buildRecordKey(userId, recordId));
-    clearHashCache(table, recordId);
   });
   await waitForTransaction(tx);
 };
@@ -292,7 +264,7 @@ export const syncCachedRecords = async <T extends { id: string }>(
     if (!record || !record.id) return;
     const id = record.id;
     nextIds.add(id);
-    const nextHash = getOrComputeHash(table, id, record);
+    const nextHash = hashData(record);
     const prevHash = existingMap.get(id);
     if (prevHash !== nextHash) {
       const payload: CacheRecord<T> = {
@@ -312,7 +284,6 @@ export const syncCachedRecords = async <T extends { id: string }>(
   existingEntries.forEach(entry => {
     if (!nextIds.has(entry.id)) {
       store.delete(entry.key);
-      clearHashCache(table, entry.id);
       changed = true;
     }
   });

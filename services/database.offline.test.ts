@@ -33,7 +33,8 @@ import {
   saveEstimateSections,
 } from './database';
 import { addUserEstimateSection, createEstimateSectionsDocument } from './estimateSections';
-import { closeIndexedDbCache, type CacheTableKey } from './indexedDbCache';
+import { normalizeEstimateChains } from './estimateLifecycle';
+import { closeIndexedDbCache, getCacheUserId, getCachedRecords, upsertCachedRecords, type CacheTableKey } from './indexedDbCache';
 import { offlineQueue } from './offlineQueue';
 
 const USER_A = 'user-a';
@@ -361,5 +362,29 @@ describe('database offline behavior', () => {
       operation: 'upsert',
       data: anotherEstimate,
     });
+  });
+
+  it('does not re-enqueue an unchanged estimate whose cache copy is in server form', async () => {
+    installOfflineSession();
+    await resetDatabases();
+
+    // Steady-state server form: the estimate was saved by a client before, so
+    // `isArchived: false` is persisted, while the JSONB round-trip dropped the
+    // explicit `parentId: undefined` key that normalizeEstimateChains adds.
+    const serverForm = estimate('estimate-server-form');
+    serverForm.isArchived = false;
+    delete (serverForm as Partial<Estimate>).parentId;
+    await upsertCachedRecords('estimates', getCacheUserId(USER_A), [serverForm]);
+
+    // The app saves the normalized client form.
+    const { normalized } = normalizeEstimateChains([estimate('estimate-server-form')]);
+    await saveEstimates(normalized);
+
+    expect(await offlineQueue.getForTable(USER_A, 'estimates')).toEqual([]);
+
+    // Saving the identical list again must stay a no-op as well.
+    await saveEstimates(normalized);
+    expect(await offlineQueue.getForTable(USER_A, 'estimates')).toEqual([]);
+    expect(await getCachedRecords('estimates', getCacheUserId(USER_A))).toHaveLength(1);
   });
 });

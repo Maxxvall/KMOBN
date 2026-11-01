@@ -1,3 +1,5 @@
+import { downloadBlob } from './download';
+import { PREMIUM_PDF_COLORS, premiumPdfColorHex } from './premiumPdfBrand';
 import {
     AlignmentType,
     BorderStyle,
@@ -32,18 +34,19 @@ export interface HouseProposalDocxInput {
     variants: HouseVariantResult[];
 }
 
+// Бренд-палитра едина с premiumPdf; docx нужны HEX-строки без решётки.
 const COLORS = {
-    graphite: '101318',
-    graphiteSoft: '171B21',
-    red: 'EF4136',
-    paper: 'F4F1E9',
-    white: 'FFFFFF',
-    row: 'FBFAF7',
-    line: 'D8D2C7',
-    text: '171A1F',
-    muted: '697078',
-    paleRed: 'FCEBE8',
-    positive: '176B4D',
+    graphite: premiumPdfColorHex(PREMIUM_PDF_COLORS.graphite),
+    graphiteSoft: premiumPdfColorHex(PREMIUM_PDF_COLORS.graphiteSoft),
+    red: premiumPdfColorHex(PREMIUM_PDF_COLORS.red),
+    paper: premiumPdfColorHex(PREMIUM_PDF_COLORS.paper),
+    white: premiumPdfColorHex(PREMIUM_PDF_COLORS.white),
+    row: premiumPdfColorHex(PREMIUM_PDF_COLORS.row),
+    line: premiumPdfColorHex(PREMIUM_PDF_COLORS.line),
+    text: premiumPdfColorHex(PREMIUM_PDF_COLORS.text),
+    muted: premiumPdfColorHex(PREMIUM_PDF_COLORS.muted),
+    paleRed: premiumPdfColorHex(PREMIUM_PDF_COLORS.paleRed),
+    positive: premiumPdfColorHex(PREMIUM_PDF_COLORS.positive),
 } as const;
 
 const FONT = 'Arial';
@@ -387,12 +390,5 @@ export async function buildHouseProposalDocx(input: HouseProposalDocxInput): Pro
 
 export async function downloadHouseProposalDocx(input: HouseProposalDocxInput): Promise<void> {
     const blob = await buildHouseProposalDocx(input);
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `Коммерческое предложение - каркасный дом ${input.area} м².docx`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `Коммерческое предложение - каркасный дом ${input.area} м².docx`);
 }

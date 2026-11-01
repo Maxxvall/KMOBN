@@ -24,9 +24,6 @@ export interface AIEstimateRequest {
   materials: Material[];
   works: Work[];
 
-  // Если true — поиск цены через AI отключён (оставлено для обратной совместимости).
-  enableAiPriceSearch?: boolean;
-
   /** ID эталонной сметы, выбранной пользователем в визарде */
   referenceEstimateId?: string;
   /** Выбранные пользователем разделы (если не указаны — все) */
@@ -112,7 +109,7 @@ const DELIVERY_KEYWORDS = ['достав', 'доставка', 'транспор
 
 const createAbortError = () => new DOMException('The operation was aborted.', 'AbortError');
 
-const isAbortError = (error: unknown): boolean => {
+export const isAbortError = (error: unknown): boolean => {
   return error instanceof DOMException
     ? error.name === 'AbortError'
     : error instanceof Error && error.name === 'AbortError';
@@ -152,7 +149,6 @@ const normalizeUnitText = (unitRaw: string): string => {
   return normalizeMeasurementUnit(unitRaw) || 'шт';
 };
 
-const parsePackAreaSqMFromName = parsePackAreaSqM;
 
 const looksLikePackOrRoll = (nameRaw: string): boolean => {
   const n = String(nameRaw || '').toLowerCase();
@@ -181,7 +177,7 @@ const computePackQuantityWithReserve = (area: number, packArea: number): number 
 export const applySmartPackagingRules = (items: EstimateItem[], projectArea?: number): EstimateItem[] => {
   const area = safeNumber(projectArea, 0);
   return (items || []).map((it) => {
-    const packArea = parsePackAreaSqMFromName(it.name);
+    const packArea = parsePackAreaSqM(it.name);
     if (!packArea) return { ...it, unit: normalizeUnitText(it.unit) };
 
     const unit = normalizeUnitText(it.unit);
@@ -599,30 +595,27 @@ const buildAdvancedContext = (opts: {
   };
 };
 
-const buildMaterialsCatalog = (materials: Material[]): string => {
-  // Keep context reasonably bounded: too long prompts increase failure rate.
+// Keep context reasonably bounded: too long prompts increase failure rate.
+const buildCatalogSummary = <T extends { name: string; price: number; category: string }>(items: T[]): string => {
   const maxChars = 22_000;
   let out = '';
-  for (const m of (materials || [])) {
-    const line = `- ${m.name} | ${m.price} ₽ | ${m.category}`;
+  for (const item of (items || [])) {
+    const line = `- ${item.name} | ${item.price} ₽ | ${item.category}`;
     if ((out.length + line.length + 1) > maxChars) break;
     out += (out ? '\n' : '') + line;
   }
   return out;
 };
 
-const buildWorksCatalog = (works: Work[]): string => {
-  const maxChars = 22_000;
-  let out = '';
-  for (const w of (works || [])) {
-    const line = `- ${w.name} | ${w.price} ₽ | ${w.category}`;
-    if ((out.length + line.length + 1) > maxChars) break;
-    out += (out ? '\n' : '') + line;
-  }
-  return out;
-};
+const buildMaterialsCatalog = (materials: Material[]): string => buildCatalogSummary(materials);
+const buildWorksCatalog = (works: Work[]): string => buildCatalogSummary(works);
 
-async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number; signal?: AbortSignal }) {
+// Один запрос к провайдеру не должен висеть вечно: если вызывающий не
+// передал свой signal, применяется общий таймаут запроса. Отличие timeout от
+// ручной отмены — DOMException с name 'TimeoutError'.
+const AI_REQUEST_TIMEOUT_MS = 120_000;
+
+export async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?: { temperature?: number; maxTokens?: number; cacheKey?: string; ttlMs?: number; signal?: AbortSignal }) {
   if (!hasOpenRouterKey()) {
     throw new Error('AI connection is not configured');
   }
@@ -648,6 +641,12 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
 
       const headers = await getAIRequestHeaders();
 
+      const supportsCombining = typeof AbortSignal.timeout === 'function' && typeof AbortSignal.any === 'function';
+      const timeoutSignal = supportsCombining ? AbortSignal.timeout(AI_REQUEST_TIMEOUT_MS) : undefined;
+      const combinedSignal = opts?.signal && timeoutSignal
+        ? AbortSignal.any([opts.signal, timeoutSignal])
+        : opts?.signal ?? timeoutSignal;
+
       const res = await fetch(getAIRequestUrl(), {
         method: 'POST',
         headers,
@@ -657,11 +656,11 @@ async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[], opts?:
           temperature: opts?.temperature ?? 0.7,
           max_tokens: opts?.maxTokens ?? 4000,
         }),
-        signal: opts?.signal,
+        signal: combinedSignal,
       });
 
       if (res.status === 429) {
-        lastError = new Error('AI rate limit exceeded');
+        lastError = new Error('AI provider returned HTTP 429 (rate limit exceeded)');
         await sleep(retryAfterMs(res, Math.pow(2, i) * 1000), opts?.signal);
         continue;
       }
@@ -773,7 +772,7 @@ const parseEstimateResponse = (rawText: string, fallbackCategory?: SectionId): {
   return { items, suggestions, warnings };
 };
 
-const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
+const toEstimateItemsWithIdPrefix = (aiItems: any[], idPrefix: string): EstimateItem[] => {
   const now = Date.now();
   return (aiItems || [])
     .map((it, index): EstimateItem | null => {
@@ -797,7 +796,7 @@ const toEstimateItems = (aiItems: any[]): EstimateItem[] => {
               : classifySubgroup(name, unit);
 
       return {
-        id: `ai-${now}-${index}`,
+        id: `${idPrefix}-${now}-${index}`,
         name,
         unit,
         quantity,
@@ -839,41 +838,8 @@ const correctAIQuantities = (
   });
 };
 
-const toEstimateItemsWithPrefix = (aiItems: any[], idPrefix: string): EstimateItem[] => {
-  const now = Date.now();
-  return (aiItems || [])
-    .map((it, index): EstimateItem | null => {
-      const name = String(it?.name || '').trim();
-      if (!name) return null;
-
-      const unit = normalizeUnitText(String(it?.unit || 'шт'));
-      const quantity = Math.max(0, safeNumber(it?.quantity, 0));
-      const price = 0;
-      const category = normalizeEstimateCategory(it?.category) || EstimateCategory.GENERAL;
-
-      const subgroupFromAi = String(it?.subgroup || '').trim();
-      const subgroup: EstimateSubgroup =
-        subgroupFromAi === EstimateSubgroup.MATERIALS
-          ? EstimateSubgroup.MATERIALS
-          : subgroupFromAi === EstimateSubgroup.DELIVERY
-            ? EstimateSubgroup.DELIVERY
-            : subgroupFromAi === EstimateSubgroup.WORKS
-              ? EstimateSubgroup.WORKS
-              : classifySubgroup(name, unit);
-
-      return {
-        id: `${idPrefix}-${now}-${index}`,
-        name,
-        unit,
-        quantity,
-        price,
-        total: quantity * price,
-        category,
-        subgroup,
-      };
-    })
-    .filter(Boolean) as EstimateItem[];
-};
+const toEstimateItems = (aiItems: any[]): EstimateItem[] => toEstimateItemsWithIdPrefix(aiItems, 'ai');
+const toEstimateItemsWithPrefix = (aiItems: any[], idPrefix: string): EstimateItem[] => toEstimateItemsWithIdPrefix(aiItems, idPrefix);
 
 const normalizeTokens = (s: string): string[] => {
   const cleaned = normalizeKey(s)
@@ -1017,16 +983,6 @@ const applyCatalogPricing = (items: EstimateItem[], materials: Material[], works
   return { items: priced, warnings, notInDbItems };
 };
 
-const applyAiPriceSearchForMissingMaterials = async (opts: {
-  items: EstimateItem[];
-  materials: Material[];
-  region: string;
-}): Promise<{ items: EstimateItem[]; warnings: string[] } > => {
-  const warnings: string[] = [];
-  const items = [...(opts.items || [])];
-  return { items, warnings };
-};
-
 // ─── Construction-aware area multipliers ─────────────────────────────────────
 
 /** Estimate total wall surface area from floor area (perimeter * wall height). */
@@ -1166,7 +1122,6 @@ export const createEstimateGenerationCacheKey = (req: AIEstimateRequest): string
     scopeDescription: req.scopeDescription || null,
     windowCount: req.windowCount ?? null,
     doorCount: req.doorCount ?? null,
-    enableAiPriceSearch: req.enableAiPriceSearch ?? true,
     templateItems: estimateItemsFingerprint(req.templateItems || []),
     existingItems: estimateItemsFingerprint(req.existingItems || []),
     catalogs: catalogFingerprint(req.materials || [], req.works || []),
@@ -1174,7 +1129,42 @@ export const createEstimateGenerationCacheKey = (req: AIEstimateRequest): string
   },
 );
 
+// In-flight dedup: identical concurrent generations share one promise chain
+// (4-6 paid LLM calls per run). Keyed by the same cache key as the result
+// cache; cleared on success, error and rejection — never held forever.
+const inFlightGenerations = new Map<string, Promise<AIEstimateResult>>();
+
+const rejectOnCallerAbort = (promise: Promise<AIEstimateResult>, signal?: AbortSignal): Promise<AIEstimateResult> => {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(createAbortError());
+    return new Promise<AIEstimateResult>((resolve, reject) => {
+        const onAbort = () => reject(createAbortError());
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(
+            value => { signal.removeEventListener('abort', onAbort); resolve(value); },
+            reason => { signal.removeEventListener('abort', onAbort); reject(reason); },
+        );
+    });
+};
+
 export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AIEstimateResult> {
+    if (req.signal?.aborted) throw createAbortError();
+    const cacheKey = createEstimateGenerationCacheKey(req);
+    const inFlight = inFlightGenerations.get(cacheKey);
+    if (inFlight) return rejectOnCallerAbort(inFlight, req.signal);
+
+    // The shared generation deliberately runs without the caller's abort
+    // signal: an aborting consumer just stops waiting, the result still lands
+    // in the cache for everyone else.
+    const { signal: _callerSignal, ...requestWithoutSignal } = req;
+    const generation = generateEstimateWithAIInternal(requestWithoutSignal, cacheKey).finally(() => {
+        if (inFlightGenerations.get(cacheKey) === generation) inFlightGenerations.delete(cacheKey);
+    });
+    inFlightGenerations.set(cacheKey, generation);
+    return rejectOnCallerAbort(generation, req.signal);
+}
+
+async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: string): Promise<AIEstimateResult> {
   const params: GenerationParams = {
     area: req.area,
     region: req.region,
@@ -1208,8 +1198,6 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   const normativeMessages: OpenRouterChatMessage[] = appliesSp31
     ? [{ role: 'system', content: NORMATIVE_SYSTEM_PROMPT }]
     : [];
-
-  const cacheKey = createEstimateGenerationCacheKey(req);
 
   // Cache: only return if not marked bad by learning
   if (!isCacheKeyBad(cacheKey)) {
@@ -1267,7 +1255,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         ...normativeMessages,
         { role: 'user', content: stage1Prompt },
       ],
-      { maxTokens: 1600, temperature: 0.2, signal: req.signal },
+      { maxTokens: 1600, temperature: 0.2 },
     );
     const s1Content = String(s1?.choices?.[0]?.message?.content || '');
     console.info('[AI] Stage 1: received response (length:', String((s1Content || '').length) + ')');
@@ -1332,7 +1320,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
           ...normativeMessages,
           { role: 'user', content: stage2Prompt },
         ],
-        { maxTokens: 2200, temperature: 0.35, signal: req.signal },
+        { maxTokens: 2200, temperature: 0.35 },
       );
 
       const s2Content = String(s2?.choices?.[0]?.message?.content || '');
@@ -1366,7 +1354,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
         ...normativeMessages,
         { role: 'user', content: stage3Prompt },
       ],
-      { maxTokens: 2600, temperature: 0.2, signal: req.signal },
+      { maxTokens: 2600, temperature: 0.2 },
     );
 
     const s3Content = String(s3?.choices?.[0]?.message?.content || '');
@@ -1378,7 +1366,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       parsedWarnings.push(...(s3Parsed.warnings || []));
     }
   } catch (e) {
-    if (isAbortError(e) || req.signal?.aborted) throw createAbortError();
+    if (isAbortError(e)) throw createAbortError();
     // If multi-stage fails, fall back to the legacy one-shot prompt.
     console.warn('[AI] Multi-stage generation failed, falling back to one-shot', e);
     parsedWarnings.push(`AI: не удалось выполнить многоэтапную генерацию, использую упрощённый режим. Причина: ${String(e)}`);
@@ -1397,7 +1385,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
           { role: 'system', content: 'Ты эксперт по строительным сметам. Отвечай ТОЛЬКО валидным JSON без пояснений.' },
           { role: 'user', content: compactPrompt },
         ],
-        { maxTokens: 4000, temperature: 0.7, signal: req.signal },
+        { maxTokens: 4000, temperature: 0.7 },
       );
       const content = data?.choices?.[0]?.message?.content;
       const parsed = parseEstimateResponse(String(content || ''), EstimateCategory.GENERAL);
@@ -1406,7 +1394,7 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
       parsedWarnings.push(...(parsed.warnings || []));
       console.info('[AI] Compact one-shot fallback returned', parsedItems.length, 'items');
     } catch (fallbackErr) {
-      if (isAbortError(fallbackErr) || req.signal?.aborted) throw createAbortError();
+      if (isAbortError(fallbackErr)) throw createAbortError();
       console.error('[AI] Compact one-shot fallback also failed', fallbackErr);
       parsedWarnings.push(`AI: упрощённый режим тоже не смог сгенерировать позиции. Причина: ${String(fallbackErr)}`);
     }
@@ -1439,24 +1427,14 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
   // Final sanity: sanitize quantities with physical bounds
   const sanitizedItems = sanitizeQuantities(pricedScope.items, req.area);
 
-  // New step: AI-assisted search for missing/zero prices (materials only)
-  const aiPriceEnabled = req.enableAiPriceSearch ?? true;
-  const pricedWithAi = aiPriceEnabled
-    ? await applyAiPriceSearchForMissingMaterials({
-        items: sanitizedItems,
-        materials: req.materials,
-        region: req.region,
-      })
-    : { items: sanitizedItems, warnings: [] };
-
-  const norm = checkNormAnomalies({ area: req.area, items: pricedWithAi.items, materials: req.materials, works: req.works });
-  const total = pricedWithAi.items.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
-  const unknownPriceItemIds = pricedWithAi.items
+  const norm = checkNormAnomalies({ area: req.area, items: sanitizedItems, materials: req.materials, works: req.works });
+  const total = sanitizedItems.reduce((s, it) => s + (it.total || it.quantity * it.price), 0);
+  const unknownPriceItemIds = sanitizedItems
     .filter(item => !Number.isFinite(item.price) || item.price <= 0)
     .map(item => item.id);
 
-  const quality = scoreEstimateQuality(pricedWithAi.items, { graph: adv.graph, historical: adv.patterns });
-  const finalWarnings = [...parsedWarnings, ...priced.warnings, ...pricedWithAi.warnings, ...norm.warnings, ...quality.notes];
+  const quality = scoreEstimateQuality(sanitizedItems, { graph: adv.graph, historical: adv.patterns });
+  const finalWarnings = [...parsedWarnings, ...priced.warnings, ...norm.warnings, ...quality.notes];
   if (unknownPriceItemIds.length > 0) {
     finalWarnings.push(`Итоговая сумма неполная: у ${unknownPriceItemIds.length} позиций цена не определена. Эти позиции не считаются бесплатными.`);
   }
@@ -1469,13 +1447,13 @@ export async function generateEstimateWithAI(req: AIEstimateRequest): Promise<AI
     : parsedSuggestions;
 
   const result: AIEstimateResult = {
-    status: pricedWithAi.items.length === 0
+    status: sanitizedItems.length === 0
       ? 'unavailable'
       : (usedCompactFallback || failedStageBlocks > 0 || unknownPriceItemIds.length > 0 || notInDbScope.items.length > 0)
         ? 'partial'
         : 'success',
     source: 'model',
-    items: pricedWithAi.items,
+    items: sanitizedItems,
     total,
     suggestions: suggestionsWithNorm,
     warnings: finalWarnings,

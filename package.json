@@ -14,9 +14,12 @@
     "build:electron:win": "vite build --mode electron --configLoader runner && tsc -p tsconfig.electron.json && electron-builder --win",
     "preview": "vite preview",
     "dist": "electron-builder --win --publish never",
-    "lint": "eslint \"App.tsx\" \"index.tsx\" \"types.ts\" \"components/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"services/**/*.ts\" \"vite.config.ts\"",
+    "lint": "eslint \"App.tsx\" \"index.tsx\" \"types.ts\" \"components/**/*.{ts,tsx}\" \"hooks/**/*.{ts,tsx}\" \"services/**/*.ts\" \"contexts/**/*.{ts,tsx}\" \"api/**/*.ts\" \"electron/**/*.ts\" \"e2e/**/*.ts\" \"vite.config.ts\" \"playwright.electron.config.ts\"",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
     "test": "vitest run --exclude \"e2e/**\"",
-    "test:e2e:electron": "npm run build:electron:e2e && playwright test --config=playwright.electron.config.ts"
+    "test:e2e:electron": "npm run build:electron:e2e && playwright test --config=playwright.electron.config.ts",
+    "test:coverage": "vitest run --exclude \"e2e/**\" --coverage",
+    "check": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.3",
@@ -40,7 +43,9 @@
     "@types/lodash.debounce": "^4.0.9",
     "@types/node": "^22.20.1",
     "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "4.1.10",
     "autoprefixer": "^10.5.2",
     "concurrently": "^9.2.4",
     "electron": "^43.1.0",
@@ -57,8 +62,7 @@
     "typescript-eslint": "^8.64.0",
     "vite": "^6.4.3",
     "vite-plugin-pwa": "^1.3.0",
-    "vitest": "^4.1.10",
-    "workbox-window": "^7.4.1"
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "flatted": "3.4.2",
@@ -97,5 +101,8 @@
         "karkasmaster"
       ]
     }
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

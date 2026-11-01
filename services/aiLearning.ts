@@ -1,4 +1,4 @@
-import { Estimate, EstimateItem, normalizeKey, safeNumber } from '../types';
+import { EstimateItem, normalizeKey, safeNumber } from '../types';
 import { aiCache } from './aiCache';
 
 export type LearningContext = {
@@ -252,16 +252,4 @@ export function maybeRecordCorrectionFromSession(opts: {
   };
   recordCorrectionEvent(ev);
   return ev;
-}
-
-export function buildLearningContextFromEstimate(e: Estimate, extra?: Partial<LearningContext>): LearningContext {
-  return {
-    accountId: extra?.accountId,
-    area: e.area,
-    buildingType: e.buildingType,
-    region: (e as any).region || extra?.region,
-    projectTemplateId: extra?.projectTemplateId,
-    projectTemplateName: extra?.projectTemplateName,
-    scopeDescription: extra?.scopeDescription,
-  };
 }

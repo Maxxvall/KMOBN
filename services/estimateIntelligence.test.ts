@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Estimate, EstimateCategory, EstimateStatus } from '../types';
+import { Estimate, EstimateCategory, EstimateStatus, normalizeKey } from '../types';
 import {
   buildEstimateDuplicateDeletePlan,
+  isSimilarEstimate,
   filterToLatestEstimateVersions,
   findEstimateVersionDuplicates,
   getLatestEstimateVersions,
@@ -228,5 +229,127 @@ describe('buildEstimateDuplicateDeletePlan', () => {
       [latest, oldA, oldB],
       [makeDeleteRequest(latest, [oldA, oldB])],
     )).toThrow('нужно сохранить одну версию');
+  });
+});
+
+
+// ─── Differential oracles: the original inline filters ──────────────────────
+
+const oracleHistoricalPatterns = (e: Estimate, params: { area: number; region?: string; buildingType?: string }): boolean => {
+  if (!e?.area || params.area <= 0) return false;
+  const areaClose = Math.abs(e.area - params.area) / params.area < 0.2;
+  const typeOk = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
+  const estimateRegion = normalizeKey(e.region || '');
+  const regionOk = params.region && estimateRegion ? estimateRegion === normalizeKey(params.region) : true;
+  return areaClose && typeOk && regionOk;
+};
+
+const oracleFewShot = (e: Estimate, params: { area: number; region?: string; buildingType?: string }): boolean => {
+  // Deliberately stricter than the old filter: a negative requested area used
+  // to match everything through a division artifact; the shared predicate
+  // rejects non-positive areas on all AI paths.
+  if (!e?.area || params.area <= 0) return false;
+  const areaClose = Math.abs(e.area - params.area) / params.area < 0.25;
+  const typeOk = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
+  const estimateRegion = normalizeKey(e.region || '');
+  const regionOk = params.region && estimateRegion ? estimateRegion === normalizeKey(params.region) : true;
+  return areaClose && typeOk && regionOk;
+};
+
+const oracleBuilder = (e: Estimate, params: { area: number; buildingType?: string }): boolean => {
+  const typeMatch = params.buildingType ? normalizeKey(e.buildingType) === normalizeKey(params.buildingType) : true;
+  const areaMatch = params.area > 0 && e.area > 0
+    ? Math.abs(e.area - params.area) / params.area < 0.3
+    : true;
+  return typeMatch && areaMatch;
+};
+
+const historyEstimate = (patch: Partial<Estimate>): Estimate => ({
+  id: 'h1',
+  estimateNumber: 'SM-2026-001',
+  client: 'Клиент',
+  date: '2026-07-13',
+  status: EstimateStatus.APPROVED,
+  version: 1,
+  items: [],
+  total: 100,
+  buildingType: 'Каркасный дом',
+  area: 100,
+  region: 'Московская область',
+  ...patch,
+});
+
+describe('isSimilarEstimate (differential against original filters)', () => {
+  const paramsList = [
+    { area: 100, buildingType: 'Каркасный дом', region: 'Московская область' },
+    { area: 100, buildingType: 'Каркасный дом' },
+    { area: 100, region: 'Московская область' },
+    { area: 100 },
+    { area: 0 },
+    { area: -5 },
+    { area: 100, buildingType: 'каркасный ДОМ' },
+  ];
+  const candidates = [
+    historyEstimate({ area: 100 }),
+    historyEstimate({ area: 119 }),
+    historyEstimate({ area: 121 }),
+    historyEstimate({ area: 0 }),
+    historyEstimate({ buildingType: 'Каркасный дом (утеплённый)' }),
+    historyEstimate({ buildingType: 'Кирпичный дом' }),
+    historyEstimate({ region: 'Свердловская область' }),
+    historyEstimate({ region: '' }),
+    historyEstimate({ isArchived: true }),
+  ];
+
+  it('matches analyzeHistoricalPatterns (tolerance 0.2) on every pair', () => {
+    for (const params of paramsList) {
+      for (const candidate of candidates) {
+        expect(isSimilarEstimate(candidate, params, { areaTolerance: 0.2 }))
+          .toBe(oracleHistoricalPatterns(candidate, params));
+      }
+    }
+  });
+
+  it('matches pickFewShotExamples (tolerance 0.25) on every pair', () => {
+    for (const params of paramsList) {
+      for (const candidate of candidates) {
+        expect(isSimilarEstimate(candidate, params, { areaTolerance: 0.25 }))
+          .toBe(oracleFewShot(candidate, params));
+      }
+    }
+  });
+
+  it('matches smartEstimateBuilder (tolerance 0.3, empty-area matches) on every pair', () => {
+    // The wizard call site passes {area, buildingType} only: SmartWizardParams
+    // region is an AI-prompt hint, not a filter — the region rule never fired there.
+    const builderParams = paramsList.map(({ region: _region, ...rest }) => rest);
+    for (const params of builderParams) {
+      for (const candidate of candidates) {
+        expect(isSimilarEstimate(candidate, params, { areaTolerance: 0.3, matchOnEmptyArea: true }))
+          .toBe(oracleBuilder(candidate, params));
+      }
+    }
+  });
+
+  it('still applies the region rule when the caller passes a region', () => {
+    // Region filtering is part of the shared predicate; only the wizard
+    // call site opts out by not passing a region.
+    const candidate = historyEstimate({ region: 'Свердловская область' });
+    const params = { area: 100, buildingType: 'Каркасный дом', region: 'Московская область' };
+    expect(isSimilarEstimate(candidate, params, { areaTolerance: 0.3 })).toBe(false);
+  });
+
+  it('honours the boundary of the area tolerance', () => {
+    // 119/100 = 0.19 < 0.2 — similar; 121/100 = 0.21 — not.
+    const near = historyEstimate({ area: 119.9 });
+    const over = historyEstimate({ area: 120.1 });
+    expect(isSimilarEstimate(near, { area: 100 }, { areaTolerance: 0.2 })).toBe(true);
+    expect(isSimilarEstimate(over, { area: 100 }, { areaTolerance: 0.2 })).toBe(false);
+  });
+
+  it('never matches a requested area of zero unless the caller opted in', () => {
+    const candidate = historyEstimate({});
+    expect(isSimilarEstimate(candidate, { area: 0 }, { areaTolerance: 0.3 })).toBe(false);
+    expect(isSimilarEstimate(candidate, { area: 0 }, { areaTolerance: 0.3, matchOnEmptyArea: true })).toBe(true);
   });
 });
