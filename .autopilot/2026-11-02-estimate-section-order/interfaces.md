@@ -63,4 +63,11 @@ services/estimateSections.ts владеет порядком и сохранён
 
 ## Завершённые таски
 
-Пока нет.
+### 01 — порядок и иконки
+
+- setEstimateSectionOrder(estimate: Estimate, order: readonly SectionId[], document?: EstimateSectionsDocument | null): Estimate.
+- orderActualComparisonsForExport(estimate: Estimate, rows: readonly ActualItemComparison[]): ActualItemComparison[].
+- buildEstimateDirtySignature(value: Estimate, document?: EstimateSectionsDocument | null): number — сигнатура получает реестр для семантического legacy fallback.
+- Жест вынесен в sectionReorderGesture.ts/useSectionReorder.ts; общие EditorActionButton и EditorSectionIcon, без новых зависимостей.
+- Фокусно 114 тестов, +14 к прежним 100 в затронутых файлах. Независимый итоговый npm run test: 55 файлов, 379 passed, 0 failed.
+- Физическая проверка mouse/touch/визуальной раскладки не выполнялась; Vite/Electron/E2E/lint/build не запускались по правилам прогона.
