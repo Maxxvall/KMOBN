@@ -1,3 +1,6 @@
+import { IconAlertTriangle, IconArrowLeft, IconArrowRight, IconCar, IconChartSquare, IconCheck, IconClose, IconHome, IconLayers, IconPen, IconRobot, IconSledgehammer, IconStar, IconWindowFrame, IconHomeAngleDoor } from '@devigner-ui/icons';
+import { EditorActionButton } from './estimate-editor/EditorActionButton';
+import { EditorSectionIcon } from './estimate-editor/EditorSectionIcon';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ESTIMATE_CATEGORIES, ESTIMATE_SECTION_DEFINITIONS, Estimate, EstimateCategory, EstimateStatus, EstimateSubgroup, Material, Work, SectionId } from '../types';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
@@ -6,7 +9,7 @@ import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext
 
 export type BuildingTypePreset = {
   id: string;
-  icon: string;
+  icon: typeof IconHome;
   label: string;
   description: string;
   defaultArea: number;
@@ -19,7 +22,7 @@ export type BuildingTypePreset = {
 const BUILDING_PRESETS: BuildingTypePreset[] = [
   {
     id: 'frame-house',
-    icon: '🏠',
+    icon: IconHome,
     label: 'Каркасный дом',
     description: 'Жилой каркасный дом под ключ',
     defaultArea: 120,
@@ -34,7 +37,7 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
   },
   {
     id: 'brick-house',
-    icon: '🧱',
+    icon: IconLayers,
     label: 'Кирпичный дом',
     description: 'Дом из кирпича/блоков',
     defaultArea: 150,
@@ -49,7 +52,7 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
   },
   {
     id: 'bath-house',
-    icon: '🛖',
+    icon: IconHome,
     label: 'Баня',
     description: 'Баня / сауна',
     defaultArea: 24,
@@ -61,7 +64,7 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
   },
   {
     id: 'garage',
-    icon: '🚗',
+    icon: IconCar,
     label: 'Гараж',
     description: 'Гараж на 1-2 авто',
     defaultArea: 36,
@@ -73,7 +76,7 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
   },
   {
     id: 'shed',
-    icon: '🏚️',
+    icon: IconHome,
     label: 'Сарай / хозблок',
     description: 'Хозяйственная постройка',
     defaultArea: 18,
@@ -85,7 +88,7 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
   },
   {
     id: 'roof-repair',
-    icon: '🔨',
+    icon: IconSledgehammer,
     label: 'Ремонт кровли',
     description: 'Замена / ремонт крыши',
     defaultArea: 80,
@@ -97,7 +100,7 @@ const BUILDING_PRESETS: BuildingTypePreset[] = [
   },
   {
     id: 'custom',
-    icon: '✏️',
+    icon: IconPen,
     label: 'Свой вариант',
     description: 'Опишите объект вручную',
     defaultArea: 100,
@@ -394,6 +397,7 @@ const AIGenerationModal = ({
   }, [selectedPreset, customDescription, selectedSections, area, buildingType, referenceEstimateId, windowCount, doorCount, onConfirm, allSections]);
 
   if (!isOpen) return null;
+  const SelectedPresetIcon = selectedPreset?.icon ?? IconHome;
 
   // ─── Step 1: Choose Building Type ──────────────────────────────────────
   const renderStep1 = () => (
@@ -405,7 +409,7 @@ const AIGenerationModal = ({
       {/* History stats badge */}
       {historyStats.approvedCount > 0 && (
         <div className="flex items-center gap-2 p-2 bg-green-500/10 border border-green-500/20 rounded-md">
-          <span className="text-green-400 text-sm">✓</span>
+          <span className="text-green-400 text-sm"><IconCheck aria-hidden="true" className="inline size-4 align-middle" /></span>
           <span className="text-sm text-green-300">
             {historyStats.approvedCount} согласованных смет в истории — AI будет учитывать реальные данные
           </span>
@@ -424,7 +428,7 @@ const AIGenerationModal = ({
                 : 'border-border bg-background/40 hover:border-primary/50 hover:bg-background/60'
             }`}
           >
-            <span className="text-3xl">{preset.icon}</span>
+            <preset.icon aria-hidden="true" className="size-8" />
             <span className="font-semibold text-text-primary text-sm">{preset.label}</span>
             <span className="text-xs text-text-secondary">{preset.description}</span>
           </button>
@@ -437,7 +441,7 @@ const AIGenerationModal = ({
           disabled={!selectedPreset}
           className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-6 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Далее →
+          Далее <IconArrowRight aria-hidden="true" className="inline size-4 align-middle" />
         </button>
       </div>
     </div>
@@ -473,7 +477,7 @@ const AIGenerationModal = ({
       {/* Doors & Windows counts */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm text-text-secondary mb-1">🪟 Кол-во окон</label>
+          <label className="block text-sm text-text-secondary mb-1"><IconWindowFrame aria-hidden="true" className="inline size-4 align-middle" /> Кол-во окон</label>
           <input
             type="number"
             value={windowCount}
@@ -485,7 +489,7 @@ const AIGenerationModal = ({
           <span className="text-xs text-text-secondary mt-0.5 block">Для расчёта кол-ва окон и комплектующих</span>
         </div>
         <div>
-          <label className="block text-sm text-text-secondary mb-1">🚪 Кол-во дверей</label>
+          <label className="block text-sm text-text-secondary mb-1"><IconHomeAngleDoor aria-hidden="true" className="inline size-4 align-middle" /> Кол-во дверей</label>
           <input
             type="number"
             value={doorCount}
@@ -517,10 +521,10 @@ const AIGenerationModal = ({
                     : 'border-border bg-background/30 text-text-secondary hover:border-primary/40'
                 }`}
               >
-                <span>{sec.icon}</span>
+                <EditorSectionIcon id={sec.cat} />
                 <span className="flex-1 truncate">{sec.label}</span>
-                {active && hasData && <span className="text-xs text-green-400">✓</span>}
-                {active && !hasData && <span className="text-xs text-yellow-400">⚠</span>}
+                {active && hasData && <span className="text-xs text-green-400"><IconCheck aria-hidden="true" className="inline size-4 align-middle" /></span>}
+                {active && !hasData && <span className="text-xs text-yellow-400"><IconAlertTriangle aria-hidden="true" className="inline size-4 align-middle" /></span>}
               </button>
             );
           })}
@@ -535,7 +539,7 @@ const AIGenerationModal = ({
         return (
           <div className="p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
             <span className="text-sm text-yellow-300">
-              ⚠ Для разделов {emptySections.map(s => allSections.find(a => a.cat === s.cat)?.label || s.cat).join(', ')} нет данных в справочниках.
+              <IconAlertTriangle aria-hidden="true" className="inline size-4 align-middle" /> Для разделов {emptySections.map(s => allSections.find(a => a.cat === s.cat)?.label || s.cat).join(', ')} нет данных в справочниках.
               AI может добавить позиции, но их придётся заполнить вручную.
             </span>
           </div>
@@ -559,14 +563,14 @@ const AIGenerationModal = ({
           onClick={() => setStep(1)}
           className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-4 rounded transition-colors"
         >
-          ← Назад
+          <IconArrowLeft aria-hidden="true" className="inline size-4 align-middle" /> Назад
         </button>
         <button
           onClick={() => setStep(3)}
           disabled={area <= 0 || !buildingType.trim()}
           className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-6 rounded-md transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          Далее →
+          Далее <IconArrowRight aria-hidden="true" className="inline size-4 align-middle" />
         </button>
       </div>
     </div>
@@ -580,11 +584,11 @@ const AIGenerationModal = ({
         <div className="text-sm font-semibold text-text-primary">Параметры генерации</div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
           <span className="text-text-secondary">Тип объекта:</span>
-          <span className="text-text-primary">{selectedPreset?.icon} {buildingType}</span>
+          <span className="text-text-primary"><SelectedPresetIcon aria-hidden="true" className="mr-1 inline size-4" /> {buildingType}</span>
           <span className="text-text-secondary">Площадь:</span>
           <span className="text-text-primary">{area} м²</span>
           <span className="text-text-secondary">Окна / Двери:</span>
-          <span className="text-text-primary">🪟 {windowCount} шт / 🚪 {doorCount} шт</span>
+          <span className="text-text-primary"><IconWindowFrame aria-hidden="true" className="inline size-4 align-middle" /> {windowCount} шт / <IconHomeAngleDoor aria-hidden="true" className="inline size-4 align-middle" /> {doorCount} шт</span>
           <span className="text-text-secondary">Разделы:</span>
           <span className="text-text-primary">{selectedSections.length} из {allSections.length}</span>
           <span className="text-text-secondary">Материалов в БД:</span>
@@ -603,7 +607,7 @@ const AIGenerationModal = ({
       {similarEstimates.length > 0 && (
         <div className="space-y-2">
           <div className="text-sm font-semibold text-text-primary">
-            📊 Похожие сметы из истории ({similarEstimates.length})
+            <IconChartSquare aria-hidden="true" className="inline size-4 align-middle" /> Похожие сметы из истории ({similarEstimates.length})
           </div>
           <div className="text-xs text-text-secondary mb-1">
             AI автоматически учтёт данные из истории. Можно выбрать эталон — AI будет ориентироваться на него.
@@ -624,7 +628,7 @@ const AIGenerationModal = ({
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      {isRef && <span className="text-primary text-xs">★ Эталон</span>}
+                      {isRef && <span className="text-primary text-xs"><IconStar aria-hidden="true" className="inline size-4 align-middle" /> Эталон</span>}
                       <span className="font-medium text-text-primary">{est.estimateNumber}</span>
                       {est.client && <span className="text-text-secondary">— {est.client}</span>}
                     </div>
@@ -649,7 +653,7 @@ const AIGenerationModal = ({
       {/* Info box */}
       <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-md">
         <div className="text-sm text-blue-300 space-y-1">
-          <div>🤖 <strong>AI проанализирует:</strong></div>
+          <div><IconRobot aria-hidden="true" className="inline size-4 align-middle" /> <strong>AI проанализирует:</strong></div>
           <ul className="list-disc pl-5 text-xs space-y-0.5">
             <li>Согласованные сметы из вашей истории для точных пропорций</li>
             <li>Справочники материалов и работ — использует только ваши данные</li>
@@ -667,13 +671,13 @@ const AIGenerationModal = ({
           onClick={() => setStep(2)}
           className="text-sm bg-gray-600 hover:bg-gray-500 text-text-primary font-bold py-2 px-4 rounded transition-colors"
         >
-          ← Назад
+          <IconArrowLeft aria-hidden="true" className="inline size-4 align-middle" /> Назад
         </button>
         <button
           onClick={handleConfirm}
           className="bg-primary hover:bg-primary-hover text-white font-bold py-2.5 px-8 rounded-md transition-colors text-base"
         >
-          🤖 Сгенерировать смету
+          <IconRobot aria-hidden="true" className="inline size-4 align-middle" /> Сгенерировать смету
         </button>
       </div>
     </div>
@@ -688,8 +692,8 @@ const AIGenerationModal = ({
       <div className="relative w-full max-w-3xl mx-4 bg-surface border border-border rounded-lg shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
-          <div className="font-bold text-text-primary">🤖 AI-конструктор сметы</div>
-          <button onClick={onCancel} className="text-text-secondary hover:text-text-primary text-lg">✖</button>
+          <div className="font-bold text-text-primary"><IconRobot aria-hidden="true" className="inline size-4 align-middle" /> AI-конструктор сметы</div>
+          <EditorActionButton label="Закрыть" onClick={onCancel}><IconClose aria-hidden="true" className="size-4" /></EditorActionButton>
         </div>
 
         {/* Step indicator */}
@@ -705,7 +709,7 @@ const AIGenerationModal = ({
                         ? 'bg-green-500/20 text-green-400 border border-green-500/40'
                         : 'bg-background text-text-secondary border border-border'
                   }`}>
-                    {s < step ? '✓' : s}
+                    {s < step ? <IconCheck aria-hidden="true" className="size-4" /> : s}
                   </div>
                   <span className={`text-xs hidden sm:inline ${s === step ? 'text-text-primary font-semibold' : 'text-text-secondary'}`}>
                     {stepLabels[s - 1]}

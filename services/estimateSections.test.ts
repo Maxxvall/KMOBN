@@ -6,6 +6,8 @@ import {
     type CustomSectionId,
     type SectionId,
     type EstimateItem,
+    type Estimate,
+    EstimateStatus,
 } from '../types';
 import {
     CATALOG_CATEGORIES,
@@ -20,6 +22,7 @@ import {
     reorderEstimateSections,
     resolveEstimateSectionsConflict,
     setUserEstimateSectionArchived,
+    setEstimateSectionOrder,
     tryMergeEstimateSectionsDocuments,
 } from './estimateSections';
 
@@ -35,6 +38,52 @@ const item = (category: SectionId, subgroup?: EstimateSubgroup): EstimateItem =>
 });
 
 describe('estimate section registry', () => {
+    it('sets an independent complete order, keeps labels and positions, and appends readded sections', () => {
+        const customId: CustomSectionId = 'custom:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab';
+        const unknownId = 'Будущий раздел' as SectionId;
+        const estimate: Estimate = {
+            id: 'order-test', estimateNumber: 'ORDER', client: '', date: '2026-11-02',
+            status: EstimateStatus.DRAFT, version: 1, total: 123, buildingType: '', area: 0,
+            items: [item(EstimateCategory.WALLS), item(customId), item(unknownId)],
+            selectedSections: [EstimateCategory.ROOF, EstimateCategory.GENERAL],
+            sectionSnapshot: [
+                { id: customId, label: 'Сохранённое имя', order: 0 },
+                { id: EstimateCategory.WALLS, label: 'Стены', order: 1 },
+            ],
+        };
+        const order = [unknownId, EstimateCategory.ROOF, EstimateCategory.GENERAL, EstimateCategory.WALLS, customId];
+        const moved = setEstimateSectionOrder(estimate, order);
+        expect(getEstimateCategories(moved.items, moved.selectedSections, moved.sectionSnapshot)).toEqual(order);
+        expect(moved.items).toBe(estimate.items);
+        expect(moved.total).toBe(123);
+        expect(getSectionLabel(customId, moved.sectionSnapshot)).toBe('Сохранённое имя');
+        expect(setEstimateSectionOrder(moved, order)).toBe(moved);
+        for (const invalid of [order.slice(1), [...order, EstimateCategory.FOUNDATION], [...order.slice(1), customId]]) {
+            expect(() => setEstimateSectionOrder(moved, invalid)).toThrow('Порядок разделов');
+        }
+        const removed = { ...moved, items: moved.items.filter(row => row.category !== unknownId) };
+        const cleaned = { ...removed, sectionSnapshot: preserveEstimateSectionSnapshot(removed) };
+        const readded = { ...cleaned, selectedSections: [...cleaned.selectedSections!, unknownId] };
+        expect(getEstimateCategories(readded.items, readded.selectedSections, readded.sectionSnapshot).at(-1)).toBe(unknownId);
+        const legacy = { ...estimate, sectionSnapshot: undefined };
+        expect(setEstimateSectionOrder(legacy, getEstimateCategories(legacy.items, legacy.selectedSections))).toBe(legacy);
+    });
+    it('freezes the visible account order for legacy estimates and forgets removed places', () => {
+        const document = createEstimateSectionsDocument('synthetic-user');
+        document.order = [EstimateCategory.ROOF, ...document.order.filter(id => id !== EstimateCategory.ROOF)];
+        const legacy = { items: [item(EstimateCategory.WALLS), item(EstimateCategory.ROOF)] };
+        expect(preserveEstimateSectionSnapshot(legacy, document).map(section => section.id))
+            .toEqual([EstimateCategory.ROOF, EstimateCategory.WALLS]);
+        const removed = {
+            items: [item(EstimateCategory.WALLS)],
+            sectionSnapshot: [
+                { id: EstimateCategory.ROOF, label: 'Кровля', order: 0 },
+                { id: EstimateCategory.WALLS, label: 'Стены', order: 1 },
+            ],
+        };
+        expect(preserveEstimateSectionSnapshot(removed, document).map(section => section.id))
+            .toEqual([EstimateCategory.WALLS]);
+    });
     it('offers engineering sections in estimate order and keeps GENERAL catalog-only', () => {
         expect(ESTIMATE_CATEGORIES).toContain(EstimateCategory.WATER_SUPPLY);
         expect(ESTIMATE_CATEGORIES).toContain(EstimateCategory.SEWERAGE);

@@ -291,6 +291,8 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       if (existing.status !== incoming.status) return true;
       if (existing.area !== incoming.area) return true;
       if (existing.buildingType !== incoming.buildingType) return true;
+      if (JSON.stringify(existing.selectedSections ?? []) !== JSON.stringify(incoming.selectedSections ?? [])) return true;
+      if (JSON.stringify(existing.sectionSnapshot ?? []) !== JSON.stringify(incoming.sectionSnapshot ?? [])) return true;
       if (
         Object.prototype.hasOwnProperty.call(incoming, 'explanation')
         && (existing.explanation ?? '') !== (incoming.explanation ?? '')

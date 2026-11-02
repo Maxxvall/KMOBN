@@ -39,6 +39,19 @@ describe('latest estimate selectors', () => {
 });
 
 describe('findEstimateVersionDuplicates', () => {
+  it('does not mark order-only versions as exact duplicates', () => {
+    const original = makeEstimate({ id: 'order-1', estimateNumber: 'ORDER', version: 1,
+      selectedSections: [EstimateCategory.WALLS, EstimateCategory.ROOF],
+      sectionSnapshot: [
+        { id: EstimateCategory.WALLS, label: 'Стены', order: 0 },
+        { id: EstimateCategory.ROOF, label: 'Кровля', order: 1 },
+      ],
+    });
+    const moved = { ...original, id: 'order-2', version: 2,
+      sectionSnapshot: original.sectionSnapshot!.map(section => ({ ...section, order: 1 - section.order })) };
+    expect(getEstimateContentFingerprint(moved)).not.toBe(getEstimateContentFingerprint(original));
+    expect(findEstimateVersionDuplicates([original, moved])).toEqual([]);
+  });
   it('returns empty when no duplicates exist', () => {
     const estimates = [
       makeEstimate({ id: 'a1', estimateNumber: 'SM-001', version: 1, items: [{ id: 'i1', name: 'Брус', unit: 'м3', quantity: 1, price: 100, total: 100, category: EstimateCategory.WALLS }] }),

@@ -8,6 +8,8 @@ describe('toClientEstimate', () => {
             id: 'estimate', estimateNumber: 'SM-1', client: 'Клиент', date: '2026-07-14', status: EstimateStatus.APPROVED,
             version: 1, items: [{ id: 'item', name: 'Работа', unit: 'шт', quantity: 1, price: 1, total: 1, category: EstimateCategory.GENERAL }],
             total: 1, buildingType: 'Дом', area: 10,
+            selectedSections: [EstimateCategory.ROOF],
+            sectionSnapshot: [{ id: EstimateCategory.ROOF, label: 'Кровля', order: 0 }, { id: EstimateCategory.GENERAL, label: 'Общая', order: 1 }],
             crewToolPlan: { crewSize: 4, requirements: [{ name: 'Молоток', toolKey: 'молоток', quantity: 4, quantityMode: 'crew', source: 'manual' }] },
             houseProjectId: 'project-1',
             houseCalculationSnapshots: [],
@@ -23,5 +25,7 @@ describe('toClientEstimate', () => {
         expect(client).not.toHaveProperty('houseExecutionStatus');
         expect(client).not.toHaveProperty('houseActualVerifiedAt');
         expect(client).not.toHaveProperty('houseActualBasis');
+        expect(client.sectionSnapshot).toBe(estimate.sectionSnapshot);
+        expect(client.selectedSections).toBe(estimate.selectedSections);
     });
 });

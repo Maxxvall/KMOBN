@@ -1,3 +1,5 @@
+import { IconClose } from '@devigner-ui/icons';
+import { EditorActionButton } from './estimate-editor/EditorActionButton';
 import React, { useMemo } from 'react';
 import { Estimate, EstimateItem, SectionId } from '../types';
 import { getEstimateCategories, getSectionLabel } from '../services/estimateSections';
@@ -75,7 +77,7 @@ const VersionComparisonModal: React.FC<VersionComparisonModalProps> = ({ oldVers
             <div className="bg-surface rounded-lg shadow-2xl p-6 w-full max-w-4xl border border-border" onClick={e => e.stopPropagation()}>
                 <div className="flex justify-between items-center border-b border-border pb-3 mb-4">
                     <h3 className="text-xl font-bold text-text-primary">Сравнение версий: v{oldVersion.version} и v{newVersion.version}</h3>
-                    <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl">&times;</button>
+                    <EditorActionButton label="Закрыть" onClick={onClose}><IconClose aria-hidden="true" className="size-4" /></EditorActionButton>
                 </div>
                 
                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">

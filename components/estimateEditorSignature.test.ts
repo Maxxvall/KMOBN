@@ -34,6 +34,18 @@ describe('buildEstimateDirtySignature', () => {
         expect(buildEstimateDirtySignature(base)).toBe(buildEstimateDirtySignature(estimate([item()])));
     });
 
+    it('detects section-only reorders, while equivalent legacy snapshots stay clean', () => {
+        const original = { ...base, selectedSections: [EstimateCategory.ROOF, EstimateCategory.WALLS] };
+        const captured = { ...original, sectionSnapshot: [
+            { id: EstimateCategory.WALLS, label: 'Стены', order: 0 },
+            { id: EstimateCategory.ROOF, label: 'Кровля/Потолок', order: 1 },
+        ] };
+        const moved = { ...captured, sectionSnapshot: captured.sectionSnapshot.map(section => ({ ...section, order: 1 - section.order })) };
+        expect(buildEstimateDirtySignature(moved)).not.toBe(buildEstimateDirtySignature(captured));
+        expect(buildEstimateDirtySignature(original)).toBe(buildEstimateDirtySignature(captured));
+        expect(buildEstimateItemsSignature(moved.items)).toBe(buildEstimateItemsSignature(original.items));
+    });
+
     it('changes when plan-fact fields are edited', () => {
         const editedActual = estimate([item({ actual: { unit: 'м²', quantity: 3, price: 500, note: '', source: 'manual' } })]);
         expect(buildEstimateDirtySignature(editedActual)).not.toBe(buildEstimateDirtySignature(base));

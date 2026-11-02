@@ -1,3 +1,5 @@
+import { IconClose } from '@devigner-ui/icons';
+import { EditorActionButton } from './estimate-editor/EditorActionButton';
 import React, { useEffect, useMemo, useState } from 'react';
 import ReactDOM from 'react-dom';
 import FocusLock from 'react-focus-lock';
@@ -198,7 +200,7 @@ const BoardMaterialSwitchModal: React.FC<Props> = ({
                   Проверьте размеры и цены. Смета изменится только после подтверждения.
                 </p>
               </div>
-              <button type="button" onClick={onClose} disabled={isSavingCatalog} aria-label="Закрыть" className="min-h-[44px] min-w-[44px] rounded-md text-2xl text-text-secondary hover:bg-background disabled:opacity-50">×</button>
+              <EditorActionButton label="Закрыть" onClick={onClose} disabled={isSavingCatalog} className="disabled:opacity-50"><IconClose aria-hidden="true" className="size-4" /></EditorActionButton>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
               <div className="rounded-md bg-background/60 p-2"><span className="block text-xs text-text-secondary">Готово</span><strong>{plan.replacements.length}</strong></div>

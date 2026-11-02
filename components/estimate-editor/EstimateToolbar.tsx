@@ -71,7 +71,7 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
                         onClick={() => setShowComparison(true)}
                         aria-label="Сравнить с предыдущей версией"
                         title="Сравнить с предыдущей версией"
-                        className={`${iconOnlyBtn} text-blue-400 hover:bg-white/5 hover:text-blue-300`}
+                        className={`${iconOnlyBtn} text-text-secondary hover:bg-white/5 hover:text-text-primary`}
                     >
                         <IconArrowSwapHorizontal aria-hidden="true" className="size-4" />
                     </button>
@@ -81,7 +81,7 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
                         onClick={() => onSaveAsTemplateAction?.(estimate)}
                         aria-label="Сохранить как шаблон"
                         title="Сохранить как шаблон"
-                        className={`${iconOnlyBtn} text-green-400 hover:bg-white/5 hover:text-green-300`}
+                        className={`${iconOnlyBtn} text-text-secondary hover:bg-white/5 hover:text-text-primary`}
                     >
                         <IconBookmark aria-hidden="true" className="size-4" />
                     </button>
@@ -136,7 +136,7 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
                         className="min-h-[44px] min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                         defaultValue=""
                     >
-                        <option value="">+ Раздел...</option>
+                        <option value="">Добавить раздел...</option>
                         {addableCategoryIds.map((cat) => (
                             <option key={cat} value={cat} disabled={visibleCategories.includes(cat)}>{sectionLabel(cat)}</option>
                         ))}
@@ -147,7 +147,7 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
                             onClick={onManageSectionsAction}
                             aria-label="Управлять разделами"
                             title="Управлять разделами"
-                            className={`${iconOnlyBtn} text-blue-400 hover:bg-white/5 hover:text-blue-300`}
+                            className={`${iconOnlyBtn} text-text-secondary hover:bg-white/5 hover:text-text-primary`}
                         >
                             <IconSettingSlidersHorizontal aria-hidden="true" className="size-4" />
                         </button>

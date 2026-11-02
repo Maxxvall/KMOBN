@@ -1,5 +1,6 @@
 import { Estimate, EstimateItem, EstimateStatus, EstimateSubgroup, Material, Work, normalizeKey, safeNumber, SectionId } from '../types';
 import { hashData } from './hashing';
+import { preserveEstimateSectionSnapshot } from './estimateSections';
 
 export type DependencySeverity = 'critical' | 'important' | 'optional';
 
@@ -517,6 +518,7 @@ export function getEstimateContentFingerprint(e: Estimate): string {
     status: e.status,
     isArchived: Boolean(e.isArchived),
     selectedSections: [...(e.selectedSections || [])].sort(),
+    sectionSnapshot: preserveEstimateSectionSnapshot(e),
     needsPriceUpdate: Boolean(e.needsPriceUpdate),
   });
 }

@@ -105,6 +105,24 @@ describe('importData', () => {
 
     const cachedMaterials = async () => getCachedRecords<Material>('materials', getCacheUserId(USER_ID));
 
+    it('reports order-only imports as updated and round trips their snapshot', async () => {
+        const original = estimate('section-order', {
+            selectedSections: [EstimateCategory.WALLS, EstimateCategory.ROOF],
+            sectionSnapshot: [
+                { id: EstimateCategory.WALLS, label: 'Стены', order: 0 },
+                { id: EstimateCategory.ROOF, label: 'Кровля', order: 1 },
+            ],
+        });
+        await importData(backupPayload({ estimates: [original] }));
+        const moved = { ...original, sectionSnapshot: [...original.sectionSnapshot!].reverse()
+            .map((section, order) => ({ ...section, order })) };
+        const result = await importData(backupPayload({ estimates: [moved] }));
+        expect(result.estimates).toMatchObject({ updated: 1, unchanged: 0 });
+        const roundTrip = JSON.parse(await exportData()).estimates as Estimate[];
+        expect(roundTrip[0].sectionSnapshot).toEqual(moved.sectionSnapshot);
+        expect((await importData(backupPayload({ estimates: [moved] }))).estimates.unchanged).toBe(1);
+    });
+
     it('adds new records and reports added counters', async () => {
         const result = await importData(backupPayload());
 

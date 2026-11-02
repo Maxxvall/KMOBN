@@ -1,4 +1,5 @@
 import { Estimate, EstimateItem, EstimateSubgroup, safeNumber, SectionId } from '../types';
+import { getEstimateCategories } from './estimateSections';
 
 export type ActualFilter = 'all' | 'different' | 'missing' | 'actualOnly';
 
@@ -98,6 +99,12 @@ export const buildActualItemComparison = (item: EstimateItem): ActualItemCompari
 
 export const buildActualComparisons = (estimate: Estimate): ActualItemComparison[] =>
   estimate.items.map(buildActualItemComparison);
+
+export const orderActualComparisonsForExport = (estimate: Estimate, rows: readonly ActualItemComparison[]): ActualItemComparison[] => {
+  const categories = getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot);
+  const rank = new Map(categories.map((category, index) => [category, index]));
+  return [...rows].sort((left, right) => (rank.get(left.category) ?? categories.length) - (rank.get(right.category) ?? categories.length));
+};
 
 export const calculateActualSummary = (estimate: Estimate): ActualSummary => {
   const rows = buildActualComparisons(estimate);

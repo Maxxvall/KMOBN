@@ -1,6 +1,7 @@
 import { createOperationId } from './operationId';
 import {
     ESTIMATE_SECTION_DEFINITIONS,
+    type Estimate,
     EstimateCategory,
     EstimateItem,
     EstimateSectionSnapshot,
@@ -177,9 +178,9 @@ export const getEstimateCategories = (
     document?: EstimateSectionsDocument | null,
 ): SectionId[] => {
     const present = new Set<SectionId>([...selectedSections, ...items.map(item => item.category)]);
-    const preferredOrder = snapshot.length
+    const preferredOrder = [...new Set(snapshot.length
         ? [...snapshot].sort((left, right) => left.order - right.order).map(section => section.id)
-        : getResolvedEstimateSections(document, { includeArchived: true }).map(section => section.id);
+        : getResolvedEstimateSections(document, { includeArchived: true }).map(section => section.id))];
     return [
         ...preferredOrder.filter(category => present.has(category)),
         ...[...present].filter(category => !preferredOrder.includes(category)),
@@ -430,15 +431,31 @@ export const preserveEstimateSectionSnapshot = (
     estimate: { items: readonly Pick<EstimateItem, 'category'>[]; selectedSections?: readonly SectionId[]; sectionSnapshot?: readonly EstimateSectionSnapshot[] },
     document?: EstimateSectionsDocument | null,
 ): EstimateSectionSnapshot[] => {
-    const ids = [...new Set<SectionId>([
-        ...[...(estimate.sectionSnapshot ?? [])].sort((left, right) => left.order - right.order).map(section => section.id),
-        ...(estimate.selectedSections ?? []),
-        ...estimate.items.map(item => item.category),
-    ])];
+    const ids = getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot, document);
     const existing = new Map((estimate.sectionSnapshot ?? []).map(section => [section.id, section]));
     return ids.map((id, order) => ({
         id,
         label: existing.get(id)?.label ?? getSectionLabel(id, [], document),
         order,
     }));
+};
+
+/** Sets only this estimate's section order; positions and totals retain their identity. */
+export const setEstimateSectionOrder = (
+    estimate: Estimate,
+    order: readonly SectionId[],
+    document?: EstimateSectionsDocument | null,
+): Estimate => {
+    const current = getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot, document);
+    if (order.length !== current.length || new Set(order).size !== current.length || order.some(id => !current.includes(id))) {
+        throw new Error('Порядок разделов содержит пропущенные, повторённые или неизвестные значения.');
+    }
+    const visibleSnapshot = preserveEstimateSectionSnapshot(estimate, document);
+    const snapshotById = new Map(visibleSnapshot.map(section => [section.id, section]));
+    const sectionSnapshot = order.map((id, index) => ({ ...snapshotById.get(id)!, order: index }));
+    const sameOrder = order.every((id, index) => id === current[index]);
+    // A legacy no-op must not materialize a snapshot and dirty an untouched editor.
+    if (sameOrder && (!estimate.sectionSnapshot?.length
+        || JSON.stringify(estimate.sectionSnapshot) === JSON.stringify(sectionSnapshot))) return estimate;
+    return { ...estimate, sectionSnapshot };
 };

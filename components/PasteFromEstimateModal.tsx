@@ -1,3 +1,5 @@
+import { IconClose } from '@devigner-ui/icons';
+import { EditorActionButton } from './estimate-editor/EditorActionButton';
 import React, { useState, useMemo } from 'react';
 import { Estimate, EstimateItem, SectionId } from '../types';
 import { getEstimateCategories, getSectionLabel } from '../services/estimateSections';
@@ -73,7 +75,7 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
             <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-bold text-text-primary">Вставить из другой сметы</h2>
-                    <button onClick={resetAndClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
+                    <EditorActionButton label="Закрыть" onClick={resetAndClose}><IconClose aria-hidden="true" className="size-4" /></EditorActionButton>
                 </div>
 
                 <div className="text-sm text-text-secondary mb-4">

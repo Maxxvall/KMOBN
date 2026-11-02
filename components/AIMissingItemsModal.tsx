@@ -1,3 +1,5 @@
+import { IconAdd, IconCheck, IconClose, IconRobot } from '@devigner-ui/icons';
+import { EditorActionButton } from './estimate-editor/EditorActionButton';
 import React, { useCallback, useMemo, useState } from 'react';
 import { ESTIMATE_CATEGORIES } from '../types';
 import { EstimateItem, EstimateSubgroup, SectionId } from '../types';
@@ -123,7 +125,7 @@ const AIMissingItemsModal = ({
           disabled={addedItemIds?.has(it.id)}
           className={`text-sm font-bold py-1 px-3 rounded transition-colors ${addedItemIds?.has(it.id) ? 'bg-gray-500 text-text-secondary cursor-not-allowed' : 'bg-gray-600 hover:bg-gray-500 text-text-primary'}`}
         >
-          {addedItemIds?.has(it.id) ? 'Добавлено' : '+ Добавить'}
+          <span className="inline-flex items-center gap-1">{!addedItemIds?.has(it.id) && <IconAdd aria-hidden="true" className="size-4" />}{addedItemIds?.has(it.id) ? 'Добавлено' : 'Добавить'}</span>
         </button>
       </div>
     );
@@ -158,7 +160,7 @@ const AIMissingItemsModal = ({
                 : 'bg-primary/80 hover:bg-primary text-white'
             }`}
           >
-            {isAdded ? '✓ В каталоге' : '+ В каталог'}
+            <span className="inline-flex items-center gap-1">{isAdded ? <IconCheck aria-hidden="true" className="size-4" /> : <IconAdd aria-hidden="true" className="size-4" />}{isAdded ? 'В каталоге' : 'В каталог'}</span>
           </button>
         )}
       </div>
@@ -170,8 +172,8 @@ const AIMissingItemsModal = ({
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
       <div className="relative w-full max-w-3xl mx-4 bg-surface border border-border rounded-lg shadow-2xl max-h-[90vh] flex flex-col">
         <div className="p-4 border-b border-border flex items-center justify-between shrink-0">
-          <div className="font-bold text-text-primary">🤖 AI-анализ сметы</div>
-          <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-lg">✖</button>
+          <div className="font-bold text-text-primary"><IconRobot aria-hidden="true" className="mr-1 inline size-4" /> AI-анализ сметы</div>
+          <EditorActionButton label="Закрыть" onClick={onClose}><IconClose aria-hidden="true" className="size-4" /></EditorActionButton>
         </div>
 
         {/* Tabs */}

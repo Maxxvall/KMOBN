@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { Estimate, EstimateCategory, EstimateItem, EstimateStatus, EstimateSubgroup } from '../types';
 import {
   buildActualItemComparison,
+  buildActualComparisons,
+  orderActualComparisonsForExport,
   calculateActualSummary,
   copyPlanToActual,
   shouldShowActualRow,
@@ -33,6 +35,26 @@ const makeEstimate = (items: EstimateItem[]): Estimate => ({
 });
 
 describe('estimateActuals', () => {
+  it('groups PlanFact export rows in estimate order without changing row values or screen order', () => {
+    const estimate = makeEstimate([
+      makeItem({ id: 'wall-1' }),
+      makeItem({ id: 'roof', category: EstimateCategory.ROOF, actual: { quantity: 2, price: 30 } }),
+      makeItem({ id: 'wall-2', price: 40, total: 400 }),
+    ]);
+    estimate.selectedSections = [EstimateCategory.LOGISTICS];
+    estimate.sectionSnapshot = [
+      { id: EstimateCategory.ROOF, label: 'Кровля', order: 0 },
+      { id: EstimateCategory.LOGISTICS, label: 'Доставка', order: 1 },
+      { id: EstimateCategory.WALLS, label: 'Стены', order: 2 },
+    ];
+    const rows = buildActualComparisons(estimate);
+    const result = orderActualComparisonsForExport(estimate, rows);
+    expect(result.map(row => row.id)).toEqual(['roof', 'wall-1', 'wall-2']);
+    expect(rows.map(row => row.id)).toEqual(['wall-1', 'roof', 'wall-2']);
+    expect(result[0]).toBe(rows[1]);
+    expect(result.reduce((sum, row) => sum + row.planTotal, 0)).toBe(2400);
+    expect(result[0].actualTotal).toBe(60);
+  });
   it('uses actual totals in forecast when actual is complete', () => {
     const row = buildActualItemComparison(makeItem({
       actual: { unit: 'м2', quantity: 12, price: 110 },

@@ -16,6 +16,7 @@ import {
     safeItemTotal,
     sanitizePremiumPdfFileName,
 } from './premiumPdf';
+import { preserveEstimateSectionSnapshot, setEstimateSectionOrder } from './estimateSections';
 
 const makeEstimate = (itemCount = 3): Estimate => {
     const categories = [
@@ -62,6 +63,17 @@ const makeEstimate = (itemCount = 3): Estimate => {
 };
 
 describe('premium PDF model', () => {
+    it('exports the saved estimate order and labels without printing selected empty sections', () => {
+        const original = makeEstimate(3);
+        original.selectedSections = [EstimateCategory.LOGISTICS];
+        const moved = setEstimateSectionOrder(original, [EstimateCategory.ROOF, EstimateCategory.LOGISTICS, EstimateCategory.WALLS, EstimateCategory.FOUNDATION]);
+        const reopened = { ...moved, sectionSnapshot: preserveEstimateSectionSnapshot(moved) };
+        const model = buildPremiumEstimateModel(reopened);
+        expect(model.sections.map(section => section.category)).toEqual([EstimateCategory.ROOF, EstimateCategory.WALLS, EstimateCategory.FOUNDATION]);
+        expect(model.total).toBe(original.total);
+        expect(model.calculatedTotal).toBe(original.total);
+        expect(reopened.items).toBe(original.items);
+    });
     it('preserves a legitimate zero item total', () => {
         const item = makeEstimate(1).items[0];
         item.total = 0;

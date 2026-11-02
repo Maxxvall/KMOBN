@@ -1,3 +1,5 @@
+import { IconClose, IconChevronRight, IconMenu, IconTrash } from '@devigner-ui/icons';
+import { EditorActionButton } from './estimate-editor/EditorActionButton';
 import React, { useState, useMemo, useCallback } from 'react';
 import { EstimateSubgroup, WorkBundle } from '../types';
 import { applySmartPackagingRules, sanitizeQuantities } from '../services/openRouterService';
@@ -114,7 +116,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
             <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-bold text-text-primary">Выбор комплектов</h2>
-                    <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
+                    <EditorActionButton label="Закрыть" onClick={onClose}><IconClose aria-hidden="true" className="size-4" /></EditorActionButton>
                 </div>
 
                 {bundles.length === 0 ? (
@@ -149,9 +151,9 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
                                                     <button
                                                         type="button"
                                                         onClick={(e) => { e.preventDefault(); toggleExpand(bundle.id); }}
-                                                        className="text-xs text-text-secondary hover:text-text-primary"
+                                                        title="Развернуть или свернуть комплект" aria-label="Развернуть или свернуть комплект" aria-expanded={expandedBundles.has(bundle.id)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary hover:text-text-primary focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
                                                     >
-                                                        {expandedBundles.has(bundle.id) ? '▾' : '▸'}
+                                                        <IconChevronRight aria-hidden="true" className={`size-4 ${expandedBundles.has(bundle.id) ? 'rotate-90' : ''}`} />
                                                     </button>
                                                 )}
                                             </label>
@@ -216,7 +218,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
                                                 dragId === p.bundle.id ? 'opacity-50 border-primary' : 'border-border hover:border-primary/50'
                                             }`}
                                         >
-                                            <span className="text-text-secondary text-sm cursor-grab">☰</span>
+                                            <IconMenu aria-hidden="true" className="size-4 cursor-grab text-text-secondary" />
                                             <div className="flex-1 min-w-0">
                                                 <div className="text-sm font-medium text-text-primary truncate">{p.bundle.name}</div>
                                                 <div className="text-xs text-text-secondary">
@@ -232,9 +234,9 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
                                             <button
                                                 type="button"
                                                 onClick={() => toggleSelect(p.bundle.id)}
-                                                className="text-text-secondary hover:text-red-400 text-sm"
+                                                title="Убрать комплект из подборки" aria-label="Убрать комплект из подборки" className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-red-400 hover:bg-red-500/10 focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
                                             >
-                                                ✕
+                                                <IconTrash aria-hidden="true" className="size-4" />
                                             </button>
                                         </div>
                                     ))}

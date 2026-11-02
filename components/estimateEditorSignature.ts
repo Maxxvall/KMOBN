@@ -1,4 +1,5 @@
-import { EstimateSubgroup, type Estimate, type EstimateItem } from '../types';
+import { EstimateSubgroup, type Estimate, type EstimateItem, type EstimateSectionsDocument } from '../types';
+import { getEstimateCategories, getSectionLabel } from '../services/estimateSections';
 
 // Pure dirty-signature hashing for the estimate editor. Extracted verbatim
 // from EstimateEditor so benchmarks and future callers share one definition.
@@ -19,7 +20,7 @@ const hashBoolean = (seed: number, value: boolean): number => {
     return (seed * 31 + (value ? 1 : 0)) | 0;
 };
 
-export const buildEstimateDirtySignature = (value: Estimate): number => {
+export const buildEstimateDirtySignature = (value: Estimate, document?: EstimateSectionsDocument | null): number => {
     let hash = 17;
     hash = hashText(hash, value.client);
     hash = hashText(hash, value.date);
@@ -34,6 +35,10 @@ export const buildEstimateDirtySignature = (value: Estimate): number => {
     hash = hashText(hash, value.houseActualVerifiedAt || '');
     for (const category of value.selectedSections ?? []) {
         hash = hashText(hash, category);
+    }
+    for (const category of getEstimateCategories(value.items, value.selectedSections, value.sectionSnapshot, document)) {
+        hash = hashText(hash, category);
+        hash = hashText(hash, getSectionLabel(category, value.sectionSnapshot, document));
     }
 
     for (const item of value.items) {

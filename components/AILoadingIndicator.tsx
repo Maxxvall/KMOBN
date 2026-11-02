@@ -1,3 +1,4 @@
+import { IconRobot } from '@devigner-ui/icons';
 import React from 'react';
 
 const AILoadingIndicator = ({ message }: { message: string }) => {
@@ -5,7 +6,7 @@ const AILoadingIndicator = ({ message }: { message: string }) => {
     <div className="p-3 border border-border bg-background/40 rounded-md">
       <div className="flex items-center gap-3">
         <div className="text-lg" aria-hidden>
-          🤖
+          <IconRobot aria-hidden="true" className="size-5" />
         </div>
         <div className="flex-1">
           <div className="font-semibold text-text-primary">{message}</div>

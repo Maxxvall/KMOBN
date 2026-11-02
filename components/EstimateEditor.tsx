@@ -2,7 +2,8 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom';
 import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
 import { ESTIMATE_CATEGORIES } from '../types';
-import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
+import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups, preserveEstimateSectionSnapshot, setEstimateSectionOrder } from '../services/estimateSections';
+import { IconAdd, IconCheck, IconChevronRight, IconClipboard, IconCopy, IconNote, IconRefresh, IconAlertTriangle, IconTrash } from '@devigner-ui/icons';
 import { generateEstimateWithAI, isAbortError } from '../services/openRouterService';
 import { buildEstimateDirtySignature, buildEstimateItemsSignature } from './estimateEditorSignature';
 import type { EstimateValidationResult } from '../services/estimateValidation';
@@ -38,6 +39,8 @@ import { EstimateMetaFields } from './estimate-editor/EstimateMetaFields';
 import { EstimateExplanation } from './estimate-editor/EstimateExplanation';
 import { EstimateTemplateRow } from './estimate-editor/EstimateTemplateRow';
 import { EstimateToolbar } from './estimate-editor/EstimateToolbar';
+import { useSectionReorder } from './estimate-editor/useSectionReorder';
+import { EditorActionButton } from './estimate-editor/EditorActionButton';
 
 interface EstimateEditorProps {
     initialEstimate?: Estimate | null;
@@ -93,26 +96,11 @@ const MaterialPriceSyncButton: React.FC<{
             aria-disabled={!canApply}
             title={title}
             aria-label={title}
-            className={`flex shrink-0 items-center justify-center rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-primary/60 focus:ring-offset-1 focus:ring-offset-background ${mobile ? 'min-h-[44px] min-w-[44px]' : 'h-8 w-8'} ${statusClass}`}
+            className={`flex shrink-0 items-center justify-center rounded-md border transition-colors focus:outline-none focus:ring-2 focus:ring-primary/60 focus:ring-offset-1 focus:ring-offset-background ${mobile ? 'min-h-[44px] min-w-[44px]' : 'h-9 w-9'} ${statusClass}`}
         >
-            {check.status === 'current' ? (
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="m5 12 4 4L19 6" />
-                </svg>
-            ) : check.status === 'outdated' ? (
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M21 12a9 9 0 0 0-15-6.7L3 8" />
-                    <path d="M3 3v5h5" />
-                    <path d="M3 12a9 9 0 0 0 15 6.7L21 16" />
-                    <path d="M16 16h5v5" />
-                </svg>
-            ) : (
-                <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <circle cx="12" cy="12" r="10" />
-                    <path d="M9.1 9a3 3 0 1 1 5.2 2c-.9.6-1.3 1.1-1.3 2" />
-                    <path d="M12 17h.01" />
-                </svg>
-            )}
+            {check.status === 'current' ? <IconCheck aria-hidden="true" className="size-4" />
+                : check.status === 'outdated' ? <IconRefresh aria-hidden="true" className="size-4" />
+                    : <IconAlertTriangle aria-hidden="true" className="size-4" />}
         </button>
     );
 };
@@ -231,10 +219,28 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         needsPriceUpdate: false,
     }), []);
     const baselineEstimate = useMemo(() => initialEstimateValue ?? createEmptyEstimate(), [initialEstimateValue, createEmptyEstimate]);
-    const [estimate, setEstimate] = useState<Estimate>(baselineEstimate);
+    const [estimate, setEstimateState] = useState<Estimate>(baselineEstimate);
+    const sectionsDocument = sectionsContext?.document;
+    const sectionsDocumentRef = useRef(sectionsDocument);
+    sectionsDocumentRef.current = sectionsDocument;
+    // Capture the old visible order before an operation introduces or removes categories.
+    const setEstimate = useCallback((update: React.SetStateAction<Estimate>) => {
+        setEstimateState(previous => {
+            const sectionsDocument = sectionsDocumentRef.current;
+            const next = typeof update === 'function' ? update(previous) : update;
+            if (next === previous) return previous;
+            if (next.items === previous.items && next.selectedSections === previous.selectedSections) return next;
+            const before = getEstimateCategories(previous.items, previous.selectedSections, previous.sectionSnapshot, sectionsDocument);
+            const present = new Set([...(next.selectedSections ?? []), ...next.items.map(item => item.category)]);
+            if (before.length === present.size && before.every(id => present.has(id))) return next;
+            const candidate = { ...next, sectionSnapshot: preserveEstimateSectionSnapshot(previous, sectionsDocument) };
+            return setEstimateSectionOrder(candidate,
+                getEstimateCategories(candidate.items, candidate.selectedSections, candidate.sectionSnapshot, sectionsDocument), sectionsDocument);
+        });
+    }, []);
     const estimateRef = useRef(estimate);
     useEffect(() => {
-        setEstimate(baselineEstimate);
+        setEstimateState(baselineEstimate);
     }, [baselineEstimate]);
     useEffect(() => {
         estimateRef.current = estimate;
@@ -272,6 +278,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         () => getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot, sectionsContext?.document),
         [estimate.items, estimate.sectionSnapshot, estimate.selectedSections, sectionsContext?.document],
     );
+    const sectionReorder = useSectionReorder({
+        order: visibleCategories,
+        resetKey: baselineEstimate,
+        disabled: Boolean(initialEstimateValue?.isArchived),
+        onCommit: order => setEstimate(previous => setEstimateSectionOrder(previous, order, sectionsDocument)),
+    });
     const [showActuals, setShowActuals] = useState(false);
     const [actualFilter, setActualFilter] = useState<ActualFilter>('all');
     const [expandedSubgroups, setExpandedSubgroups] = useState<Record<string, boolean>>({});
@@ -354,12 +366,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         delete scheduledAutocompleteTasksRef.current[itemId];
     };
 
-    const baselineSnapshot = useMemo(() => buildEstimateDirtySignature(baselineEstimate), [baselineEstimate]);
+    const baselineSnapshot = useMemo(() => buildEstimateDirtySignature(baselineEstimate, sectionsDocument), [baselineEstimate, sectionsDocument]);
     useEffect(() => {
-        const currentSnapshot = buildEstimateDirtySignature(estimate);
+        const currentSnapshot = buildEstimateDirtySignature(estimate, sectionsDocument);
         const dirty = currentSnapshot !== baselineSnapshot;
         onDirtyChangeAction?.(dirty);
-    }, [baselineSnapshot, estimate, onDirtyChangeAction]);
+    }, [baselineSnapshot, estimate, onDirtyChangeAction, sectionsDocument]);
 
     useEffect(() => {
         onDraftChangeAction?.(estimate);
@@ -1132,10 +1144,15 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const addCategory = (cat: SectionId) => {
         if (!cat) return;
-        setEstimate(prev => ({
-            ...prev,
-            selectedSections: Array.from(new Set([...(prev.selectedSections ?? []), cat])),
-        }));
+        setEstimate(prev => {
+            const currentOrder = getEstimateCategories(prev.items, prev.selectedSections, prev.sectionSnapshot, sectionsDocument);
+            if (currentOrder.includes(cat)) return prev;
+            return setEstimateSectionOrder({
+                ...prev,
+                selectedSections: [...(prev.selectedSections ?? []), cat],
+                sectionSnapshot: preserveEstimateSectionSnapshot(prev, sectionsDocument),
+            }, [...currentOrder, cat], sectionsDocument);
+        });
     };
 
     const removeVisibleCategory = (cat: SectionId) => {
@@ -1572,34 +1589,49 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     </div>
                 )}
 
-                <div className="mt-4 space-y-3 sm:mt-5 sm:space-y-4">
+                <p className="sr-only" id="section-reorder-help">Удерживайте свободную часть заголовка 400 мс для переноса. На кнопке сворачивания: Alt и стрелки вверх/вниз; Alt и Home/End — в начало/конец.</p>
+                <div role="status" aria-live="polite" className="sr-only">{sectionReorder.announcement}</div>
+                {sectionReorder.preview && ReactDOM.createPortal(
+                    <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-60 max-w-[calc(100vw-16px)] truncate rounded-lg border border-primary bg-surface px-4 py-3 text-sm font-semibold text-text-primary shadow-xl" style={{ left: Math.max(8, Math.min(sectionReorder.preview.x + 16, window.innerWidth - 248)), top: Math.max(8, Math.min(sectionReorder.preview.y + 16, window.innerHeight - 60)) }}>
+                        {sectionLabel(sectionReorder.preview.id)}
+                    </div>, document.body,
+                )}
+                <div ref={sectionReorder.containerRef} className={`mt-4 space-y-3 sm:mt-5 sm:space-y-4 ${sectionReorder.preview ? 'select-none cursor-grabbing' : ''}`}>
                     {visibleCategories.map((category, catIndex) => {
                         const items = groupedItems.get(category) || [];
                         if (items.length === 0 && !visibleCategories.includes(category)) return null;
                         const isCollapsed = Boolean(collapsedCategories[category]);
                         const catTotal = categorySubtotals.get(category) || 0;
                         return (
-                            <div key={category} className="border border-border rounded-lg bg-background/30">
-                                <button
-                                    type="button"
-                                    onClick={() => toggleCategoryCollapse(category)}
-                                    className="w-full bg-gray-900/50 p-2 sm:p-3 flex items-center gap-2 rounded-t-lg border-b border-border text-left"
+                            <div key={category} className={`relative border border-border rounded-lg bg-background/30 ${sectionReorder.preview?.id === category ? 'ring-2 ring-primary opacity-50' : ''}`}>
+                                {sectionReorder.preview?.beforeId === category && <div aria-hidden="true" className="pointer-events-none absolute -top-2 left-0 right-0 h-1 rounded bg-primary" />}
+                                <div
+                                    data-section-header={category}
+                                    title={initialEstimateValue?.isArchived ? undefined : 'Удерживайте заголовок для переноса; Alt + ↑/↓ на кнопке сворачивания'}
+                                    onClick={event => {
+                                        if (!(event.target as Element).closest('button, a, input, select, textarea')) toggleCategoryCollapse(category);
+                                    }}
+                                    onKeyDown={event => sectionReorder.onHeaderKeyDown(event, category)}
+                                    className="w-full bg-gray-900/50 p-2 sm:p-3 flex flex-wrap items-center gap-2 rounded-t-lg border-b border-border text-left select-none"
+                                    style={{ WebkitTouchCallout: 'none' }}
                                 >
-                                    <span className={`text-xs transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
+                                    <EditorActionButton label={isCollapsed ? 'Развернуть раздел' : 'Свернуть раздел'} onClick={() => toggleCategoryCollapse(category)} aria-expanded={!isCollapsed} aria-describedby="section-reorder-help" aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown Alt+Home Alt+End">
+                                        <IconChevronRight aria-hidden="true" className={`size-4 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} />
+                                    </EditorActionButton>
                                     <h3 className="min-w-0 flex-1 break-words text-xs font-bold text-text-primary sm:text-lg">{catIndex + 1}. {sectionLabel(category)}</h3>
                                     <span className="text-xs sm:text-sm font-semibold text-text-secondary shrink-0">
                                         {catTotal.toLocaleString('ru-RU')} ₽
                                     </span>
                                     {visibleCategories.includes(category) && !isCollapsed && (
-                                        <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
+                                        <div className="ml-auto flex w-full items-center justify-end gap-1 shrink-0 sm:w-auto" onClick={e => e.stopPropagation()}>
                                             {items.length > 0 && (
-                                                <button onClick={() => handleDuplicateSection(category)} className="min-h-[44px] rounded px-1 text-xs text-blue-400 hover:bg-white/5 hover:text-blue-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9" title="Дублировать">⧉</button>
+                                                <EditorActionButton label="Дублировать" onClick={() => handleDuplicateSection(category)}><IconCopy aria-hidden="true" className="size-4" /></EditorActionButton>
                                             )}
-                                            <button onClick={() => handleOpenPasteModal(category)} className="min-h-[44px] rounded px-1 text-xs text-purple-400 hover:bg-white/5 hover:text-purple-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9" title="Из другой сметы">📋</button>
-                                            <button onClick={() => removeVisibleCategory(category)} className="min-h-[44px] rounded px-1 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9">✕</button>
+                                            <EditorActionButton label="Из другой сметы" onClick={() => handleOpenPasteModal(category)}><IconClipboard aria-hidden="true" className="size-4" /></EditorActionButton>
+                                            <EditorActionButton label="Удалить раздел" destructive onClick={() => removeVisibleCategory(category)}><IconTrash aria-hidden="true" className="size-4" /></EditorActionButton>
                                         </div>
                                     )}
-                                </button>
+                                </div>
                                 {!isCollapsed && (
                                 <div className="p-2 sm:p-3 space-y-3 sm:space-y-4">
                                     {getSectionSubgroups(category, items).map((subgroup) => {
@@ -1670,9 +1702,9 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                 onClick={() => handleQuickBundleWorkSelect(item)}
                                                                                 disabled={!item.name.trim()}
                                                                                 className={`mx-auto flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full border text-lg font-bold transition ${isQuickBundleWorkRow ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-secondary hover:border-primary hover:text-primary'} disabled:cursor-not-allowed disabled:opacity-40`}
-                                                                                title="Выбрать работу для компонента"
+                                                                                title="Выбрать работу для компонента" aria-label="Выбрать работу для компонента"
                                                                             >
-                                                                                +
+                                                                                <IconAdd aria-hidden="true" className="size-4" />
                                                                             </button>
                                                                         ) : itemSubgroup === EstimateSubgroup.MATERIALS ? (
                                                                             <button
@@ -1681,10 +1713,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                 onDragOver={event => { if (isQuickBundleMaterialTarget) event.preventDefault(); }}
                                                                                 onDrop={event => handleQuickBundleDrop(event, item)}
                                                                                 disabled={!isQuickBundleMaterialTarget}
-                                                                                className={`mx-auto flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full border text-sm font-bold transition ${isQuickBundleLinked ? 'border-primary bg-primary text-white' : isQuickBundleMaterialTarget ? 'border-primary/60 bg-primary/10 text-primary hover:bg-primary/20' : 'border-border bg-background text-text-secondary opacity-50'} disabled:cursor-not-allowed`}
-                                                                                title="Добавить материал в компонент"
+                                                                                className={`mx-auto flex min-h-[36px] min-w-[36px] items-center justify-center rounded-full border text-sm font-bold transition ${isQuickBundleLinked ? 'border-primary bg-primary text-white' : isQuickBundleMaterialTarget ? 'border-border bg-background text-text-secondary hover:bg-white/5' : 'border-border bg-background text-text-secondary opacity-50'} disabled:cursor-not-allowed`}
+                                                                                title="Добавить материал в компонент" aria-label="Добавить материал в компонент"
                                                                             >
-                                                                                {isQuickBundleLinked ? '✓' : '•'}
+                                                                                {isQuickBundleLinked ? <IconCheck aria-hidden="true" className="size-4" /> : <IconAdd aria-hidden="true" className="size-4" />}
                                                                             </button>
                                                                         ) : (
                                                                             <span className="text-text-secondary">-</span>
@@ -1777,17 +1809,17 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         <div className="flex items-center justify-center gap-1">
                                                                             <button
                                                                                 onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                                                                                className="relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
-                                                                                title={item.note || 'Добавить примечание'}
+                                                                                className="relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"
+                                                                                title={item.note || 'Добавить примечание'} aria-label={item.note ? 'Редактировать примечание' : 'Добавить примечание'}
                                                                             >
-                                                                                📝
+                                                                                <IconNote aria-hidden="true" className="size-4" />
                                                                                 {item.note && <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full inline-block" />}
                                                                             </button>
                                                                             {itemSubgroup === EstimateSubgroup.MATERIALS && materialPriceCheck?.status === 'missing' && item.name.trim() && catalogContext?.onAddMaterial && (
-                                                                                <button type="button" onClick={() => setMaterialToAdd(item)} title="Добавить материал в базу" aria-label={`Добавить «${item.name}» в базу материалов`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">+</button>
+                                                                                <button type="button" onClick={() => setMaterialToAdd(item)} title="Добавить материал в базу" aria-label={`Добавить «${item.name}» в базу материалов`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"><IconAdd aria-hidden="true" className="size-4" /></button>
                                                                             )}
                                                                             {itemSubgroup === EstimateSubgroup.WORKS && !workExistsInCatalog && item.name.trim() && catalogContext?.onAddWork && (
-                                                                                <button type="button" onClick={() => setWorkToAdd(item)} title="Добавить работу в базу" aria-label={`Добавить «${item.name}» в базу работ`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">+</button>
+                                                                                <button type="button" onClick={() => setWorkToAdd(item)} title="Добавить работу в базу" aria-label={`Добавить «${item.name}» в базу работ`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9"><IconAdd aria-hidden="true" className="size-4" /></button>
                                                                             )}
                                                                         </div>
                                                                     </td>
@@ -1828,7 +1860,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         </>
                                                                     )}
                                                                     <td className="p-1 w-32 text-right font-medium text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</td>
-                                                                    <td className="p-1 text-center"><button onClick={() => removeItem(item.id)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">✖</button></td>
+                                                                    <td className="p-1 text-center"><EditorActionButton label="Удалить позицию" destructive onClick={() => removeItem(item.id)}><IconTrash aria-hidden="true" className="size-4" /></EditorActionButton></td>
                                                                 </tr>
                                                                 {openNotes[item.id] && (
                                                                     <tr>
@@ -1881,18 +1913,18 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             type="button"
                                                                             onClick={() => handleQuickBundleWorkSelect(item)}
                                                                             disabled={!item.name.trim()}
-                                                                            className={`min-h-[36px] rounded-full border px-3 text-sm font-bold transition ${isQuickBundleWorkRow ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-secondary hover:border-primary hover:text-primary'} disabled:cursor-not-allowed disabled:opacity-40`}
+                                                                            className={`min-h-[44px] rounded-full border px-3 text-sm font-bold transition ${isQuickBundleWorkRow ? 'border-primary bg-primary text-white' : 'border-border bg-background text-text-secondary hover:border-primary hover:text-text-primary'} disabled:cursor-not-allowed disabled:opacity-40`}
                                                                         >
-                                                                            + связать
+                                                                            <IconAdd aria-hidden="true" className="mr-1 inline size-4" />связать
                                                                         </button>
                                                                     ) : itemSubgroup === EstimateSubgroup.MATERIALS ? (
                                                                         <button
                                                                             type="button"
                                                                             onClick={() => handleQuickBundleMaterialToggle(item)}
                                                                             disabled={!isQuickBundleMaterialTarget}
-                                                                            className={`min-h-[36px] rounded-full border px-3 text-sm font-bold transition ${isQuickBundleLinked ? 'border-primary bg-primary text-white' : isQuickBundleMaterialTarget ? 'border-primary/60 bg-primary/10 text-primary' : 'border-border bg-background text-text-secondary opacity-50'} disabled:cursor-not-allowed`}
+                                                                            className={`min-h-[44px] rounded-full border px-3 text-sm font-bold transition ${isQuickBundleLinked ? 'border-primary bg-primary text-white' : isQuickBundleMaterialTarget ? 'border-border bg-background text-text-secondary' : 'border-border bg-background text-text-secondary opacity-50'} disabled:cursor-not-allowed`}
                                                                         >
-                                                                            {isQuickBundleLinked ? '✓ добавлен' : '+ материал'}
+                                                                            <span className="inline-flex items-center gap-1">{isQuickBundleLinked ? <IconCheck aria-hidden="true" className="size-4" /> : <IconAdd aria-hidden="true" className="size-4" />}{isQuickBundleLinked ? 'добавлен' : 'материал'}</span>
                                                                         </button>
                                                                     ) : null}
                                                                 </div>
@@ -2022,16 +2054,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 <div className="flex items-center justify-between pt-1">
                                                                     <strong className="text-text-primary">{item.total.toLocaleString('ru-RU')} ₽</strong>
                                                                     <div className="flex items-center gap-2">
-                                                                        <button onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9" title={item.note || 'Добавить примечание'}>
-                                                                            📝{item.note && <span className="absolute w-2 h-2 bg-red-500 rounded-full" />}
+                                                                        <button onClick={() => setOpenNotes(prev => ({ ...prev, [item.id]: !prev[item.id] }))} className="relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9" title={item.note || 'Добавить примечание'} aria-label={item.note ? 'Редактировать примечание' : 'Добавить примечание'}>
+                                                                            <IconNote aria-hidden="true" className="size-4" />{item.note && <span className="absolute w-2 h-2 bg-red-500 rounded-full" />}
                                                                         </button>
                                                                         {itemSubgroup === EstimateSubgroup.MATERIALS && materialPriceCheck?.status === 'missing' && item.name.trim() && catalogContext?.onAddMaterial && (
-                                                                            <button type="button" onClick={() => setMaterialToAdd(item)} title="Добавить материал в базу" aria-label={`Добавить «${item.name}» в базу материалов`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50">+</button>
+                                                                            <button type="button" onClick={() => setMaterialToAdd(item)} title="Добавить материал в базу" aria-label={`Добавить «${item.name}» в базу материалов`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"><IconAdd aria-hidden="true" className="size-4" /></button>
                                                                         )}
                                                                         {itemSubgroup === EstimateSubgroup.WORKS && !workExistsInCatalog && item.name.trim() && catalogContext?.onAddWork && (
-                                                                            <button type="button" onClick={() => setWorkToAdd(item)} title="Добавить работу в базу" aria-label={`Добавить «${item.name}» в базу работ`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-primary/50 bg-primary/10 text-xl text-primary hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50">+</button>
+                                                                            <button type="button" onClick={() => setWorkToAdd(item)} title="Добавить работу в базу" aria-label={`Добавить «${item.name}» в базу работ`} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50"><IconAdd aria-hidden="true" className="size-4" /></button>
                                                                         )}
-                                                                        <button onClick={() => removeItem(item.id)} className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded text-red-500 transition-colors hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9">✖</button>
+                                                                        <EditorActionButton label="Удалить позицию" destructive onClick={() => removeItem(item.id)}><IconTrash aria-hidden="true" className="size-4" /></EditorActionButton>
                                                                     </div>
                                                                 </div>
                                                                 {openNotes[item.id] && (
@@ -2061,12 +2093,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                 )}
                                                 <div className="p-2 bg-gray-900/30 border-t border-border rounded-b-md flex flex-wrap justify-end gap-2">
                                                     <button onClick={() => addItem(category, subgroup)} className="min-h-[44px] rounded bg-gray-600 px-3 py-1 text-xs font-semibold text-text-primary transition-colors hover:bg-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 active:bg-gray-400 sm:text-sm md:min-h-9">
-                                                        <span className="sm:hidden">+ Добавить</span>
-                                                        <span className="hidden sm:inline">+ Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : subgroup === EstimateSubgroup.DELIVERY ? 'позицию (Доставка)' : 'позицию (Материалы)'}</span>
+                                                        <IconAdd aria-hidden="true" className="mr-1 inline size-4" /><span className="sm:hidden">Добавить</span>
+                                                        <span className="hidden sm:inline">Добавить {subgroup === EstimateSubgroup.WORKS ? 'позицию (Работы)' : subgroup === EstimateSubgroup.DELIVERY ? 'позицию (Доставка)' : 'позицию (Материалы)'}</span>
                                                     </button>
                                                     {showActuals && (
                                                         <button onClick={() => addActualOnlyItem(category, subgroup)} className="min-h-[44px] rounded border border-primary/50 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-primary/50 sm:text-sm md:min-h-9">
-                                                            + Новая по факту
+                                                            <IconAdd aria-hidden="true" className="mr-1 inline size-4" />Новая по факту
                                                         </button>
                                                     )}
                                                 </div>
@@ -2078,6 +2110,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             </div>
                         );
                     })}
+                    {sectionReorder.preview && sectionReorder.preview.beforeId === null && <div aria-hidden="true" className="h-1 rounded bg-primary" />}
                 </div>
 
                 <CrewToolPlanPanel

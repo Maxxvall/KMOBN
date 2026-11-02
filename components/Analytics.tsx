@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Estimate, type SectionId } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
-import { buildActualComparisons, calculateActualSummary } from '../services/estimateActuals';
+import { buildActualComparisons, calculateActualSummary, orderActualComparisonsForExport } from '../services/estimateActuals';
 import { getSectionLabel } from '../services/estimateSections';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
@@ -1265,7 +1265,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    const rows = actualComparison.rows.map(row => ({
+                                                    const rows = orderActualComparisonsForExport(actualComparison.estimate, actualComparison.rows).map(row => ({
                                                         Позиция: row.name,
                                                         Категория: row.category,
                                                         'План кол-во': row.planQuantity,

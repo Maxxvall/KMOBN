@@ -1,3 +1,5 @@
+import { IconTrash } from '@devigner-ui/icons';
+import { EditorActionButton } from './estimate-editor/EditorActionButton';
 import React, { useMemo, useState } from 'react';
 import { CrewToolPlan, CrewToolRequirement, Estimate, EstimateSubgroup, Work } from '../types';
 import { aggregateToolRequirements, buildCrewToolPlan, normalizeToolKey } from '../services/toolPlanning';
@@ -104,7 +106,7 @@ const CrewToolPlanPanel: React.FC<Props> = ({ estimate, works, onChange }) => {
                                 <label className="text-xs text-text-secondary">На объект взять
                                     <input type="number" min={0} step={0.1} value={tool.quantity} onChange={event => setOverride(tool.toolKey, Number(event.target.value))} className="mt-1 min-h-11 w-full rounded-md border border-border bg-background px-3 text-right text-sm text-text-primary" />
                                 </label>
-                                <button type="button" onClick={() => removeTool(tool.toolKey)} aria-label={`Удалить ${tool.name}`} className="min-h-11 min-w-11 rounded-md border border-red-500/30 text-red-300 hover:bg-red-500/10">×</button>
+                                <EditorActionButton label={`Удалить ${tool.name}`} destructive onClick={() => removeTool(tool.toolKey)}><IconTrash aria-hidden="true" className="size-4" /></EditorActionButton>
                             </div>
                         );
                     })}
