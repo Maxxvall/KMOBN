@@ -20,7 +20,9 @@ export const useSectionReorder = ({ order, resetKey, disabled, onCommit }: {
     onCommit: (order: SectionId[]) => void;
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const [preview, setPreview] = useState<DragPreview | null>(null);
+    const [preview, setPreview] = useState<{ id: SectionId } | null>(null);
+    const previewElementRef = useRef<HTMLDivElement>(null);
+    const insertionMarkerRef = useRef<HTMLDivElement>(null);
     const [announcement, setAnnouncement] = useState('');
     const latest = useRef({ order, onCommit });
     // A successful drop changes order and recreates listeners before the browser's click.
@@ -38,6 +40,8 @@ export const useSectionReorder = ({ order, resetKey, disabled, onCommit }: {
         let frame = 0;
         let lastFrame = 0;
         let scrollElement: Element | null = null;
+        let headers: HTMLElement[] = [];
+        let positionDirty = false;
         const getHeader = (target: EventTarget | null) => target instanceof Element
             ? target.closest<HTMLElement>('[data-section-header]') : null;
         const dropOrder = () => {
@@ -47,16 +51,39 @@ export const useSectionReorder = ({ order, resetKey, disabled, onCommit }: {
             rest.splice(index < 0 ? rest.length : index, 0, drag.id);
             return rest;
         };
-        const updateTarget = (x: number, y: number) => {
+        // Pointer events only update coordinates. The frame loop moves two small
+        // overlay elements without re-rendering the editor and its position rows.
+        const renderPosition = () => {
             if (!drag) return;
-            const headers = [...container.querySelectorAll<HTMLElement>('[data-section-header]')];
-            const beforeId = headers.find(header => {
+            const target = headers.find(header => {
                 if (header.dataset.sectionHeader === drag!.id) return false;
                 const bounds = header.getBoundingClientRect();
-                return y < bounds.top + bounds.height / 2;
-            })?.dataset.sectionHeader as SectionId | undefined;
-            drag = { ...drag, x, y, beforeId: beforeId ?? null };
-            setPreview(drag);
+                return drag!.y < bounds.top + bounds.height / 2;
+            });
+            drag.beforeId = target?.dataset.sectionHeader as SectionId | undefined ?? null;
+            const card = (target ?? headers.at(-1))?.closest<HTMLElement>('[data-section-card]');
+            const markerBounds = card?.getBoundingClientRect();
+            const previewElement = previewElementRef.current;
+            const marker = insertionMarkerRef.current;
+            if (previewElement) {
+                const width = Math.min(240, window.innerWidth - 16);
+                const x = Math.max(8, Math.min(drag.x + 16, window.innerWidth - width - 8));
+                const y = Math.max(8, Math.min(drag.y + 16, window.innerHeight - 60));
+                previewElement.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+                previewElement.style.visibility = 'visible';
+            }
+            if (marker && markerBounds) {
+                marker.style.width = `${markerBounds.width}px`;
+                marker.style.transform = `translate3d(${markerBounds.left}px, ${target ? markerBounds.top - 6 : markerBounds.bottom + 4}px, 0)`;
+                marker.style.visibility = 'visible';
+            }
+            positionDirty = !previewElement || !marker;
+        };
+        const updatePosition = (x: number, y: number) => {
+            if (!drag) return;
+            drag.x = x;
+            drag.y = y;
+            positionDirty = true;
         };
         const scrollAtEdge = (now: number) => {
             if (!drag) return;
@@ -70,11 +97,14 @@ export const useSectionReorder = ({ order, resetKey, disabled, onCommit }: {
             const speed = drag.y < top + edge ? -Math.min(1, (top + edge - drag.y) / edge)
                 : drag.y > bottom - edge ? Math.min(1, (drag.y - bottom + edge) / edge) : 0;
             if (scrollElement && speed) {
+                const previousScrollTop = scrollElement.scrollTop;
                 scrollElement.scrollTop += speed * elapsed * 0.7;
-                updateTarget(drag.x, drag.y);
+                if (scrollElement.scrollTop !== previousScrollTop) positionDirty = true;
             }
+            if (positionDirty) renderPosition();
             frame = requestAnimationFrame(scrollAtEdge);
         };
+        const invalidatePosition = () => { if (drag) positionDirty = true; };
         const releaseCapture = () => {
             if (pointerId !== null && source?.hasPointerCapture(pointerId)) source.releasePointerCapture(pointerId);
             source = null;
@@ -93,13 +123,17 @@ export const useSectionReorder = ({ order, resetKey, disabled, onCommit }: {
                 scrollElement ??= document.scrollingElement;
                 const index = latest.current.order.indexOf(id);
                 drag = { id, x, y, beforeId: latest.current.order[index + 1] ?? null };
-                setPreview(drag);
+                headers = [...container.querySelectorAll<HTMLElement>('[data-section-header]')];
+                positionDirty = true;
+                setPreview({ id });
                 setAnnouncement('Раздел захвачен. Переместите и отпустите. Escape — отмена.');
                 lastFrame = 0;
                 frame = requestAnimationFrame(scrollAtEdge);
             },
-            onMove: updateTarget,
+            onMove: updatePosition,
             onFinish(commit) {
+                // A release may arrive before the next animation frame.
+                if (commit && positionDirty) renderPosition();
                 const nextOrder = dropOrder();
                 drag = null;
                 cancelAnimationFrame(frame);
@@ -191,6 +225,8 @@ export const useSectionReorder = ({ order, resetKey, disabled, onCommit }: {
         window.addEventListener('touchcancel', cancel);
         window.addEventListener('blur', cancel);
         window.addEventListener('keydown', keyDown);
+        window.addEventListener('scroll', invalidatePosition, true);
+        window.addEventListener('resize', invalidatePosition);
         return () => {
             cancel();
             cancelAnimationFrame(frame);
@@ -208,6 +244,8 @@ export const useSectionReorder = ({ order, resetKey, disabled, onCommit }: {
             window.removeEventListener('touchcancel', cancel);
             window.removeEventListener('blur', cancel);
             window.removeEventListener('keydown', keyDown);
+            window.removeEventListener('scroll', invalidatePosition, true);
+            window.removeEventListener('resize', invalidatePosition);
         };
     }, [disabled, orderKey, resetKey]);
 
@@ -226,5 +264,5 @@ export const useSectionReorder = ({ order, resetKey, disabled, onCommit }: {
         latest.current.onCommit(current);
         setAnnouncement(`Раздел перемещён на позицию ${target + 1}.`);
     };
-    return { containerRef, preview, announcement, onHeaderKeyDown };
+    return { containerRef, previewElementRef, insertionMarkerRef, preview, announcement, onHeaderKeyDown };
 };

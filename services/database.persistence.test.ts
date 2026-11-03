@@ -1,7 +1,10 @@
 import 'fake-indexeddb/auto';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EstimateCategory } from '../types';
+import { EstimateCategory, EstimateStatus, type Estimate } from '../types';
+import { applyEstimateSave } from './estimateLifecycle';
+import { getEstimateCategories, setEstimateSectionOrder } from './estimateSections';
+import { buildEstimateDirtySignature } from '../components/estimateEditorSignature';
 
 const cacheHook = vi.hoisted(() => ({
     failUpsert: false,
@@ -21,7 +24,7 @@ vi.mock('./indexedDbCache', async importOriginal => {
     };
 });
 
-import { saveMaterials } from './database';
+import { saveEstimates, saveMaterials } from './database';
 import { closeIndexedDbCache, getCacheUserId, getCachedRecords } from './indexedDbCache';
 import { offlineQueue } from './offlineQueue';
 import { rememberOfflineUser } from './offlineIdentity';
@@ -93,5 +96,44 @@ describe('outbox-first persistence', () => {
 
         expect(await offlineQueue.getAll(USER_ID)).toHaveLength(1);
         expect(await getCachedRecords('materials', getCacheUserId(USER_ID))).toEqual([material]);
+    });
+
+    it.each(['overwrite', 'new'] as const)('persists an order-only estimate edit through %s, reopened storage and the sync queue', async saveMode => {
+        const original: Estimate = {
+            id: 'estimate-order-v1', estimateNumber: 'SM-ORDER-1', version: 1,
+            client: 'Тестовая смета', date: '2026-11-03', status: EstimateStatus.DRAFT,
+            buildingType: 'Дом', area: 100, total: 300,
+            items: [
+                { id: 'wall-work', name: 'Стены', unit: 'шт', quantity: 1, price: 100, total: 100, category: EstimateCategory.WALLS },
+                { id: 'roof-work', name: 'Кровля', unit: 'шт', quantity: 1, price: 200, total: 200, category: EstimateCategory.ROOF },
+            ],
+        };
+        await saveEstimates([original]);
+        const moved = setEstimateSectionOrder(original, [EstimateCategory.ROOF, EstimateCategory.WALLS]);
+        expect(buildEstimateDirtySignature(moved)).not.toBe(buildEstimateDirtySignature(original));
+        expect(moved.items).toBe(original.items);
+        const saved = applyEstimateSave({
+            estimates: [original], draft: moved, saveMode, now: '2026-11-03', newId: 'estimate-order-v2',
+        });
+        await saveEstimates(saved);
+        const savedId = saveMode === 'new' ? 'estimate-order-v2' : original.id;
+        const queued = (await offlineQueue.getAll(USER_ID)).find(change => change.recordId === savedId)!;
+        expect(queued.operation).toBe('upsert');
+        expect((queued.data as Estimate).sectionSnapshot?.map(section => section.id)).toEqual([EstimateCategory.ROOF, EstimateCategory.WALLS]);
+
+        // Reopen real fake-IndexedDB handles, rather than reading an in-memory draft.
+        offlineQueue.close();
+        closeIndexedDbCache();
+        const cached = await getCachedRecords<Estimate>('estimates', getCacheUserId(USER_ID));
+        const reopened = JSON.parse(JSON.stringify(cached.find(record => record.id === savedId))) as Estimate;
+        expect(getEstimateCategories(reopened.items, reopened.selectedSections, reopened.sectionSnapshot)).toEqual([EstimateCategory.ROOF, EstimateCategory.WALLS]);
+        expect(reopened.items).toEqual(original.items);
+        expect(reopened.total).toBe(300);
+        expect(reopened.version).toBe(saveMode === 'new' ? 2 : 1);
+        if (saveMode === 'new') expect(cached.find(record => record.id === original.id)?.sectionSnapshot).toBeUndefined();
+
+        await saveEstimates(saved);
+        const unchanged = (await offlineQueue.getAll(USER_ID)).find(change => change.recordId === savedId)!;
+        expect(unchanged.sequence).toBe(queued.sequence);
     });
 });

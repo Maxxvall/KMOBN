@@ -61,7 +61,7 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
         'flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9 md:min-w-9';
 
     return (
-        <div className="grid min-w-0 gap-2 rounded-lg border border-border/70 bg-background/25 p-2 xl:grid-cols-[minmax(200px,auto)_minmax(330px,1fr)_minmax(460px,auto)] xl:items-center">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-lg border border-border/70 bg-background/25 p-2 sm:gap-3 sm:p-3">
             <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
                 <span className="text-xs font-semibold tabular-nums text-text-secondary">
                     v{estimate.version} · {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
@@ -87,7 +87,7 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
                     </button>
                 )}
             </div>
-            <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid min-w-0 flex-1 basis-full grid-cols-2 gap-2 sm:basis-[520px] sm:grid-cols-[auto_auto_minmax(180px,1fr)_auto]">
                 <button
                     onClick={() => setBundlePickerOpen(true)}
                     className="flex min-h-[44px] min-w-0 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-sm text-text-primary transition hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
@@ -164,23 +164,25 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
                     Факт
                 </button>
             </div>
-            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
-                <div className="grid min-w-0 grid-cols-3 gap-x-2 gap-y-1 text-[11px] tabular-nums">
-                    <span className="flex min-w-0 items-center gap-1 whitespace-nowrap text-text-secondary" title="Работы">
-                        <IconSledgehammer aria-hidden="true" className="size-3.5 shrink-0" />
-                        Р: <span className="font-semibold text-text-primary">{subgroupTotals.works.toLocaleString('ru-RU')}&nbsp;₽</span>
-                    </span>
-                    <span className="flex min-w-0 items-center gap-1 whitespace-nowrap text-text-secondary" title="Материалы">
-                        <IconLayers aria-hidden="true" className="size-3.5 shrink-0" />
-                        М: <span className="font-semibold text-text-primary">{subgroupTotals.materials.toLocaleString('ru-RU')}&nbsp;₽</span>
-                    </span>
-                    <span className="flex min-w-0 items-center gap-1 whitespace-nowrap text-text-secondary" title="Доставка">
-                        <IconTruck aria-hidden="true" className="size-3.5 shrink-0" />
-                        Д: <span className="font-semibold text-text-primary">{subgroupTotals.delivery.toLocaleString('ru-RU')}&nbsp;₽</span>
-                    </span>
-                    <span className="col-span-3 whitespace-nowrap text-sm font-bold text-primary">ИТОГО: {estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
+            <div className="flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-3 border-t border-border/70 pt-3">
+                <div className="min-w-fit flex-1 tabular-nums sm:flex-none">
+                    <div className="text-xs font-medium text-text-secondary">Итого по смете</div>
+                    <div className="mt-0.5 whitespace-nowrap text-xl font-bold leading-tight text-primary sm:text-2xl">{estimate.total.toLocaleString('ru-RU')}&nbsp;₽</div>
                 </div>
+                <dl className="order-3 flex min-w-0 flex-1 basis-full flex-wrap gap-x-5 gap-y-2 tabular-nums sm:order-none sm:basis-auto sm:border-l sm:border-border sm:pl-4">
+                    {([
+                        ['Работы', subgroupTotals.works, IconSledgehammer],
+                        ['Материалы', subgroupTotals.materials, IconLayers],
+                        ['Доставка', subgroupTotals.delivery, IconTruck],
+                    ] as const).map(([label, total, Icon]) => (
+                        <div key={label}>
+                            <dt className="flex items-center gap-1.5 text-xs text-text-secondary"><Icon aria-hidden="true" className="size-3.5 shrink-0" />{label}</dt>
+                            <dd className="mt-0.5 whitespace-nowrap text-sm font-semibold leading-tight text-text-primary">{total.toLocaleString('ru-RU')}&nbsp;₽</dd>
+                        </div>
+                    ))}
+                </dl>
                 <button
+                    type="button"
                     onClick={handleSave}
                     className="flex min-h-[44px] items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-primary/50 active:scale-95 md:min-h-9"
                 >

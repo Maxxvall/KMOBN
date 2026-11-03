@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
 import { ESTIMATE_CATEGORIES } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups, preserveEstimateSectionSnapshot, setEstimateSectionOrder } from '../services/estimateSections';
-import { IconAdd, IconCheck, IconChevronRight, IconClipboard, IconCopy, IconNote, IconRefresh, IconAlertTriangle, IconTrash } from '@devigner-ui/icons';
+import { IconAdd, IconCheck, IconChevronRight, IconClipboard, IconCopy, IconDoubleChevronDown, IconDoubleChevronUp, IconNote, IconRefresh, IconAlertTriangle, IconTrash } from '@devigner-ui/icons';
 import { generateEstimateWithAI, isAbortError } from '../services/openRouterService';
 import { buildEstimateDirtySignature, buildEstimateItemsSignature } from './estimateEditorSignature';
 import type { EstimateValidationResult } from '../services/estimateValidation';
@@ -297,6 +297,14 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     });
     const toggleCategoryCollapse = (cat: string) => {
         setCollapsedCategories(prev => ({ ...prev, [cat]: !prev[cat] }));
+    };
+    const allCategoriesCollapsed = visibleCategories.length > 0
+        && visibleCategories.every(category => collapsedCategories[category]);
+    const toggleAllCategories = () => {
+        setCollapsedCategories(previous => ({
+            ...previous,
+            ...Object.fromEntries(visibleCategories.map(category => [category, !allCategoriesCollapsed])),
+        }));
     };
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
     const [materialToAdd, setMaterialToAdd] = useState<EstimateItem | null>(null);
@@ -1591,20 +1599,37 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
                 <p className="sr-only" id="section-reorder-help">Удерживайте свободную часть заголовка 400 мс для переноса. На кнопке сворачивания: Alt и стрелки вверх/вниз; Alt и Home/End — в начало/конец.</p>
                 <div role="status" aria-live="polite" className="sr-only">{sectionReorder.announcement}</div>
+                <div className="mt-4 flex items-center justify-between gap-3 sm:mt-5">
+                    <span className="text-sm font-semibold text-text-secondary">Разделы <span className="ml-1 tabular-nums text-text-primary">{visibleCategories.length}</span></span>
+                    <button
+                        type="button"
+                        onClick={toggleAllCategories}
+                        disabled={visibleCategories.length === 0}
+                        aria-controls="estimate-sections"
+                        aria-expanded={!allCategoriesCollapsed}
+                        title={allCategoriesCollapsed ? 'Развернуть все разделы сметы' : 'Свернуть все разделы сметы'}
+                        className="flex min-h-[44px] items-center gap-1.5 rounded-md border border-border px-3 text-xs font-semibold text-text-secondary transition-colors hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/50 disabled:cursor-not-allowed disabled:opacity-40 md:min-h-9"
+                    >
+                        {allCategoriesCollapsed ? <IconDoubleChevronDown aria-hidden="true" className="size-4" /> : <IconDoubleChevronUp aria-hidden="true" className="size-4" />}
+                        {allCategoriesCollapsed ? 'Развернуть всё' : 'Свернуть всё'}
+                    </button>
+                </div>
                 {sectionReorder.preview && ReactDOM.createPortal(
-                    <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-60 max-w-[calc(100vw-16px)] truncate rounded-lg border border-primary bg-surface px-4 py-3 text-sm font-semibold text-text-primary shadow-xl" style={{ left: Math.max(8, Math.min(sectionReorder.preview.x + 16, window.innerWidth - 248)), top: Math.max(8, Math.min(sectionReorder.preview.y + 16, window.innerHeight - 60)) }}>
-                        {sectionLabel(sectionReorder.preview.id)}
-                    </div>, document.body,
+                    <>
+                        <div ref={sectionReorder.previewElementRef} aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-[100] w-60 max-w-[calc(100vw-16px)] truncate rounded-lg border border-primary bg-surface px-4 py-3 text-sm font-semibold text-text-primary shadow-xl" style={{ visibility: 'hidden', willChange: 'transform' }}>
+                            {sectionLabel(sectionReorder.preview.id)}
+                        </div>
+                        <div ref={sectionReorder.insertionMarkerRef} aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-[99] h-1 rounded bg-primary" style={{ visibility: 'hidden' }} />
+                    </>, document.body,
                 )}
-                <div ref={sectionReorder.containerRef} className={`mt-4 space-y-3 sm:mt-5 sm:space-y-4 ${sectionReorder.preview ? 'select-none cursor-grabbing' : ''}`}>
+                <div id="estimate-sections" ref={sectionReorder.containerRef} className={`mt-2 space-y-3 sm:space-y-4 ${sectionReorder.preview ? 'select-none cursor-grabbing' : ''}`}>
                     {visibleCategories.map((category, catIndex) => {
                         const items = groupedItems.get(category) || [];
                         if (items.length === 0 && !visibleCategories.includes(category)) return null;
                         const isCollapsed = Boolean(collapsedCategories[category]);
                         const catTotal = categorySubtotals.get(category) || 0;
                         return (
-                            <div key={category} className={`relative border border-border rounded-lg bg-background/30 ${sectionReorder.preview?.id === category ? 'ring-2 ring-primary opacity-50' : ''}`}>
-                                {sectionReorder.preview?.beforeId === category && <div aria-hidden="true" className="pointer-events-none absolute -top-2 left-0 right-0 h-1 rounded bg-primary" />}
+                            <div key={category} data-section-card={category} className={`relative border border-border rounded-lg bg-background/30 ${sectionReorder.preview?.id === category ? 'ring-2 ring-primary opacity-50' : ''}`}>
                                 <div
                                     data-section-header={category}
                                     title={initialEstimateValue?.isArchived ? undefined : 'Удерживайте заголовок для переноса; Alt + ↑/↓ на кнопке сворачивания'}
@@ -2110,7 +2135,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             </div>
                         );
                     })}
-                    {sectionReorder.preview && sectionReorder.preview.beforeId === null && <div aria-hidden="true" className="h-1 rounded bg-primary" />}
                 </div>
 
                 <CrewToolPlanPanel
