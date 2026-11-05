@@ -12,7 +12,7 @@ import {
     HousePackage,
     RoofShape,
     parseHouseDescription,
-    selectEligibleHouseHistory,
+    selectHouseHistoryForAi,
 } from '../services/houseCalculator';
 import type { HouseGeometryInput } from '../services/houseGeometry';
 import { HOUSE_SCOPE_STATUS_LABELS } from '../services/houseScope';
@@ -213,14 +213,14 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             if (clientDescription.trim()) {
                 setIsAiLoading(true);
                 const reviewed = calculation.selected.result;
-                const historicalSummary = selectEligibleHouseHistory(estimatesUsed)
+                const historicalSummary = selectHouseHistoryForAi(estimatesUsed)
                     .map(estimate => `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}; внутреннее пояснение: ${internalExplanation(estimate)}.`)
-                    .join('\n') || 'Подходящие сметы выбраны резервным алгоритмом.';
+                    .join('\n');
                 const deterministicSummary = [
                     `Каркасный дом: ${requestedArea} м², ${floors} эт.`,
                     `Выбранный вариант: ${calculation.selected.label}.`,
                     `Предварительная стоимость: ${money(reviewed.base)}; диапазон: ${money(reviewed.low)}—${money(reviewed.high)}.`,
-                    `Основание: ${reviewed.evidence.approvedCount} согласованных смет; ${reviewed.evidence.sourceReason}`,
+                    `Основание: ${reviewed.evidence.eligibleEstimateCount} типовых проектов; ${reviewed.evidence.sourceReason}`,
                 ].join('\n');
                 try {
                     setAiExplanation(await explainHouseCalculation({ deterministicSummary, historicalSummary, clientDescription }));
@@ -261,7 +261,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             setVariants(reviewedVariants);
             setSelectedPackage(reviewedVariant.package);
             setResult(reviewedResult);
-            const historicalSummary = selectEligibleHouseHistory(refreshedEstimates)
+            const historicalSummary = selectHouseHistoryForAi(refreshedEstimates)
                 .map(estimate => {
                     const categories = [...new Set(estimate.items.map(item => item.category))].join(', ');
                     return `Статус: ${estimate.status}; площадь: ${estimate.area} м²; итог: ${money(estimate.total)}; разделы: ${categories || 'не указаны'}; внутреннее пояснение: ${internalExplanation(estimate)}.`;
@@ -273,7 +273,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                 `Крыша: ${roofOptions.find(option => option.value === roofShape)?.label || roofShape}.`,
                 `Комплектация: ${packageOptions.find(option => option.value === reviewedVariant.package)?.label || reviewedVariant.package}.`,
                 `Итог расчёта: ${money(reviewedResult.base)}; диапазон: ${money(reviewedResult.low)}—${money(reviewedResult.high)}.`,
-                `Источник: ${reviewedResult.evidence.approvedCount} согласованных, ${reviewedResult.evidence.draftCount} черновиков; ${reviewedResult.evidence.sourceReason}`,
+                `Источник: ${reviewedResult.evidence.eligibleEstimateCount} типовых проектов; ${reviewedResult.evidence.sourceReason}`,
                 `Предупреждения: ${reviewedResult.warnings.join('; ') || 'нет'}.`,
             ].join('\n');
             setAiExplanation(await explainHouseCalculation({ deterministicSummary: summary, historicalSummary, clientDescription }));
@@ -415,7 +415,7 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
             <header className="mb-6 border-b border-border pb-5">
                 <p className="mb-1 text-xs font-bold uppercase tracking-[0.18em] text-primary">Каркасное домостроение</p>
                 <h1 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">Калькулятор стоимости дома</h1>
-                <p className="mt-2 max-w-3xl text-sm leading-6 text-text-secondary">Предварительная оценка только по вашим актуальным сметам: подтверждённые за текущий год и свежие черновики за 90 дней.</p>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-text-secondary">Предварительная оценка по сметам с меткой «Типовые проекты» — независимо от статуса и давности.</p>
             </header>
 
             <div className="grid items-start gap-7 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.75fr)]">

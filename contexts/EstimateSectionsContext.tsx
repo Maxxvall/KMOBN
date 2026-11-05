@@ -1,6 +1,7 @@
 import { createContext, useContext } from 'react';
 import type {
   CustomSectionId,
+  EstimateLabelDefinition,
   EstimateSectionsDocument,
   SectionId,
 } from '../types';
@@ -8,6 +9,11 @@ import type { ResolvedEstimateSection } from '../services/estimateSections';
 
 export interface EstimateSectionsContextValue {
   document: EstimateSectionsDocument;
+  activeLabels: EstimateLabelDefinition[];
+  saving: boolean;
+  addLabel: (name: string) => Promise<void>;
+  renameLabel: (id: string, name: string) => Promise<void>;
+  deleteLabel: (id: string) => Promise<void>;
   activeSections: ResolvedEstimateSection[];
   allSections: ResolvedEstimateSection[];
   isLoading: boolean;

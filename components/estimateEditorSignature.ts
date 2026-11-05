@@ -1,3 +1,4 @@
+import { normalizeEstimateLabelIds } from '../services/estimateLabels';
 import { EstimateSubgroup, type Estimate, type EstimateItem, type EstimateSectionsDocument } from '../types';
 import { getEstimateCategories, getSectionLabel } from '../services/estimateSections';
 
@@ -22,6 +23,7 @@ const hashBoolean = (seed: number, value: boolean): number => {
 
 export const buildEstimateDirtySignature = (value: Estimate, document?: EstimateSectionsDocument | null): number => {
     let hash = 17;
+    for (const id of normalizeEstimateLabelIds(value.labelIds).sort()) hash = hashText(hash, id);
     hash = hashText(hash, value.client);
     hash = hashText(hash, value.date);
     hash = hashText(hash, value.status);

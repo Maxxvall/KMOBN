@@ -17,13 +17,14 @@ const estimate = (overrides: Partial<Estimate> & Pick<Estimate, 'id' | 'version'
 
 describe('normalizeEstimateChains', () => {
     it.each(['overwrite', 'new'] as const)('retains individual section order after %s and reopen without touching the old version', saveMode => {
-        const old = estimate({ id: 'ordered-v1', version: 1, selectedSections: [EstimateCategory.ROOF, EstimateCategory.WALLS] });
+        const old = estimate({ id: 'ordered-v1', version: 1, labelIds: ['system:typical-projects'], selectedSections: [EstimateCategory.ROOF, EstimateCategory.WALLS] });
         const order = [EstimateCategory.ROOF, EstimateCategory.GENERAL, EstimateCategory.WALLS];
         const draft = setEstimateSectionOrder(old, order);
         const saved = applyEstimateSave({ estimates: [old], draft: { ...draft, sectionSnapshot: preserveEstimateSectionSnapshot(draft) }, saveMode, now: '2026-11-02', newId: 'ordered-v2' });
         const reopened = JSON.parse(JSON.stringify(saved.at(-1))) as Estimate;
         expect(getEstimateCategories(reopened.items, reopened.selectedSections, reopened.sectionSnapshot)).toEqual(order);
         expect(reopened.items).toEqual(old.items);
+        expect(reopened.labelIds).toEqual(['system:typical-projects']);
         expect(reopened.total).toBe(old.total);
         if (saveMode === 'new') expect(saved[0].sectionSnapshot).toBeUndefined();
     });

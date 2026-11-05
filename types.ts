@@ -30,8 +30,8 @@ export interface UserEstimateSectionDefinition {
 }
 
 export interface EstimateSectionsConflict {
-    local: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'>;
-    remote: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'>;
+    local: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'labels' | 'serverRevision'>;
+    remote: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'labels' | 'serverRevision'>;
     detectedAt: string;
 }
 
@@ -39,11 +39,18 @@ export interface EstimateSectionsDocument {
     id: string;
     schemaVersion: 1;
     definitions: UserEstimateSectionDefinition[];
+    labels?: EstimateLabelDefinition[];
     order: SectionId[];
     serverRevision: number;
-    baseDocument?: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'>;
+    baseDocument?: Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'labels' | 'serverRevision'>;
     operationId?: string;
     syncConflict?: EstimateSectionsConflict;
+}
+
+export interface EstimateLabelDefinition {
+    id: string;
+    name: string;
+    deleted?: boolean;
 }
 
 export interface EstimateItem {
@@ -158,6 +165,8 @@ export interface Estimate {
     needsPriceUpdate?: boolean;
     selectedSections?: SectionId[];
     sectionSnapshot?: EstimateSectionSnapshot[];
+    labelIds?: string[];
+    labelSnapshots?: EstimateLabelDefinition[];
     sortOrder?: number;
     created_at?: string | null;
     updated_at?: string | null;

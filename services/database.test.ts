@@ -57,6 +57,8 @@ describe('estimate transfer', () => {
     const source: Estimate = {
       ...createEstimate('shared'),
       explanation: 'internal note',
+      labelIds: ['system:typical-projects'],
+      labelSnapshots: [{ id: 'system:typical-projects', name: 'Типовые проекты' }],
       selectedSections: [EstimateCategory.SEWERAGE],
       items: [
         { id: 'water', name: 'Коллектор', unit: 'шт', quantity: 1, price: 10, total: 10, category: EstimateCategory.WATER_SUPPLY },
@@ -81,6 +83,8 @@ describe('estimate transfer', () => {
       futureSection,
     ]);
     expect(received).not.toHaveProperty('explanation');
+    expect(received).not.toHaveProperty('labelIds');
+    expect(received).not.toHaveProperty('labelSnapshots');
     expect(received).not.toHaveProperty('houseProjectId');
     expect(received).not.toHaveProperty('houseCalculationSnapshots');
     expect(received).not.toHaveProperty('houseExecutionStatus');
@@ -121,5 +125,15 @@ describe('estimate transfer', () => {
 
   it('rejects a full backup in the single-estimate flow', () => {
     expect(() => parseEstimateTransfer(JSON.stringify({ estimates: [createEstimate('backup')] }))).toThrow('не файл обмена');
+  });
+});
+
+describe('label copy lifecycle', () => {
+  it('clears private assignments and definitions on a separate shared import', () => {
+    const source = { ...createEstimate('labels'), labelIds: ['system:typical-projects'], labelSnapshots: [{ id: 'system:typical-projects', name: 'Типовые проекты' }] };
+    const result = prepareSharedEstimateImport(source, []).estimate;
+    expect(result.labelIds).toEqual([]);
+    expect(result.labelSnapshots).toBeUndefined();
+    expect(source.labelIds).toEqual(['system:typical-projects']);
   });
 });

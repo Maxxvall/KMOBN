@@ -33,6 +33,7 @@ const item = (overrides: Partial<EstimateItem> = {}): EstimateItem => ({
 
 const estimate = (overrides: Partial<Estimate> = {}): Estimate => ({
     id: 'estimate-1',
+    labelIds: ['system:typical-projects'],
     estimateNumber: 'КМ-1',
     client: 'Иванов',
     date: '2026-06-01',
@@ -66,6 +67,27 @@ const input = (overrides: Partial<HouseCalculatorInput> = {}): HouseCalculatorIn
 });
 
 describe('houseCalculator history selection', () => {
+    it('requires the typical ID for every source path and accepts old labelled drafts', () => {
+        const ordinary = estimate({ id: 'ordinary', estimateNumber: 'ordinary', labelIds: [] });
+        const typical = estimate({ id: 'typical', estimateNumber: 'typical', status: EstimateStatus.DRAFT, date: '2020-01-01', updated_at: null, labelIds: ['system:typical-projects'] });
+        expect(selectEligibleHouseHistory([ordinary, typical], NOW)).toEqual([typical]);
+        expect(selectHouseHistoryForAi([ordinary, typical])).toEqual([typical]);
+        expect(() => calculateHouseEstimate(input({ estimates: [ordinary] }))).toThrow('Типовые проекты');
+    });
+
+    it('never uses stale labelled versions or ordinary scope supplements and fallback sources', () => {
+        const stale = estimate({ id: 'stale', version: 1 });
+        const latest = estimate({ id: 'latest', version: 2, labelIds: [] });
+        expect(selectHouseHistoryForAi([stale, latest])).toEqual([]);
+        expect(selectEligibleHouseHistory([stale, latest])).toEqual([]);
+        expect(chooseHouseReference([latest], 79)).toBeUndefined();
+        const ordinary = estimate({ id: 'ordinary', estimateNumber: 'other', labelIds: [], items: [item({ id: 'private-engineering', category: EstimateCategory.ELECTRICAL, name: 'Электрика под ключ' })] });
+        const result = calculateHouseEstimate(input({ estimates: [stale, ordinary], package: 'turnkey-engineering' }));
+        expect(result.items.some(value => value.name === 'Электрика под ключ')).toBe(false);
+        expect(() => calculateHouseEstimate(input({ estimates: [{ ...ordinary, buildingType: 'Неизвестный объект' }] }))).toThrow('Типовые проекты');
+        const fallback = { ...ordinary, labelIds: ['system:typical-projects'], status: EstimateStatus.DRAFT, buildingType: 'Неизвестный объект' };
+        expect(calculateHouseEstimate(input({ estimates: [fallback] })).sourceEstimate.id).toBe('ordinary');
+    });
     it('keeps only the latest estimate version', () => {
         const v1 = estimate({ id: 'v1', version: 1, updated_at: '2026-05-01T00:00:00Z' });
         const v2 = estimate({ id: 'v2', version: 2, updated_at: '2026-06-01T00:00:00Z' });
@@ -80,18 +102,18 @@ describe('houseCalculator history selection', () => {
         expect(selectEligibleHouseHistory([previous, current], NOW).map(value => value.id)).toEqual(['previous', 'current']);
     });
 
-    it('keeps every approved estimate even when they share one estimate number', () => {
+    it('uses only the latest typical estimate when versions share one number', () => {
         const approvedV1 = estimate({ id: 'approved-v1', estimateNumber: 'KM-shared', version: 1 });
         const approvedV2 = estimate({ id: 'approved-v2', estimateNumber: 'KM-shared', version: 2 });
 
-        expect(selectEligibleHouseHistory([approvedV1, approvedV2], NOW)).toHaveLength(2);
+        expect(selectEligibleHouseHistory([approvedV1, approvedV2], NOW)).toEqual([approvedV2]);
     });
 
-    it('includes drafts from the last 90 days and excludes older drafts', () => {
+    it('includes labelled drafts regardless of age', () => {
         const recent = estimate({ id: 'recent', estimateNumber: 'Ч-1', status: EstimateStatus.DRAFT, date: '2026-04-14', updated_at: null });
         const old = estimate({ id: 'old', estimateNumber: 'Ч-2', status: EstimateStatus.DRAFT, date: '2026-04-13', updated_at: null });
 
-        expect(selectEligibleHouseHistory([old, recent], NOW).map(value => value.id)).toEqual(['recent']);
+        expect(selectEligibleHouseHistory([old, recent], NOW).map(value => value.id)).toEqual(['old', 'recent']);
     });
 
     it('excludes archived estimates', () => {
@@ -411,7 +433,7 @@ describe('houseCalculator financials and failures', () => {
     });
 
     it('throws when no eligible source estimate exists', () => {
-        expect(() => calculateHouseEstimate(input({ estimates: [] }))).toThrow(/нет согласованных смет с позициями/);
+        expect(() => calculateHouseEstimate(input({ estimates: [] }))).toThrow(/Типовые проекты/);
     });
 
     it('warns when requested finish and engineering are absent from the source', () => {

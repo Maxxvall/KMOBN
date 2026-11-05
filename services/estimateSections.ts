@@ -1,9 +1,11 @@
+import { normalizeEstimateLabelDefinitions, validateEstimateLabelName, TYPICAL_PROJECT_LABEL_ID } from './estimateLabels';
 import { createOperationId } from './operationId';
 import {
     ESTIMATE_SECTION_DEFINITIONS,
     type Estimate,
     EstimateCategory,
     EstimateItem,
+    EstimateLabelDefinition,
     EstimateSectionSnapshot,
     EstimateSectionsDocument,
     EstimateSubgroup,
@@ -48,6 +50,7 @@ export const createEstimateSectionsDocument = (userId: string): EstimateSections
     id: userId,
     schemaVersion: ESTIMATE_SECTIONS_SCHEMA_VERSION,
     definitions: [],
+    labels: normalizeEstimateLabelDefinitions([]),
     order: ESTIMATE_SECTION_DEFINITIONS
         .filter(section => !section.catalogGlobal)
         .sort((left, right) => left.order - right.order)
@@ -95,13 +98,18 @@ export const normalizeEstimateSectionsDocument = (
         id: typeof value?.id === 'string' && value.id ? value.id : userId,
         schemaVersion: ESTIMATE_SECTIONS_SCHEMA_VERSION,
         definitions,
+        labels: normalizeEstimateLabelDefinitions(value?.labels),
         order,
         serverRevision: Number.isInteger(value?.serverRevision) && Number(value?.serverRevision) >= 0
             ? Number(value?.serverRevision)
             : 0,
-        baseDocument: value?.baseDocument,
+        baseDocument: value?.baseDocument ? { ...value.baseDocument, labels: normalizeEstimateLabelDefinitions(value.baseDocument.labels) } : undefined,
         operationId: value?.operationId,
-        syncConflict: value?.syncConflict,
+        syncConflict: value?.syncConflict ? {
+            ...value.syncConflict,
+            local: { ...value.syncConflict.local, labels: normalizeEstimateLabelDefinitions(value.syncConflict.local.labels) },
+            remote: { ...value.syncConflict.remote, labels: normalizeEstimateLabelDefinitions(value.syncConflict.remote.labels) },
+        } : undefined,
     };
 };
 
@@ -224,8 +232,9 @@ const validateNewLabel = (document: EstimateSectionsDocument, label: string, exc
 
 const snapshotDocument = (
     document: EstimateSectionsDocument,
-): Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'> => ({
+): Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'labels' | 'serverRevision'> => ({
     definitions: document.definitions,
+    labels: normalizeEstimateLabelDefinitions(document.labels),
     order: document.order,
     serverRevision: document.serverRevision,
 });
@@ -328,6 +337,7 @@ export const resolveEstimateSectionsConflict = (
     return touchDocument({
         ...document,
         definitions: selected.definitions,
+        labels: normalizeEstimateLabelDefinitions([...(selected.labels ?? []), ...[...(local.labels ?? []), ...(remote.labels ?? [])].filter(label => label.deleted)]),
         order: selected.order,
         serverRevision: remote.serverRevision,
         baseDocument: remote,
@@ -336,7 +346,7 @@ export const resolveEstimateSectionsConflict = (
     });
 };
 
-type EstimateSectionsState = Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'serverRevision'>;
+type EstimateSectionsState = Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'labels' | 'serverRevision'>;
 
 const sameDefinition = (
     left?: UserEstimateSectionDefinition,
@@ -379,6 +389,24 @@ export const tryMergeEstimateSectionsDocuments = (
 ): EstimateSectionsDocument | null => {
     const base = local.baseDocument;
     if (!base) return null;
+    const sameLabel = (left?: EstimateLabelDefinition, right?: EstimateLabelDefinition) => left?.name === right?.name && Boolean(left?.deleted) === Boolean(right?.deleted);
+    const baseLabels = new Map(normalizeEstimateLabelDefinitions(base.labels).map(label => [label.id, label]));
+    // Legacy clients may omit labels; only explicit tombstones remove them.
+    const localLabels = new Map([...baseLabels, ...normalizeEstimateLabelDefinitions(local.labels).map(label => [label.id, label] as const)]);
+    const remoteLabels = new Map([...baseLabels, ...normalizeEstimateLabelDefinitions(remote.labels).map(label => [label.id, label] as const)]);
+    const labels: EstimateLabelDefinition[] = [];
+    for (const id of new Set([...baseLabels.keys(), ...localLabels.keys(), ...remoteLabels.keys()])) {
+        const before = baseLabels.get(id);
+        const ours = localLabels.get(id);
+        const theirs = remoteLabels.get(id);
+        const oursChanged = !sameLabel(ours, before);
+        const theirsChanged = !sameLabel(theirs, before);
+        if (oursChanged && theirsChanged && !sameLabel(ours, theirs)) return null;
+        const selected = ours?.deleted ? ours : theirs?.deleted ? theirs : oursChanged ? ours : theirs ?? ours;
+        if (selected) labels.push(selected);
+    }
+    const labelNames = labels.filter(label => !label.deleted).map(label => label.name.toLocaleLowerCase('ru-RU'));
+    if (new Set(labelNames).size !== labelNames.length) return null;
     const baseById = new Map(base.definitions.map(section => [section.id, section]));
     const localById = new Map(local.definitions.map(section => [section.id, section]));
     const remoteById = new Map(remote.definitions.map(section => [section.id, section]));
@@ -413,11 +441,13 @@ export const tryMergeEstimateSectionsDocuments = (
 
     const remoteState: EstimateSectionsState = {
         definitions: remote.definitions,
+        labels: normalizeEstimateLabelDefinitions(remote.labels),
         order: remote.order,
         serverRevision: remote.serverRevision,
     };
     return touchDocument({
         ...local,
+        labels,
         definitions,
         order,
         serverRevision: remote.serverRevision,
@@ -458,4 +488,20 @@ export const setEstimateSectionOrder = (
     if (sameOrder && (!estimate.sectionSnapshot?.length
         || JSON.stringify(estimate.sectionSnapshot) === JSON.stringify(sectionSnapshot))) return estimate;
     return { ...estimate, sectionSnapshot };
+};
+
+export const addEstimateLabel = (document: EstimateSectionsDocument, name: string, id = createOperationId()): EstimateSectionsDocument => {
+    const clean = validateEstimateLabelName(document, name);
+    return touchDocument({ ...document, labels: [...normalizeEstimateLabelDefinitions(document.labels), { id, name: clean }] }, document);
+};
+export const renameEstimateLabel = (document: EstimateSectionsDocument, id: string, name: string): EstimateSectionsDocument => {
+    if (id === TYPICAL_PROJECT_LABEL_ID) throw new Error('Системную метку нельзя переименовать.');
+    const labels = normalizeEstimateLabelDefinitions(document.labels);
+    if (!labels.some(label => label.id === id && !label.deleted)) throw new Error('Метка не найдена.');
+    const clean = validateEstimateLabelName(document, name, id);
+    return touchDocument({ ...document, labels: labels.map(label => label.id === id ? { ...label, name: clean } : label) }, document);
+};
+export const deleteEstimateLabel = (document: EstimateSectionsDocument, id: string): EstimateSectionsDocument => {
+    if (id === TYPICAL_PROJECT_LABEL_ID) throw new Error('Системную метку нельзя удалить.');
+    return touchDocument({ ...document, labels: normalizeEstimateLabelDefinitions(document.labels).map(label => label.id === id ? { ...label, deleted: true } : label) }, document);
 };

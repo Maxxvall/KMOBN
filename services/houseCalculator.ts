@@ -1,3 +1,4 @@
+import { isTypicalProject } from './estimateLabels';
 import {
     Estimate,
     EstimateCategory,
@@ -129,7 +130,6 @@ export const HOUSE_TIER_CONFIG: Array<Omit<HouseVariantResult, 'result'>> = [
     { tier: 'premium', label: 'Премиум', description: 'Под ключ с инженерными системами', package: 'turnkey-engineering' },
 ];
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const REFERENCE_CLIENT = 'наталья дубровка';
 const REFERENCE_BUILDING = 'одноэтажный дачный дом';
 
@@ -174,27 +174,15 @@ export function selectLatestVersions(estimates: Estimate[]): Estimate[] {
     return [...latest.values()];
 }
 
-/** Selects all approved/sent estimates and drafts no older than 90 days. */
-export function selectEligibleHouseHistory(estimates: Estimate[], now = new Date()): Estimate[] {
-    const draftStart = now.getTime() - 90 * DAY_MS;
-    const latestDraftIds = new Set(selectLatestVersions(estimates.filter(estimate => estimate.status === EstimateStatus.DRAFT)).map(estimate => estimate.id));
-    return estimates.filter(estimate => {
-        if (estimate.isArchived || !estimate.items?.length || !isFrameHouse(estimate)) return false;
-        const timestamp = dateOf(estimate);
-        if (estimate.status === EstimateStatus.DRAFT) return latestDraftIds.has(estimate.id) && timestamp >= draftStart && timestamp <= now.getTime();
-        return estimate.status === EstimateStatus.APPROVED || estimate.status === EstimateStatus.SENT;
-    });
+/** The latest version decides eligibility before any source filtering. */
+export function selectHouseHistoryForAi(estimates: Estimate[]): Estimate[] {
+    return selectLatestVersions(estimates).filter(estimate => isTypicalProject(estimate)
+        && !estimate.isArchived && Number.isFinite(estimate.area) && estimate.area > 0
+        && estimate.items?.some(item => Number.isFinite(item.quantity) && item.quantity > 0 && Number.isFinite(item.price) && item.price > 0));
 }
 
-/** Broader source pool for AI when structured house recognition cannot choose a reference. */
-export function selectHouseHistoryForAi(estimates: Estimate[]): Estimate[] {
-    const excluded = ['баня', 'террас', 'пристрой', 'пост охраны', 'крыша', 'изолятор', 'обшив'];
-    return estimates.filter(estimate => {
-        if (estimate.isArchived || !estimate.items?.length) return false;
-        if (estimate.status !== EstimateStatus.APPROVED && estimate.status !== EstimateStatus.SENT) return false;
-        const buildingType = normalize(estimate.buildingType || '');
-        return !excluded.some(word => buildingType.includes(word));
-    });
+export function selectEligibleHouseHistory(estimates: Estimate[], _now?: Date): Estimate[] {
+    return selectHouseHistoryForAi(estimates).filter(isFrameHouse);
 }
 
 export function parseHouseDescription(description: string): ParsedHouseDescription {
@@ -247,8 +235,9 @@ export function chooseHouseReference(
     targetArea: number,
     targetPackage?: HousePackage,
 ): Estimate | undefined {
-    const approved = estimates.filter(item => item.status === EstimateStatus.APPROVED);
-    const pool = approved.length ? approved : estimates;
+    const typical = selectHouseHistoryForAi(estimates);
+    const approved = typical.filter(item => item.status === EstimateStatus.APPROVED);
+    const pool = approved.length ? approved : typical;
     return [...pool].sort((left, right) => (
         statusPriority[left.status] - statusPriority[right.status]
         || Number(!explanationMatchesPackage(left, targetPackage)) - Number(!explanationMatchesPackage(right, targetPackage))
@@ -545,10 +534,10 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     }
     validateRates(input.rates);
     const eligible = selectEligibleHouseHistory(input.estimates, input.now);
-    const broaderApproved = eligible.length ? [] : selectHouseHistoryForAi(input.estimates);
-    const history = eligible.length ? eligible : broaderApproved;
+    const broaderTypical = eligible.length ? [] : selectHouseHistoryForAi(input.estimates);
+    const history = eligible.length ? eligible : broaderTypical;
     const source = chooseHouseReference(history, input.area, input.package);
-    if (!source) throw new Error(`В личной базе загружено ${input.estimates.length} смет, но нет согласованных смет с позициями для расчёта дома.`);
+    if (!source) throw new Error('Отметьте хотя бы одну пригодную смету меткой «Типовые проекты» для расчёта дома.');
 
     const { items, supplements } = scalePackageScope(source, history, input);
     if (input.package !== 'box') items.push(...glazingItems(input.glazingArea), ...doorItems(input.doors));
@@ -563,26 +552,26 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     for (const addition of input.additions || []) {
         if (!items.some(item => additionType(item) === addition)) {
             const label = HOUSE_ADDITION_OPTIONS.find(option => option.value === addition)?.label || addition;
-            warnings.push(`${label}: в подтверждённых сметах не найдены позиции, дополнение не включено в стоимость.`);
+            warnings.push(`${label}: в типовых проектах не найдены позиции, дополнение не включено в стоимость.`);
         }
     }
-    if (!eligible.length && broaderApproved.length) {
-        warnings.push('Тип объекта не распознан автоматически: использована ближайшая согласованная смета из личной базы.');
+    if (!eligible.length && broaderTypical.length) {
+        warnings.push('Тип объекта не распознан автоматически: использована ближайший типовой проект.');
     }
     const sourceKinds = new Set(source.items.map(itemKind));
     if ((input.package === 'rough-finish' || input.package === 'turnkey' || input.package === 'turnkey-engineering') && !sourceKinds.has('rough-finish')) {
         if (!supplements.some(value => value.startsWith('черновая отделка:'))) {
-            warnings.push('В подтверждённых сметах нет позиций черновой отделки: они не включены в стоимость.');
+            warnings.push('В типовых проектах нет позиций черновой отделки: они не включены в стоимость.');
         }
     }
     if ((input.package === 'turnkey' || input.package === 'turnkey-engineering') && !sourceKinds.has('finish')) {
         if (!supplements.some(value => value.startsWith('чистовая отделка:'))) {
-            warnings.push('В подтверждённых сметах нет позиций чистовой отделки: они не включены в стоимость.');
+            warnings.push('В типовых проектах нет позиций чистовой отделки: они не включены в стоимость.');
         }
     }
     if (input.package === 'turnkey-engineering' && !sourceKinds.has('engineering')) {
         if (!supplements.some(value => value.startsWith('инженерные системы:'))) {
-            warnings.push('В подтверждённых сметах нет инженерных систем: инженерия не включена в стоимость.');
+            warnings.push('В типовых проектах нет инженерных систем: инженерия не включена в стоимость.');
         }
     }
     if (supplements.length) warnings.push(`Комплектация дополнена позициями из личной базы: ${supplements.join('; ')}.`);
@@ -617,7 +606,7 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
                 ? 'Допустимая смета с подходящими ключевыми словами во внутреннем пояснении.'
                 : isReference(source)
                     ? 'Явный подтверждённый эталон Наталья_Дубровка, 79 м².'
-                    : 'Ближайшая по площади подтверждённая смета.',
+                    : 'Ближайший по площади типовой проект.',
         },
         sections, items, warnings, sourceEstimate: source, rates: { ...input.rates }, financials,
         scope,

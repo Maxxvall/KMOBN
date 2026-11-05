@@ -6,6 +6,7 @@ import { createHouseCalculationSnapshot } from './houseCalculationSnapshot';
 const input = (): HouseCalculatorInput => ({
     estimates: [{
         id: 'source',
+        labelIds: ['system:typical-projects'],
         estimateNumber: 'SRC-1',
         client: 'Клиент',
         date: '2026-09-01',

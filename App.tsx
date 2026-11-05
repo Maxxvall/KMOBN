@@ -1,3 +1,4 @@
+import { getActiveEstimateLabels } from './services/estimateLabels';
 import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
@@ -25,7 +26,7 @@ import { SubscriptionProvider } from './contexts/SubscriptionContext';
 import { SyncProvider } from './contexts/SyncContext';
 import { EstimateSectionsProvider } from './contexts/EstimateSectionsContext';
 import { loadEstimates, refreshEstimatesFromRemote, saveEstimates, loadTemplates, loadMaterials, saveMaterials, addMaterial, updateMaterial, deleteMaterial, deleteMaterials, loadWorks, saveWorks, addWork, updateWork, deleteWork, deleteWorks, loadBundles, saveBundles, addBundle, updateBundle, deleteBundle, loadEstimateSections, saveEstimateSections } from './services/database';
-import { addUserEstimateSection, createEstimateSectionsDocument, getResolvedEstimateSections, normalizeEstimateSectionsDocument, preserveEstimateSectionSnapshot, renameUserEstimateSection, reorderEstimateSections, resolveEstimateSectionsConflict, setUserEstimateSectionArchived } from './services/estimateSections';
+import { addEstimateLabel, renameEstimateLabel, deleteEstimateLabel, addUserEstimateSection, createEstimateSectionsDocument, getResolvedEstimateSections, normalizeEstimateSectionsDocument, preserveEstimateSectionSnapshot, renameUserEstimateSection, reorderEstimateSections, resolveEstimateSectionsConflict, setUserEstimateSectionArchived } from './services/estimateSections';
 import type { CacheTableKey } from './services/indexedDbCache';
 import type { PendingChange } from './services/offlineQueue';
 import supabase, { isSupabaseConfigured } from './services/supabase';
@@ -1874,21 +1875,32 @@ const App: React.FC = () => {
         handleMergeCatalogDuplicates,
     ]);
 
+    const [sectionsSaving, setSectionsSaving] = useState(false);
+    const sectionsOwnerRef = useRef(supabaseUser?.id);
+    sectionsOwnerRef.current = supabaseUser?.id;
     const persistSectionsDocument = useCallback(async (next: EstimateSectionsDocument) => {
         setSectionsError(null);
+        setSectionsSaving(true);
         try {
             await saveEstimateSections(next);
-            setSectionsDocument(next);
+            if (sectionsOwnerRef.current === next.id) setSectionsDocument(next);
         } catch (error) {
             console.error('Failed to save estimate sections:', error);
             const message = error instanceof Error ? error.message : 'Не удалось сохранить разделы.';
-            setSectionsError(message);
+            if (sectionsOwnerRef.current === next.id) setSectionsError(message);
             throw error;
+        } finally {
+            setSectionsSaving(false);
         }
     }, []);
 
     const sectionsContextValue = useMemo(() => ({
         document: sectionsDocument,
+        activeLabels: getActiveEstimateLabels(sectionsDocument),
+        saving: sectionsSaving,
+        addLabel: async (name: string) => persistSectionsDocument(addEstimateLabel(sectionsDocument, name)),
+        renameLabel: async (id: string, name: string) => persistSectionsDocument(renameEstimateLabel(sectionsDocument, id, name)),
+        deleteLabel: async (id: string) => persistSectionsDocument(deleteEstimateLabel(sectionsDocument, id)),
         activeSections: getResolvedEstimateSections(sectionsDocument),
         allSections: getResolvedEstimateSections(sectionsDocument, { includeArchived: true }),
         isLoading: sectionsLoading,
@@ -1899,7 +1911,7 @@ const App: React.FC = () => {
         setArchived: async (id: CustomSectionId, archived: boolean) => persistSectionsDocument(setUserEstimateSectionArchived(sectionsDocument, id, archived)),
         reorderSections: async (order: SectionId[]) => persistSectionsDocument(reorderEstimateSections(sectionsDocument, order)),
         resolveConflict: async (choice: 'local' | 'remote') => persistSectionsDocument(resolveEstimateSectionsConflict(sectionsDocument, choice)),
-    }), [offlineSync.pendingChanges, persistSectionsDocument, sectionsDocument, sectionsError, sectionsLoading]);
+    }), [offlineSync.pendingChanges, persistSectionsDocument, sectionsDocument, sectionsError, sectionsLoading, sectionsSaving]);
 
     const subscriptionContextValue = useMemo(() => ({
         subscription,

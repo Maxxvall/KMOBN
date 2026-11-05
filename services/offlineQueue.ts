@@ -366,6 +366,7 @@ export const offlineQueue = {
       if (current.table === 'estimate_sections' && serverRecord) {
         nextData.baseDocument = {
           definitions: serverRecord.definitions,
+          labels: serverRecord.labels,
           order: serverRecord.order,
           serverRevision,
         };
@@ -427,7 +428,7 @@ export const offlineQueue = {
     id: string,
     sentSequence: number,
     sentOperationId: string | undefined,
-    confirmed: { serverRevision?: number; definitions?: unknown; order?: unknown },
+    confirmed: { serverRevision?: number; definitions?: unknown; labels?: unknown; order?: unknown },
   ): Promise<PendingChange | null> {
     const revision = Number(confirmed.serverRevision);
     if (!Number.isInteger(revision) || revision < 0) return null;
@@ -450,6 +451,7 @@ export const offlineQueue = {
           && Array.isArray(confirmed.order)) {
           nextData.baseDocument = {
             definitions: confirmed.definitions,
+            labels: confirmed.labels,
             order: confirmed.order,
             serverRevision: revision,
           };

@@ -14,6 +14,7 @@ import { hashData } from './hashing';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
 import { prepareEstimateSectionsDocumentForSave } from './estimateSections';
+import { normalizeEstimateLabelDefinitions, normalizeEstimateLabelIds } from './estimateLabels';
 import supabase, {
   isSupabaseConfigured,
   fetchEstimates,
@@ -524,11 +525,28 @@ export const saveLocalRecords = async <T extends { id: string }>(table: CacheTab
   const knownMutationKey = knownOwnerId ? getRefreshKey(table, knownOwnerId) : null;
   if (knownMutationKey) bumpMutationGeneration(knownMutationKey);
   const ownerId = requireWorkspaceUserId();
+  if (table === 'estimate_sections' && records.some(record => record.id !== ownerId)) {
+    throw new Error('Нельзя сохранить справочник другого пользователя. Дождитесь загрузки данных текущего аккаунта.');
+  }
   const mutationKey = getRefreshKey(table, ownerId);
   if (mutationKey !== knownMutationKey) bumpMutationGeneration(mutationKey);
   await withTableMutationLock(mutationKey, async () => {
     const cached = await getCachedRecords<T>(table, ownerId);
-    const changed = getChangedRecords(cached, records);
+    const protectedRecords = table === 'estimate_sections' ? records.map(record => {
+      const previous = cached.find(value => value.id === record.id);
+      const previousLabels = normalizeEstimateLabelDefinitions(previous && 'labels' in previous ? previous.labels : undefined);
+      const incomingLabels = normalizeEstimateLabelDefinitions('labels' in record ? record.labels : undefined);
+      const incomingIds = new Set(incomingLabels.map(label => label.id));
+      // Omission is a legacy save, never a deletion. Tombstones are irreversible.
+      return { ...record, labels: normalizeEstimateLabelDefinitions([
+        ...previousLabels.filter(label => !incomingIds.has(label.id)),
+        ...incomingLabels,
+        ...previousLabels.filter(label => label.deleted),
+      ]) };
+    }) : table === 'estimates' ? records.map(record => 'labelIds' in record
+      ? { ...record, labelIds: normalizeEstimateLabelIds(record.labelIds) }
+      : record) : records;
+    const changed = getChangedRecords(cached, protectedRecords);
     if (!changed.length) return;
 
     // Persist the outbox first. Pending payloads can reconstruct a cache write

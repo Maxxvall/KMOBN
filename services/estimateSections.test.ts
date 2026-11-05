@@ -24,6 +24,10 @@ import {
     setUserEstimateSectionArchived,
     setEstimateSectionOrder,
     tryMergeEstimateSectionsDocuments,
+    normalizeEstimateSectionsDocument,
+    addEstimateLabel,
+    renameEstimateLabel,
+    deleteEstimateLabel,
 } from './estimateSections';
 
 const item = (category: SectionId, subgroup?: EstimateSubgroup): EstimateItem => ({
@@ -38,6 +42,42 @@ const item = (category: SectionId, subgroup?: EstimateSubgroup): EstimateItem =>
 });
 
 describe('estimate section registry', () => {
+    it('validates names, keeps stable IDs on global rename and frees deleted assignment slots', () => {
+        const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const initial = createEstimateSectionsDocument('synthetic');
+        const added = addEstimateLabel(initial, '  Баня   большая  ', id);
+        expect(added.labels).toContainEqual({ id, name: 'Баня большая' });
+        for (const invalid of ['', '  ', 'БАНЯ  большая', 'Типовые проекты', 'x'.repeat(65)]) expect(() => addEstimateLabel(added, invalid)).toThrow();
+        const renamed = renameEstimateLabel(added, id, 'Парная');
+        expect(renamed.labels).toContainEqual({ id, name: 'Парная' });
+        expect(renamed.baseDocument?.labels).toEqual(initial.labels);
+        expect(deleteEstimateLabel(renamed, id).labels).toContainEqual({ id, name: 'Парная', deleted: true });
+        expect(() => renameEstimateLabel(added, 'system:typical-projects', 'Иное')).toThrow();
+        expect(() => deleteEstimateLabel(added, 'system:typical-projects')).toThrow();
+    });
+
+    it.each(['local', 'remote'] as const)('retains tombstones after choosing %s in a label conflict', choice => {
+        const document = createEstimateSectionsDocument('synthetic');
+        const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const local = { ...document, labels: [{ id, name: 'Новое имя' }] };
+        const remote = { ...document, labels: [{ id, name: 'Старое имя', deleted: true }], serverRevision: 2 };
+        const resolved = resolveEstimateSectionsConflict({ ...local, syncConflict: { local, remote, detectedAt: '2026-11-05' } }, choice);
+        expect(resolved.labels).toContainEqual({ id, name: 'Старое имя', deleted: true });
+        expect(resolved.baseDocument?.labels).toEqual(remote.labels);
+    });
+    it('preserves label tombstones through normalization and independent offline edits', () => {
+        const first = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const second = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        const base = { ...createEstimateSectionsDocument('synthetic'), labels: [{ id: first, name: 'Баня' }, { id: second, name: 'Дом' }] };
+        const local = { ...base, baseDocument: base, labels: [{ id: first, name: 'Баня', deleted: true }, { id: second, name: 'Дом' }] };
+        const remote = { ...base, labels: [{ id: first, name: 'Баня' }, { id: second, name: 'Коттедж' }], serverRevision: 2 };
+        const normalized = normalizeEstimateSectionsDocument(local, 'synthetic');
+        expect(normalized.labels).toContainEqual({ id: first, name: 'Баня', deleted: true });
+        const merged = tryMergeEstimateSectionsDocuments(normalized, remote);
+        expect(merged?.labels).toContainEqual({ id: first, name: 'Баня', deleted: true });
+        expect(merged?.labels).toContainEqual({ id: second, name: 'Коттедж' });
+        expect(tryMergeEstimateSectionsDocuments(local, { ...remote, labels: [{ id: first, name: 'Парная' }, { id: second, name: 'Дом' }] })).toBeNull();
+    });
     it('sets an independent complete order, keeps labels and positions, and appends readded sections', () => {
         const customId: CustomSectionId = 'custom:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab';
         const unknownId = 'Будущий раздел' as SectionId;

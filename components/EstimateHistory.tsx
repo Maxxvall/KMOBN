@@ -1,3 +1,6 @@
+import { EstimateLabelsPicker } from './EstimateLabelsPicker';
+import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
+import { getActiveEstimateLabels, getActiveEstimateLabelFilterIds, getEffectiveEstimateLabelIds, matchesEstimateLabels } from '../services/estimateLabels';
 import React, { useState, useMemo, useEffect, useId, useRef } from 'react';
 import { downloadBlob } from '../services/download';
 import { createPortal } from 'react-dom';
@@ -254,6 +257,21 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const generatePdfAction = onGeneratePdf ?? estimateContext?.actions.onGeneratePdf;
     const setArchivedAction = estimateContext?.actions.onSetArchived;
 
+    const sectionsContext = useOptionalEstimateSections();
+    const labelsDocument = sectionsContext?.document;
+    const activeLabels = useMemo(() => getActiveEstimateLabels(labelsDocument), [labelsDocument]);
+    const [selectedLabelIds, setSelectedLabelIds] = useState<string[]>([]);
+    const [withoutLabels, setWithoutLabels] = useState(false);
+    useEffect(() => {
+        setSelectedLabelIds(previous => {
+            const next = getActiveEstimateLabelFilterIds(previous, labelsDocument);
+            return next.length === previous.length ? previous : next;
+        });
+    }, [activeLabels, labelsDocument]);
+    const renderLabels = (estimate: Estimate) => {
+        const ids = getEffectiveEstimateLabelIds(estimate, labelsDocument);
+        return ids.length > 0 && <div className="mt-1 flex flex-wrap gap-1">{activeLabels.filter(label => ids.includes(label.id)).map(label => <span key={label.id} className="max-w-full break-words rounded border border-border px-1.5 py-0.5 text-xs text-text-secondary">{label.name}</span>)}</div>;
+    };
     const [filterClient, setFilterClient] = useState('');
     const [filterStatus, setFilterStatus] = useState<EstimateStatus | 'all'>('all');
     const [archiveView, setArchiveView] = useState<'current' | 'archive'>('current');
@@ -272,14 +290,17 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [duplicateGroups, setDuplicateGroups] = useState<EstimateDuplicateGroup[]>([]);
     const [transferModal, setTransferModal] = useState<'share' | 'import' | null>(null);
     const [estimateToShare, setEstimateToShare] = useState<Estimate | null>(null);
-    const hasActiveFilters = filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '' || filterDateFrom !== '' || filterDateTo !== '';
-    const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax, filterDateFrom, filterDateTo].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1);
+    const labelFilterActive = archiveView === 'current' && (selectedLabelIds.length > 0 || withoutLabels);
+    const hasActiveFilters = labelFilterActive || filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '' || filterDateFrom !== '' || filterDateTo !== '';
+    const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax, filterDateFrom, filterDateTo].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1) + (labelFilterActive ? 1 : 0);
     const archiveCounts = useMemo(() => getLatestEstimateVersions(allEstimatesList).reduce((counts, estimate) => {
         counts[estimate.isArchived ? 'archive' : 'current'] += 1;
         return counts;
     }, { current: 0, archive: 0 }), [allEstimatesList]);
 
     const resetFilters = () => {
+        setSelectedLabelIds([]);
+        setWithoutLabels(false);
         setFilterClient('');
         setFilterStatus('all');
         setFilterBuildingType('');
@@ -404,6 +425,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
         const latestEstimates = getLatestEstimateVersions(source)
             .filter(e => archiveView === 'archive' ? e.isArchived : !e.isArchived);
         return latestEstimates
+            .filter(e => matchesEstimateLabels(e, selectedLabelIds, labelsDocument, withoutLabels, archiveView))
             .filter(e => filterClient === '' || e.client.toLowerCase().includes(filterClient.toLowerCase()))
             .filter(e => filterStatus === 'all' || e.status === filterStatus)
             .filter(e => filterBuildingType === '' || e.buildingType.toLowerCase().includes(filterBuildingType.toLowerCase()))
@@ -418,7 +440,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 return (filterDateFrom === '' || day >= filterDateFrom) && (filterDateTo === '' || day <= filterDateTo);
             })
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-    }, [estimateList, allEstimatesList, archiveView, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax, filterDateFrom, filterDateTo]);
+    }, [estimateList, allEstimatesList, archiveView, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax, filterDateFrom, filterDateTo, selectedLabelIds, labelsDocument, withoutLabels]);
     
     // Single grouping pass instead of a full-list filter per rendered row.
     const estimatesByNumber = useMemo(() => {
@@ -515,9 +537,12 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 </div>
             </div>
 
-            <div className="mb-4 inline-flex rounded-lg border border-border bg-background/40 p-1" role="tablist" aria-label="Состояние смет">
+            <div className="mb-4 flex flex-wrap items-end gap-3">
+            <div className="inline-flex min-h-11 rounded-lg border border-border bg-background/40 p-1" role="tablist" aria-label="Состояние смет">
                 <button type="button" role="tab" aria-selected={archiveView === 'current'} onClick={() => setArchiveView('current')} className={`min-h-9 rounded-md px-4 text-sm font-medium transition ${archiveView === 'current' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'}`}>Текущие {archiveCounts.current}</button>
                 <button type="button" role="tab" aria-selected={archiveView === 'archive'} onClick={() => setArchiveView('archive')} className={`min-h-9 rounded-md px-4 text-sm font-medium transition ${archiveView === 'archive' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'}`}>Архив {archiveCounts.archive}</button>
+            </div>
+            {archiveView === 'current' && <div className="w-full max-w-xs"><EstimateLabelsPicker selectedIds={selectedLabelIds} onChange={setSelectedLabelIds} withoutLabels={withoutLabels} onWithoutLabelsChange={setWithoutLabels} /></div>}
             </div>
 
             <div className="mb-4 flex items-center gap-2 xl:hidden">
@@ -637,6 +662,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                 <tr key={estimate.id} className="border-b border-border/70 transition-colors hover:bg-white/[0.03]">
                                     <td className="px-3 py-2.5 text-left">
                                         <div className="max-w-[240px] truncate text-sm font-medium">{selectedEstimate.client || 'Без клиента'}</div>
+                                        {renderLabels(selectedEstimate)}
                                         <div className="mt-0.5 text-xs text-text-secondary">
                                             {selectedEstimate.estimateNumber} · {new Date(selectedEstimate.date).toLocaleDateString('ru-RU')}
                                         </div>
@@ -691,6 +717,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                             <div className="flex items-start justify-between gap-2 mb-2">
                                 <div className="min-w-0 flex-1">
                                     <div className="font-semibold text-text-primary truncate">{estimate.client || 'Без клиента'}</div>
+                                    {renderLabels(selectedEstimate)}
                                     <div className="text-xs text-text-secondary">{estimate.estimateNumber} &middot; {estimate.area} м² &middot; {estimate.buildingType}</div>
                                 </div>
                                 <StatusBadge status={selectedEstimate.status} className="shrink-0" />

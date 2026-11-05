@@ -179,8 +179,11 @@ const EstimateSectionsSettings: React.FC = () => {
       )}
       {document.syncConflict && (
         <div role="alert" className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4">
-          <div className="font-semibold text-amber-200">Разделы изменены на другом устройстве</div>
+          <div className="font-semibold text-amber-200">Разделы или метки изменены на другом устройстве</div>
           <p className="mt-1 text-sm text-text-secondary">Выберите, какой вариант сохранить. Сметы и другие данные продолжают синхронизироваться.</p>
+          <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
+            {(['local', 'remote'] as const).map(side => <div key={side}><p className="font-semibold">{side === 'local' ? 'На этом устройстве' : 'На другом устройстве'} · метки</p><ul className="mt-1 space-y-1">{(document.syncConflict?.[side].labels ?? []).map(label => <li key={label.id} className="break-words">{label.name}{label.deleted ? ' · удалена' : ''}</li>)}</ul></div>)}
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => void resolveConflict('local').catch(() => undefined)} className="min-h-11 rounded-lg bg-primary px-4 font-semibold text-white">Оставить этот вариант</button>
             <button type="button" onClick={() => void resolveConflict('remote').catch(() => undefined)} className="min-h-11 rounded-lg border border-border px-4">Принять вариант с другого устройства</button>

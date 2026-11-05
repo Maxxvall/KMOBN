@@ -85,8 +85,8 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
         const conflict: EstimateSectionsDocument = {
           ...local,
           syncConflict: {
-            local: { definitions: local.definitions, order: local.order, serverRevision: local.serverRevision },
-            remote: { definitions: remote.definitions, order: remote.order, serverRevision: remote.serverRevision },
+            local: { definitions: local.definitions, labels: local.labels, order: local.order, serverRevision: local.serverRevision },
+            remote: { definitions: remote.definitions, labels: remote.labels, order: remote.order, serverRevision: remote.serverRevision },
             detectedAt: new Date().toISOString(),
           },
         };
@@ -104,6 +104,7 @@ export const executeRemoteChange: ExecutePendingChange = async (change, userId) 
           ...confirmed,
           baseDocument: {
             definitions: confirmed.definitions,
+            labels: confirmed.labels,
             order: confirmed.order,
             serverRevision: confirmed.serverRevision,
           },

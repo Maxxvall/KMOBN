@@ -1,3 +1,4 @@
+import { getEffectiveEstimateLabelIds } from '../services/estimateLabels';
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
 import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
@@ -1343,6 +1344,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }
         const finalEstimate = {
             ...estimate,
+            labelIds: getEffectiveEstimateLabelIds(estimate, sectionsDocument),
             id: initialEstimateValue ? estimate.id : `sm-id-${Date.now()}`,
             estimateNumber: initialEstimateValue ? estimate.estimateNumber : generateEstimateNumber(allEstimatesValue.map(item => item.estimateNumber), new Date()),
             sortOrder: initialEstimateValue ? estimate.sortOrder : (estimate.sortOrder ?? Date.now()),

@@ -1,3 +1,4 @@
+import { getActiveEstimateLabels, getEffectiveEstimateLabelIds, mergeImportedEstimateLabels, normalizeEstimateLabelIds } from './estimateLabels';
 import {
     Estimate,
     EstimateStatus,
@@ -120,6 +121,8 @@ export const prepareSharedEstimateImport = (
     numberChanged,
     estimate: {
       ...source,
+      labelIds: [],
+      labelSnapshots: undefined,
       id: newId,
       parentId: undefined,
       estimateNumber,
@@ -149,10 +152,12 @@ export const importSharedEstimate = async (payloadText: string): Promise<Importe
   return imported;
 };
 
-export const prepareEstimatesForExport = (estimates: Estimate[]): Estimate[] => estimates.map(estimate => {
+export const prepareEstimatesForExport = (estimates: Estimate[], document?: EstimateSectionsDocument | null): Estimate[] => estimates.map(estimate => {
   const { explanation: _internalExplanation, ...exportableEstimate } = estimate;
   void _internalExplanation;
-  return exportableEstimate;
+  if (!document) return exportableEstimate;
+  const labelIds = getEffectiveEstimateLabelIds(estimate, document);
+  return { ...exportableEstimate, labelIds, labelSnapshots: getActiveEstimateLabels(document).filter(label => labelIds.includes(label.id)) };
 });
 
 export const mergeImportedEstimate = (incoming: Estimate, existing?: Estimate): Estimate => {
@@ -174,7 +179,7 @@ export const exportData = async (): Promise<string> => {
 
   const data = {
     schemaVersion: SCHEMA_VERSION,
-    estimates: prepareEstimatesForExport(estimates),
+    estimates: prepareEstimatesForExport(estimates, estimateSections[0]),
     templates,
     materials,
     works,
@@ -286,6 +291,7 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     };
 
     const hasEstimateChanged = (existing: Estimate, incoming: Estimate): boolean => {
+      if (JSON.stringify(normalizeEstimateLabelIds(existing.labelIds).sort()) !== JSON.stringify(normalizeEstimateLabelIds(incoming.labelIds).sort())) return true;
       if (existing.client !== incoming.client) return true;
       if (existing.date !== incoming.date) return true;
       if (existing.status !== incoming.status) return true;
@@ -312,6 +318,7 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     const existingEstimates = await loadEstimates();
     const existingTemplates = await loadTemplates();
     const existingBundles = await loadBundles();
+    const existingSections = (await loadEstimateSections())[0];
 
     const existingMaterialByName = new Map<string, Material>();
     for (const m of existingMaterials) {
@@ -341,6 +348,8 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     const rawEstimateSections = isObject(data.estimateSections)
       ? data.estimateSections as unknown as EstimateSectionsDocument
       : null;
+    const importedLabels = rawEstimateSections?.labels ?? rawEstimates.flatMap(estimate => Array.isArray(estimate.labelSnapshots) ? estimate.labelSnapshots : []);
+    const labelsDocument = { labels: mergeImportedEstimateLabels(existingSections?.labels, importedLabels) };
 
     let estimatesAdded = 0, estimatesUpdated = 0, estimatesUnchanged = 0;
     const estimateIdMap = new Map<string, string>();
@@ -390,6 +399,8 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       const merged = mergeImportedEstimate(e, existingEstimateByNumberVersion.get(key));
       return {
         ...merged,
+        labelIds: getEffectiveEstimateLabelIds(e, labelsDocument),
+        labelSnapshots: undefined,
         id: mappedId,
         parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
         items: Array.isArray(e.items) ? e.items : [],
@@ -487,16 +498,20 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       await saveLocalRecords(tableName, records);
     };
 
-    if (rawEstimateSections) {
+    if (rawEstimateSections || importedLabels.length) {
       const userId = getWorkspaceUserId();
       if (userId) {
+        if (existingSections?.syncConflict) throw new Error('Сначала разрешите конфликт справочника разделов и меток, затем повторите импорт.');
+        const source = rawEstimateSections ?? existingSections;
+        const before = normalizeEstimateSectionsDocument(existingSections, userId);
         await saveEstimateSections({
-          ...normalizeEstimateSectionsDocument(rawEstimateSections, userId),
+          ...normalizeEstimateSectionsDocument(source, userId),
           id: userId,
-          serverRevision: 0,
-          baseDocument: undefined,
+          labels: labelsDocument.labels,
+          serverRevision: existingSections?.serverRevision ?? 0,
+          baseDocument: before.baseDocument ?? { definitions: before.definitions, order: before.order, labels: before.labels, serverRevision: before.serverRevision },
           operationId: undefined,
-          syncConflict: undefined,
+          syncConflict: existingSections?.syncConflict,
         });
       }
     }

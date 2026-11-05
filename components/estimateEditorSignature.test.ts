@@ -30,6 +30,13 @@ const estimate = (items: EstimateItem[]): Estimate => ({
 describe('buildEstimateDirtySignature', () => {
     const base = estimate([item()]);
 
+    it('detects labels-only edits and compares assignments as a set', () => {
+        const ids = ['system:typical-projects', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'];
+        const labelled = { ...base, labelIds: ids };
+        expect(buildEstimateDirtySignature(labelled)).not.toBe(buildEstimateDirtySignature(base));
+        expect(buildEstimateDirtySignature(labelled)).toBe(buildEstimateDirtySignature({ ...base, labelIds: [...ids].reverse() }));
+    });
+
     it('is stable for the same content', () => {
         expect(buildEstimateDirtySignature(base)).toBe(buildEstimateDirtySignature(estimate([item()])));
     });

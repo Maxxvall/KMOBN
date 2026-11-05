@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { EstimateCategory, EstimateStatus, type Estimate, type Material } from '../types';
+import { EstimateCategory, EstimateStatus, type Estimate, type Material, type EstimateSectionsDocument } from '../types';
 import { getCacheUserId, getCachedRecords } from './indexedDbCache';
 import { offlineQueue } from './offlineQueue';
 import { exportData, importData, validateImportData } from './dataTransfer';
@@ -104,6 +104,49 @@ describe('importData', () => {
     });
 
     const cachedMaterials = async () => getCachedRecords<Material>('materials', getCacheUserId(USER_ID));
+
+    it('rejects a previous account label document before it can enter the new account queue', async () => {
+        const { saveEstimateSections } = await import('./database');
+        const { createEstimateSectionsDocument } = await import('./estimateSections');
+        await expect(saveEstimateSections(createEstimateSectionsDocument('previous-account'))).rejects.toThrow('другого пользователя');
+        expect(await offlineQueue.getForTable(USER_ID, 'estimate_sections')).toEqual([]);
+    });
+
+    it('keeps label definitions and deletions when a legacy sections draft is saved', async () => {
+        const { saveEstimateSections, loadEstimateSections, saveEstimates, loadEstimates } = await import('./database');
+        const { createEstimateSectionsDocument } = await import('./estimateSections');
+        const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const legacy = createEstimateSectionsDocument(USER_ID);
+        delete legacy.labels;
+        await saveEstimateSections({ ...legacy, labels: [{ id, name: 'Баня', deleted: true }] });
+        await saveEstimateSections(legacy);
+        expect((await loadEstimateSections())[0].labels).toContainEqual({ id, name: 'Баня', deleted: true });
+        await saveEstimateSections({ ...legacy, labels: [{ id, name: 'Старое имя' }] });
+        expect((await loadEstimateSections())[0].labels).toContainEqual({ id, name: 'Баня', deleted: true });
+        const labelled = estimate('saved', { labelIds: ['system:typical-projects'] });
+        await saveEstimates([labelled]);
+        offlineQueue.close();
+        expect((await loadEstimates())[0].labelIds).toEqual(['system:typical-projects']);
+        const before = await offlineQueue.getForTable(USER_ID, 'estimates');
+        await saveEstimates([labelled]);
+        expect(await offlineQueue.getForTable(USER_ID, 'estimates')).toEqual(before);
+    });
+
+    it('restores estimates-only label definitions, reports labels-only edits and keeps canonical tombstones', async () => {
+        const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const labelled = estimate('labelled', { labelIds: [id], labelSnapshots: [{ id, name: 'Баня' }] });
+        await importData(backupPayload({ estimates: [labelled] }));
+        const exported = JSON.parse(await exportData());
+        expect(exported.estimateSections.labels).toContainEqual({ id, name: 'Баня' });
+        expect(exported.estimates[0].labelSnapshots).toContainEqual({ id, name: 'Баня' });
+        const changed = await importData(backupPayload({ estimates: [{ ...labelled, labelIds: [] }] }));
+        expect(changed.estimates).toMatchObject({ updated: 1, unchanged: 0 });
+        const { saveEstimateSections } = await import('./database');
+        const document = (await getCachedRecords<EstimateSectionsDocument>('estimate_sections', getCacheUserId(USER_ID)))[0];
+        await saveEstimateSections({ ...document, labels: [{ id, name: 'Новое имя', deleted: true }] });
+        await importData(backupPayload({ estimates: [labelled] }));
+        expect(JSON.parse(await exportData()).estimateSections.labels).toContainEqual({ id, name: 'Новое имя', deleted: true });
+    });
 
     it('reports order-only imports as updated and round trips their snapshot', async () => {
         const original = estimate('section-order', {

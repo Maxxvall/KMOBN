@@ -50,6 +50,16 @@ describe('offlineQueue', () => {
     });
   });
 
+  it('rebases a successor sections edit on the confirmed label snapshot', async () => {
+    const document = { id: TEST_USERS[0], definitions: [], order: [], labels: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', name: 'Баня', deleted: true }], serverRevision: 0 };
+    await offlineQueue.enqueueUpserts(TEST_USERS[0], 'estimate_sections', [document]);
+    const sent = (await offlineQueue.getAll(TEST_USERS[0]))[0];
+    await offlineQueue.enqueueUpserts(TEST_USERS[0], 'estimate_sections', [{ ...document, operationId: 'successor' }]);
+    const confirmed = { ...document, serverRevision: 3 };
+    const rebased = await offlineQueue.rebaseAfterConfirmation(sent.id, sent.sequence, sent.operationId, confirmed);
+    expect(rebased?.data).toMatchObject({ serverRevision: 3, baseDocument: { labels: document.labels, serverRevision: 3 } });
+  });
+
   it('isolates reads, counts, and cleanup by user', async () => {
     await offlineQueue.enqueueUpserts(
       TEST_USERS[0],
