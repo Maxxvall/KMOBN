@@ -2,7 +2,7 @@ window.STATE =
 {
   "version": 2,
   "slug": "estimate-labels",
-  "dir": "2026-11-05-estimate-labels--wip",
+  "dir": "2026-11-05-estimate-labels",
   "title": "Метки смет и типовые проекты для расчёта дома",
   "mode": "interview",
   "depth": "normal",
@@ -11,10 +11,10 @@ window.STATE =
   "memoryFile": "AGENTS.md",
   "memoryOwner": "user",
   "skillDir": "C:/Users/Administrator/.agents/skills/autopilot",
-  "baseCommit": null,
+  "baseCommit": "0d47196",
   "startedAt": "2026-11-05T15:26:35+03:00",
-  "updatedAt": "2026-11-05T15:44:57+03:00",
-  "finishedAt": null,
+  "updatedAt": "2026-11-05T16:50:03+03:00",
+  "finishedAt": "2026-11-05T16:50:03+03:00",
   "stages": [
     {
       "id": "preflight",
@@ -42,30 +42,37 @@ window.STATE =
     },
     {
       "id": "plan",
-      "status": "active",
-      "startedAt": "2026-11-05T15:44:54+03:00"
+      "status": "done",
+      "startedAt": "2026-11-05T15:44:54+03:00",
+      "finishedAt": "2026-11-05T15:45:42+03:00"
     },
     {
       "id": "build",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-05T15:45:42+03:00",
+      "finishedAt": "2026-11-05T16:04:19+03:00"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-05T16:04:19+03:00",
+      "finishedAt": "2026-11-05T16:25:00+03:00"
     },
     {
       "id": "final",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-05T16:25:00+03:00",
+      "finishedAt": "2026-11-05T16:50:03+03:00"
     }
   ],
   "requirements": {
-    "total": 21,
-    "done": 0,
-    "inTicket": 21,
+    "total": 26,
+    "done": 25,
+    "inTicket": 0,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
-    "dropped": 0
+    "dropped": 1
   },
   "tickets": [
     {
@@ -114,12 +121,118 @@ window.STATE =
       ],
       "review": "нет — один T0 таск, независимое ревью всей ветки закрывает его целиком",
       "model": "сильная — общий persistence/merge-контракт и все пути источников калькулятора",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-05T15:45:43+03:00",
+      "finishedAt": "2026-11-05T16:04:18+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 394,
+        "failed": 0
+      },
+      "commit": "6bf4f1a"
+    },
+    {
+      "id": "02",
+      "title": "Передача проверенного результата на GitHub",
+      "requirements": [
+        "G11",
+        "G15"
+      ],
+      "blockedBy": [
+        "01",
+        "F1",
+        "03"
+      ],
+      "wave": 4,
+      "zone": [
+        ".autopilot/"
+      ],
+      "review": "нет — завершающий операционный шаг, продуктовый код не меняется",
+      "model": "обычная",
+      "status": "done",
+      "retries": 0,
+      "repairs": 0,
+      "startedAt": "2026-11-05T16:49:08+03:00",
+      "finishedAt": "2026-11-05T16:49:09+03:00",
+      "tests": {
+        "passed": 109,
+        "failed": 0
+      },
+      "commit": "2848de5"
+    },
+    {
+      "id": "03",
+      "title": "Офлайн-приёмка и ПК-версия 1.9.1",
+      "requirements": [
+        "G12",
+        "G13"
+      ],
+      "blockedBy": [
+        "01",
+        "F1"
+      ],
+      "wave": 3,
+      "zone": [
+        "package.json",
+        "package-lock.json",
+        "services/estimateLabels.test.ts",
+        "services/database.test.ts",
+        "services/database.offline.test.ts",
+        "services/offlineQueue.test.ts",
+        "services/offlineSync.test.ts",
+        "services/estimateSections.test.ts"
+      ],
+      "review": "нет — версия и существующий packaging flow, продуктовая функция уже отдельно рассмотрена",
+      "model": "обычная",
+      "status": "done",
+      "startedAt": "2026-11-05T16:17:03+03:00",
+      "finishedAt": "2026-11-05T16:24:59+03:00",
+      "retries": 0,
+      "repairs": 0,
+      "tests": {
+        "passed": 52,
+        "failed": 0
+      },
+      "commit": "2848de5"
+    },
+    {
+      "id": "F1",
+      "title": "Ремонт импорта меток и позднего обновления аккаунта",
+      "requirements": [
+        "R04",
+        "R09i",
+        "G06",
+        "G07"
+      ],
+      "blockedBy": [],
+      "wave": 2,
+      "zone": [
+        "services/estimateLabels.ts",
+        "services/estimateLabels.test.ts",
+        "services/dataTransfer.ts",
+        "services/dataTransfer.test.ts",
+        "App.tsx",
+        "services/database.test.ts"
+      ],
+      "review": "да — ремонт ветки",
+      "model": "сильная",
+      "status": "done",
+      "startedAt": "2026-11-05T16:10:29+03:00",
+      "finishedAt": "2026-11-05T16:17:00+03:00",
+      "retries": 0,
+      "repairs": 0,
+      "tests": {
+        "passed": 397,
+        "failed": 0
+      },
+      "commit": "2aea9cc"
     }
   ],
-  "tests": null,
+  "tests": {
+    "passed": 109,
+    "failed": 0
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -134,8 +247,14 @@ window.STATE =
       "Контекст номерных ответов записан дословно в бриф; системная метка и наследование проверяемы. Остальное — прикладные уточнения R03/R04/R09i/R10i в пределах задачи."
     ]
   },
-  "concerns": [],
-  "blind": null,
+  "concerns": [
+    "Визуальный UI, live cloud и fresh install не проверялись; installer 1.9.1 собран и проверен по версии/хешу, не устанавливался."
+  ],
+  "blind": {
+    "checked": 23,
+    "matched": 23,
+    "mismatches": []
+  },
   "beats": [
     "2026-11-05T15:26:35+03:00",
     "2026-11-05T15:26:48+03:00",
@@ -150,9 +269,33 @@ window.STATE =
     "2026-11-05T15:44:54+03:00",
     "2026-11-05T15:44:55+03:00",
     "2026-11-05T15:44:56+03:00",
-    "2026-11-05T15:44:57+03:00"
+    "2026-11-05T15:44:57+03:00",
+    "2026-11-05T15:45:41+03:00",
+    "2026-11-05T15:45:42+03:00",
+    "2026-11-05T15:45:43+03:00",
+    "2026-11-05T16:04:18+03:00",
+    "2026-11-05T16:04:19+03:00",
+    "2026-11-05T16:10:27+03:00",
+    "2026-11-05T16:10:28+03:00",
+    "2026-11-05T16:10:29+03:00",
+    "2026-11-05T16:17:00+03:00",
+    "2026-11-05T16:17:01+03:00",
+    "2026-11-05T16:17:02+03:00",
+    "2026-11-05T16:17:03+03:00",
+    "2026-11-05T16:18:25+03:00",
+    "2026-11-05T16:24:59+03:00",
+    "2026-11-05T16:25:00+03:00",
+    "2026-11-05T16:34:14+03:00",
+    "2026-11-05T16:34:15+03:00",
+    "2026-11-05T16:49:05+03:00",
+    "2026-11-05T16:49:06+03:00",
+    "2026-11-05T16:49:07+03:00",
+    "2026-11-05T16:49:08+03:00",
+    "2026-11-05T16:49:09+03:00",
+    "2026-11-05T16:50:02+03:00",
+    "2026-11-05T16:50:03+03:00"
   ],
-  "rev": 15,
+  "rev": 39,
   "waiting": null,
   "waits": [
     {
@@ -250,113 +393,309 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-11-05T15:45:42+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-05T15:45:43+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-05T16:04:18+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 394,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-05T16:04:19+03:00",
+      "k": "stage",
+      "id": "review",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-05T16:10:27+03:00",
+      "k": "tickets",
+      "n": 3
+    },
+    {
+      "t": "2026-11-05T16:10:28+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-05T16:10:29+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-05T16:17:00+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 397,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-05T16:17:01+03:00",
+      "k": "tickets",
+      "n": 4
+    },
+    {
+      "t": "2026-11-05T16:17:02+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-05T16:17:03+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-05T16:18:25+03:00",
+      "k": "tickets",
+      "n": 4
+    },
+    {
+      "t": "2026-11-05T16:24:59+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 52,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-05T16:25:00+03:00",
+      "k": "stage",
+      "id": "final",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-05T16:34:14+03:00",
+      "k": "tickets",
+      "n": 4
+    },
+    {
+      "t": "2026-11-05T16:34:15+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-05T16:49:05+03:00",
+      "k": "tickets",
+      "n": 4
+    },
+    {
+      "t": "2026-11-05T16:49:06+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-05T16:49:07+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": true,
+      "checked": 23,
+      "matched": 23
+    },
+    {
+      "t": "2026-11-05T16:49:08+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-05T16:49:09+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 109,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-05T16:50:02+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 1
+    },
+    {
+      "t": "2026-11-05T16:50:03+03:00",
+      "k": "finish",
+      "result": "Метки до двух, AND-фильтр текущих, типовые источники дома, проверенный офлайн и ПК 1.9.1; code 2848de5 отправлен на GitHub. CI397, offline52, чистая копия109, installer build пройдены."
     }
   ],
   "reqList": [
     {
       "id": "R01",
       "text": "«во вкладке сметы текущий и архив, вот рядом нужно добавить ещё метка»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R02",
       "text": "«раскрывающийся список»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R03",
       "text": "«там будут сначала типовые проекты»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R04",
       "text": "«и кнопка добавить можно будет разные добавлять туда»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R05",
       "text": "«внутри другой сметы где есть клиент , тип постройки , туда нужно добавить ещё метку»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R06",
       "text": "«в сметах при выборе метки будет как бы сортировка»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R07",
       "text": "«расчет дома брать нужно будет только из типовых проектов»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R08",
       "text": "«они у нас будут просчитаны»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R09i",
       "text": "(подразумевается) назначенная метка и добавленные метки сохраняются при повторном открытии",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R10i",
       "text": "(подразумевается) отсутствие подходящих типовых проектов обрабатывается явно",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R11i",
       "text": "(подразумевается) существующие сметы продолжают открываться без назначенной метки",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G01",
       "text": "«1.несколько 2 метки может быть»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G02",
       "text": "«2.внутри текущих»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G03",
       "text": "«3.достаточно типовые проекты»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G04",
       "text": "«Можем несколько одновременно»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G05",
       "text": "«Две метки выбрал, он ищет и типовые проекты, и баня, где две метки также указаны»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G06",
       "text": "«нужно и переименование и удаление меток»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G07",
       "text": "«если он переименовывает метку, то где есть в других сметах эта метка, она тоже переименуется»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G08",
       "text": "«я зайду в смету и выберу метку для своих смет сам»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G09",
       "text": "«Да, старым сметам ничего не надо назначать»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "G10",
       "text": "«Четвёртый вопрос, да, как ты написал, рекомендовано»",
-      "status": "in-ticket"
+      "status": "done"
+    },
+    {
+      "id": "G11",
+      "text": "«После завершения , запуш на гитхаб и сделай короткий отчёт, что ты сделал , простыми словами»",
+      "status": "done"
+    },
+    {
+      "id": "G12",
+      "text": "«Так же офлайн , что бы все продуманно было»",
+      "status": "done"
+    },
+    {
+      "id": "G13",
+      "text": "«и потом в конце ещё версию пк подыми»",
+      "status": "done"
+    },
+    {
+      "id": "G14",
+      "text": "«Пока оставить результат локально»",
+      "status": "dropped",
+      "why": "Временная остановка push отменена пользователем: «Интернет попался повтори»"
+    },
+    {
+      "id": "G15",
+      "text": "«Интернет попался повтори»",
+      "status": "done"
     }
   ],
   "gates": {
@@ -375,9 +714,15 @@ window.STATE =
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-05T15:44:57+03:00",
+      "at": "2026-11-05T16:49:06+03:00",
       "problems": 0
+    },
+    "G4": {
+      "ok": true,
+      "at": "2026-11-05T16:49:07+03:00",
+      "checked": 23,
+      "matched": 23
     }
   },
-  "result": null
+  "result": "Метки до двух, AND-фильтр текущих, типовые источники дома, проверенный офлайн и ПК 1.9.1; code 2848de5 отправлен на GitHub. CI397, offline52, чистая копия109, installer build пройдены."
 }

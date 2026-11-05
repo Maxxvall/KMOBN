@@ -15,6 +15,10 @@
 - Не читать значения .env, credentials и локальные пользовательские данные; не выводить их. Проверки persistence только в изолированной fake-IndexedDB/моках, не в пользовательском workspace.
 - Не менять структуру доступа, SQL/RLS/RPC и Electron-интеграцию. Никаких новых зависимостей, global install, push, deploy или обращений к live-данным.
 
+Дополнение 2026-11-05: пользователь явно разрешил координатору обычный GitHub push после завершения и проверок. Запрет push для исполнителя сохраняется; операционный шаг выполняется координатором в конце, без force.
+
+Позднейшее дополнение 2026-11-05: офлайн-проверка перед завершением и ПК-версия 1.9.1 с локальным установщиком Windows. Только ticket03 разрешает править package metadata/lock и выполнить существующий Windows build с `--publish never`; не устанавливать, не публиковать GitHub Release, не создавать publish-triggering tags. Старый запрет build относился к исходному feature slice; новый release gate явно разрешён пользователем.
+
 ## Границы, решённые в спецификации
 
 ### Типы и бизнес-правила меток
@@ -64,4 +68,7 @@
 
 ## Реализованные интерфейсы
 
-Заполняет координатор после возврата исполнителя.
+- `EstimateLabelDefinition {id,name,deleted?}`; `Estimate.labelIds?: string[]`, `labelSnapshots?: EstimateLabelDefinition[]`; `EstimateSectionsDocument.labels?` и labels в base/conflict snapshots.
+- `estimateLabels`: константы `TYPICAL_PROJECT_LABEL_ID`, `MAX_ESTIMATE_LABELS`, `MAX_ESTIMATE_LABEL_NAME_LENGTH`; `normalizeEstimateLabelName/Definitions/Ids`, `getActiveEstimateLabels`, `getEffectiveEstimateLabelIds`, `getActiveEstimateLabelFilterIds`, `matchesEstimateLabels(estimate,selected,document?,withoutLabels=false,archiveView='current')`, `isTypicalProject`, `validateEstimateLabelName`, `mergeImportedEstimateLabels`.
+- `estimateSections`: `addEstimateLabel(document,name,id?)`, `renameEstimateLabel(document,id,name)`, `deleteEstimateLabel(document,id)`; context предоставляет `activeLabels`, `saving`, async `addLabel/renameLabel/deleteLabel`.
+- `prepareEstimatesForExport(estimates,document?)` добавляет переносные snapshots. Share очищает private assignments/definitions.
