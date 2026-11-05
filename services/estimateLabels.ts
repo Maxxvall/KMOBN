@@ -56,5 +56,11 @@ export const validateEstimateLabelName = (document: LabelDocument, value: string
 export const mergeImportedEstimateLabels = (existing: unknown, incoming: unknown): EstimateLabelDefinition[] => {
     const current = normalizeEstimateLabelDefinitions(existing);
     const ids = new Set(current.map(label => label.id));
-    return [...current, ...normalizeEstimateLabelDefinitions(incoming).filter(label => !ids.has(label.id))];
+    for (const label of normalizeEstimateLabelDefinitions(incoming)) {
+        if (ids.has(label.id)) continue;
+        if (!label.deleted) validateEstimateLabelName({ labels: current }, label.name);
+        current.push(label);
+        ids.add(label.id);
+    }
+    return current;
 };

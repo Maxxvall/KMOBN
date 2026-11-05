@@ -112,6 +112,54 @@ describe('importData', () => {
         expect(await offlineQueue.getForTable(USER_ID, 'estimate_sections')).toEqual([]);
     });
 
+    it.each(['definitions', 'snapshots'])('rejects duplicate normalized label names in %s before changing stored records or offline operations', async source => {
+        const { createEstimateSectionsDocument } = await import('./estimateSections');
+        await importData(backupPayload());
+        const before = JSON.parse(await exportData());
+        const pendingBefore = await offlineQueue.getAll(USER_ID);
+        const bath = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const duplicate = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        const labels = [{ id: bath, name: 'Bath' }, { id: duplicate, name: '  BATH  ' }];
+
+        await expect(importData(backupPayload({
+            estimateSections: source === 'definitions' ? {
+                ...createEstimateSectionsDocument(USER_ID),
+                labels,
+            } : undefined,
+            estimates: [estimate('duplicate-labels', {
+                estimateNumber: 'SM-2026-002',
+                labelIds: [bath, duplicate],
+                labelSnapshots: source === 'snapshots' ? labels : undefined,
+            })],
+            materials: [material('Доска', 999)],
+        }))).rejects.toThrow('Метка с таким названием уже существует.');
+
+        expect(JSON.parse(await exportData())).toEqual({ ...before, exportedAt: expect.any(String) });
+        expect(await offlineQueue.getAll(USER_ID)).toEqual(pendingBefore);
+    });
+
+    it('rejects an imported label that duplicates a canonical local name without partially importing the file', async () => {
+        const bath = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const duplicate = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        await importData(backupPayload({
+            estimates: [estimate('local-label', { labelIds: [bath], labelSnapshots: [{ id: bath, name: 'Bath' }] })],
+        }));
+        const before = JSON.parse(await exportData());
+        const pendingBefore = await offlineQueue.getAll(USER_ID);
+
+        await expect(importData(backupPayload({
+            estimates: [estimate('imported-label', {
+                estimateNumber: 'SM-2026-002',
+                labelIds: [duplicate],
+                labelSnapshots: [{ id: duplicate, name: '  BATH  ' }],
+            })],
+            materials: [material('Доска', 999)],
+        }))).rejects.toThrow('Метка с таким названием уже существует.');
+
+        expect(JSON.parse(await exportData())).toEqual({ ...before, exportedAt: expect.any(String) });
+        expect(await offlineQueue.getAll(USER_ID)).toEqual(pendingBefore);
+    });
+
     it('keeps label definitions and deletions when a legacy sections draft is saved', async () => {
         const { saveEstimateSections, loadEstimateSections, saveEstimates, loadEstimates } = await import('./database');
         const { createEstimateSectionsDocument } = await import('./estimateSections');

@@ -351,7 +351,7 @@ const App: React.FC = () => {
 
         if (detail.key === 'estimate_sections') {
             const loaded = detail.data[0] as EstimateSectionsDocument | undefined;
-            if (supabaseUser) setSectionsDocument(normalizeEstimateSectionsDocument(loaded, supabaseUser.id));
+            if (supabaseUser && loaded?.id === supabaseUser.id) setSectionsDocument(normalizeEstimateSectionsDocument(loaded, supabaseUser.id));
             return;
         }
 
