@@ -32,7 +32,8 @@ import {
   updateWork,
   saveEstimateSections,
 } from './database';
-import { addUserEstimateSection, createEstimateSectionsDocument } from './estimateSections';
+import { addEstimateLabel, addUserEstimateSection, createEstimateSectionsDocument, deleteEstimateLabel, renameEstimateLabel } from './estimateSections';
+import { getActiveEstimateLabels, getEffectiveEstimateLabelIds, TYPICAL_PROJECT_LABEL_ID } from './estimateLabels';
 import { normalizeEstimateChains } from './estimateLifecycle';
 import { closeIndexedDbCache, getCacheUserId, getCachedRecords, upsertCachedRecords, type CacheTableKey } from './indexedDbCache';
 import { offlineQueue } from './offlineQueue';
@@ -209,6 +210,58 @@ describe('database offline behavior', () => {
         operation: 'upsert',
         data: localDocument,
       }),
+    ]);
+  });
+
+  it('persists offline label CRUD and assignments across reopen without reviving deleted IDs', async () => {
+    const labelId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const initialDocument = createEstimateSectionsDocument(USER_A);
+    const initialEstimate = estimate('offline-labels');
+    await saveEstimates([initialEstimate]);
+    const [initialChange] = await offlineQueue.getForTable(USER_A, 'estimates');
+    await offlineQueue.acknowledge(initialChange.id, initialChange.sequence, initialChange.operationId);
+
+    const created = addEstimateLabel(initialDocument, 'Баня', labelId);
+    await saveEstimateSections(created);
+    await saveEstimates([{ ...initialEstimate, labelIds: [labelId] }]);
+    closeIndexedDbCache();
+    await offlineQueue.close();
+
+    const [assigned] = await loadEstimates();
+    const [reopenedCreated] = await loadEstimateSections();
+    expect(assigned.labelIds).toEqual([labelId]);
+    expect(getEffectiveEstimateLabelIds(assigned, reopenedCreated)).toEqual([labelId]);
+    expect(getActiveEstimateLabels(reopenedCreated)).toContainEqual({ id: labelId, name: 'Баня' });
+
+    await saveEstimateSections(renameEstimateLabel(reopenedCreated, labelId, 'Парная'));
+    closeIndexedDbCache();
+    const [renamed] = await loadEstimateSections();
+    expect(getActiveEstimateLabels(renamed)).toContainEqual({ id: labelId, name: 'Парная' });
+    expect((await loadEstimates())[0].labelIds).toEqual([labelId]);
+
+    await saveEstimateSections(deleteEstimateLabel(renamed, labelId));
+    // A delayed estimate still carries its old assignment after the label is deleted.
+    await saveEstimates([{ ...assigned, client: 'Delayed offline edit' }]);
+    closeIndexedDbCache();
+    await offlineQueue.close();
+
+    const [deleted] = await loadEstimateSections();
+    const [staleEstimate] = await loadEstimates();
+    expect(deleted.labels).toContainEqual({ id: labelId, name: 'Парная', deleted: true });
+    expect(getActiveEstimateLabels(deleted)).toEqual([{ id: TYPICAL_PROJECT_LABEL_ID, name: 'Типовые проекты' }]);
+    expect(staleEstimate.labelIds).toEqual([labelId]);
+    expect(getEffectiveEstimateLabelIds(staleEstimate, deleted)).toEqual([]);
+    expect(await offlineQueue.getForTable(USER_A, 'estimate_sections')).toEqual([
+      expect.objectContaining({
+        operation: 'upsert',
+        data: expect.objectContaining({
+          labels: expect.arrayContaining([{ id: labelId, name: 'Парная', deleted: true }]),
+          baseDocument: expect.objectContaining({ labels: [{ id: TYPICAL_PROJECT_LABEL_ID, name: 'Типовые проекты' }] }),
+        }),
+      }),
+    ]);
+    expect(await offlineQueue.getForTable(USER_A, 'estimates')).toEqual([
+      expect.objectContaining({ operation: 'upsert', data: expect.objectContaining({ labelIds: [labelId], client: 'Delayed offline edit' }) }),
     ]);
   });
 
