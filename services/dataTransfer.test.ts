@@ -196,9 +196,20 @@ describe('importData', () => {
         expect(JSON.parse(await exportData()).estimateSections.labels).toContainEqual({ id, name: 'Новое имя', deleted: true });
     });
 
+    it('keeps stored labels when an imported estimate omits the labelIds field (legacy backup)', async () => {
+        const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const labelled = estimate('labelled', { labelIds: [id], labelSnapshots: [{ id, name: 'Баня' }] });
+        await importData(backupPayload({ estimates: [labelled] }));
+        // Бэкап, сделанный до появления меток: поля labelIds у сметы нет вовсе.
+        const { labelIds: _omitted, ...legacy } = labelled;
+        const result = await importData(backupPayload({ estimates: [legacy] }));
+        expect(result.estimates).toMatchObject({ updated: 0, unchanged: 1 });
+        expect(JSON.parse(await exportData()).estimates[0].labelIds).toEqual([id]);
+    });
+
     it('reports order-only imports as updated and round trips their snapshot', async () => {
         const original = estimate('section-order', {
-            selectedSections: [EstimateCategory.WALLS, EstimateCategory.ROOF],
+        selectedSections: [EstimateCategory.WALLS, EstimateCategory.ROOF],
             sectionSnapshot: [
                 { id: EstimateCategory.WALLS, label: 'Стены', order: 0 },
                 { id: EstimateCategory.ROOF, label: 'Кровля', order: 1 },

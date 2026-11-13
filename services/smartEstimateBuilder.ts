@@ -16,6 +16,7 @@ import {
 } from '../types';
 import { isSimilarEstimate } from './estimateIntelligence';
 import { getSectionDescription } from './estimateSections';
+import { ROOF_AREA_PITCH_FACTOR } from './houseCalculator';
 
 const median = (arr: number[]): number => {
     if (arr.length === 0) return 0;
@@ -230,7 +231,7 @@ function getRequiredItems(
     }
 
     if (params.roof === 'Металлочерепица') {
-        const roofArea = area * 1.15;
+        const roofArea = area * ROOF_AREA_PITCH_FACTOR;
         items.push(
             { name: 'Металлочерепица', unit: 'м²', category: EstimateCategory.ROOF, subgroup: EstimateSubgroup.MATERIALS, quantity: roofArea },
             { name: 'Подкладочный ковер', unit: 'м²', category: EstimateCategory.ROOF, subgroup: EstimateSubgroup.MATERIALS, quantity: roofArea },
@@ -238,7 +239,7 @@ function getRequiredItems(
             { name: 'Монтаж кровли', unit: 'м²', category: EstimateCategory.ROOF, subgroup: EstimateSubgroup.WORKS, quantity: roofArea },
         );
     } else if (params.roof === 'Мягкая кровля') {
-        const roofArea = area * 1.15;
+        const roofArea = area * ROOF_AREA_PITCH_FACTOR;
         items.push(
             { name: 'Гибкая черепица', unit: 'м²', category: EstimateCategory.ROOF, subgroup: EstimateSubgroup.MATERIALS, quantity: roofArea },
             { name: 'Подкладочный ковёр', unit: 'м²', category: EstimateCategory.ROOF, subgroup: EstimateSubgroup.MATERIALS, quantity: roofArea },

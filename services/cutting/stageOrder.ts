@@ -1,6 +1,7 @@
 import { CUTTING_STAGE_LABELS, CUTTING_STAGE_ORDER, CuttingStageId } from './types';
+import { normalizeRussianLower } from '../../types';
 
-const normalize = (value: string): string => value.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е').trim();
+const normalize = (value: string): string => normalizeRussianLower(value).trim();
 
 export const classifyCuttingStage = (construction: string): CuttingStageId => {
     const value = normalize(construction);

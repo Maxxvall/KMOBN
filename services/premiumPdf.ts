@@ -7,6 +7,7 @@ import {
     SectionId,
 } from '../types';
 import { PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
+import { sanitizeFileName } from './format';
 import { getEstimateCategories, getSectionLabel } from './estimateSections';
 import {
     PREMIUM_PDF_COLORS as COLORS,
@@ -122,10 +123,7 @@ export const buildPremiumEstimateModel = (estimate: Estimate): PremiumEstimateMo
     return { sections, worksTotal, materialsTotal, deliveryTotal, calculatedTotal, total };
 };
 
-export const sanitizePremiumPdfFileName = (value: string): string => {
-    const normalized = value.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
-    return normalized || 'Без_названия';
-};
+export const sanitizePremiumPdfFileName = (value: string): string => sanitizeFileName(value) || 'Без_названия';
 
 export const premiumEstimateFileName = (estimate: Estimate, title?: string): string => {
     const number = sanitizePremiumPdfFileName(title?.trim() || estimate.estimateNumber).replace(/\s+/g, '_').replace(/_+/g, '_');

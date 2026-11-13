@@ -1,4 +1,4 @@
-import React, { useId, useMemo, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import { Work, WorkToolRequirement } from '../types';
 
 type Props = {
@@ -15,7 +15,12 @@ const emptyRequirement = (): WorkToolRequirement => ({
 });
 
 const WorkToolRequirementsEditor: React.FC<Props> = ({ work, suggestions, onClose, onSave }) => {
-    const [rows, setRows] = useState<WorkToolRequirement[]>(work.toolRequirements?.map(item => ({ ...item })) ?? []);
+    const initialRows = work.toolRequirements?.map(item => ({ ...item })) ?? [];
+    const [rows, setRows] = useState<WorkToolRequirement[]>(initialRows);
+    // Стабильные ключи строк: при удалении строки выше фокус и состояние инпутов не теряются.
+    const nextRowKeyRef = useRef(0);
+    const nextRowKey = (): string => `tool-row-${nextRowKeyRef.current++}`;
+    const [rowKeys, setRowKeys] = useState<string[]>(() => initialRows.map(() => nextRowKey()));
     const [saving, setSaving] = useState(false);
     const listId = useId();
     const valid = rows.every(row => row.name.trim() && Number.isFinite(row.quantity) && row.quantity > 0);
@@ -23,6 +28,16 @@ const WorkToolRequirementsEditor: React.FC<Props> = ({ work, suggestions, onClos
 
     const update = (index: number, patch: Partial<WorkToolRequirement>) => {
         setRows(current => current.map((row, rowIndex) => rowIndex === index ? { ...row, ...patch } : row));
+    };
+
+    const removeRow = (index: number) => {
+        setRows(current => current.filter((_, rowIndex) => rowIndex !== index));
+        setRowKeys(current => current.filter((_, rowIndex) => rowIndex !== index));
+    };
+
+    const addRow = () => {
+        setRows(current => [...current, emptyRequirement()]);
+        setRowKeys(current => [...current, nextRowKey()]);
     };
 
     const save = async () => {
@@ -52,7 +67,7 @@ const WorkToolRequirementsEditor: React.FC<Props> = ({ work, suggestions, onClos
 
                 <div className="mt-4 space-y-3">
                     {rows.map((row, index) => (
-                        <div key={index} className="grid gap-2 rounded-lg border border-border bg-background/40 p-3 sm:grid-cols-[minmax(180px,1fr)_90px_150px_44px] sm:items-end">
+                        <div key={rowKeys[index] ?? `tool-row-fallback-${index}`} className="grid gap-2 rounded-lg border border-border bg-background/40 p-3 sm:grid-cols-[minmax(180px,1fr)_90px_150px_44px] sm:items-end">
                             <label className="text-xs font-medium text-text-secondary">Название
                                 <input list={listId} value={row.name} onChange={event => update(index, { name: event.target.value })} placeholder="Например, шуруповёрт" className="mt-1 min-h-11 w-full rounded-md border border-border bg-background px-3 text-sm text-text-primary" />
                             </label>
@@ -65,13 +80,13 @@ const WorkToolRequirementsEditor: React.FC<Props> = ({ work, suggestions, onClos
                                     <option value="person">На человека</option>
                                 </select>
                             </label>
-                            <button type="button" onClick={() => setRows(current => current.filter((_, rowIndex) => rowIndex !== index))} aria-label={`Удалить ${row.name || 'инструмент'}`} className="min-h-11 min-w-11 rounded-md border border-red-500/30 text-red-300 hover:bg-red-500/10">×</button>
+                            <button type="button" onClick={() => removeRow(index)} aria-label={`Удалить ${row.name || 'инструмент'}`} className="min-h-11 min-w-11 rounded-md border border-red-500/30 text-red-300 hover:bg-red-500/10">×</button>
                         </div>
                     ))}
                     {rows.length === 0 && <div className="rounded-lg border border-dashed border-border p-6 text-center text-sm text-text-secondary">Для этой работы инструмент пока не настроен.</div>}
                 </div>
 
-                <button type="button" onClick={() => setRows(current => [...current, emptyRequirement()])} className="mt-3 min-h-11 w-full rounded-lg border border-border text-sm font-semibold text-text-primary hover:border-primary hover:bg-white/5">+ Добавить инструмент</button>
+                <button type="button" onClick={addRow} className="mt-3 min-h-11 w-full rounded-lg border border-border text-sm font-semibold text-text-primary hover:border-primary hover:bg-white/5">+ Добавить инструмент</button>
                 <div className="mt-5 flex flex-col-reverse gap-2 border-t border-border pt-4 sm:flex-row sm:justify-end">
                     <button type="button" onClick={onClose} className="min-h-11 rounded-lg border border-border px-4 font-semibold text-text-secondary hover:bg-white/5">Отмена</button>
                     <button type="button" onClick={() => void save()} disabled={!valid || saving} className="min-h-11 rounded-lg bg-primary px-5 font-semibold text-white hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50">{saving ? 'Сохраняем…' : 'Сохранить набор'}</button>

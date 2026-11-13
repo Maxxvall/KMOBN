@@ -12,7 +12,7 @@ interface HeaderProps {
     mobileStatus?: React.ReactNode;
 }
 
-type NavIconName = 'file-text' | 'house' | 'tag' | 'briefcase-business' | 'more-horizontal' | 'wrench' | 'layers';
+type NavIconName = 'file-text' | 'house' | 'tag' | 'briefcase-business' | 'more-horizontal' | 'wrench' | 'layers' | 'chart' | 'book-open';
 
 const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 }) => {
     const commonProps = {
@@ -42,6 +42,10 @@ const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 
             return <svg {...commonProps}><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 17l9 5 9-5" /></svg>;
         case 'more-horizontal':
             return <svg {...commonProps}><circle cx="5" cy="12" r="1" fill="currentColor" /><circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="19" cy="12" r="1" fill="currentColor" /></svg>;
+        case 'chart':
+            return <svg {...commonProps}><path d="M3 3v18h18" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></svg>;
+        case 'book-open':
+            return <svg {...commonProps}><path d="M12 7v14" /><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" /></svg>;
     }
 };
 
@@ -57,6 +61,19 @@ const PRIMARY_DESKTOP_NAV_ITEMS = [
     { view: View.HISTORY, label: 'Сметы' },
     { view: View.PRICES, label: 'Материалы' },
     { view: View.WORKS, label: 'Работы' },
+] as const;
+
+// Все 9 разделов инлайн в шапке на широких экранах (xl+).
+const XL_NAV_ITEMS = [
+    { view: View.HISTORY, label: 'Сметы', icon: 'file-text' },
+    { view: View.HOUSE_CALCULATOR, label: 'Расчёт дома', icon: 'house' },
+    { view: View.PRICES, label: 'Материалы', icon: 'tag' },
+    { view: View.WORKS, label: 'Работы', icon: 'briefcase-business' },
+    { view: View.BUNDLES, label: 'Комплекты', icon: 'briefcase-business' },
+    { view: View.ANALYTICS, label: 'Аналитика', icon: 'chart' },
+    { view: View.CUTTING, label: 'Раскрой', icon: 'layers' },
+    { view: View.WIKI, label: 'Wiki', icon: 'book-open' },
+    { view: View.SECTIONS, label: 'Разделы смет', icon: 'layers' },
 ] as const;
 
 const DRAWER_NAV_ITEMS = [
@@ -145,13 +162,33 @@ const Header: React.FC<HeaderProps> = ({
 
     return (
         <>
-            <header className="hidden lg:block bg-surface shadow-lg">
+            <header className="hidden lg:block lg:sticky lg:top-0 lg:z-30 bg-surface shadow-lg">
                 <div className="max-w-8xl mx-auto flex items-center justify-between px-6 py-3">
                     <div className="min-w-0 text-text-primary">
                         <p className="truncate text-lg font-bold tracking-tight">KARKAS MASTER <span className="font-normal text-primary">| Генератор смет</span></p>
                     </div>
                     <div className="flex items-center gap-2">
-                        <nav className="flex items-center gap-1" aria-label="Основная навигация">
+                        {/* xl+: все 9 разделов инлайн с иконками */}
+                        <nav className="hidden xl:flex items-center gap-1" aria-label="Основная навигация">
+                            {XL_NAV_ITEMS.map(({ view, label, icon }) => (
+                                <button
+                                    key={view}
+                                    type="button"
+                                    onClick={() => onViewChange(view)}
+                                    aria-current={currentView === view ? 'page' : undefined}
+                                    className={`flex items-center gap-2 rounded-lg px-3 py-2 font-semibold transition duration-200 active:scale-95 ${
+                                        currentView === view
+                                            ? 'bg-primary text-white shadow-md shadow-primary/20'
+                                            : 'text-text-primary hover:bg-white/5'
+                                    }`}
+                                >
+                                    <Icon name={icon} size={16} />
+                                    {label}
+                                </button>
+                            ))}
+                        </nav>
+                        {/* lg…xl: прежние три раздела, остальное в drawer */}
+                        <nav className="xl:hidden flex items-center gap-1" aria-label="Основная навигация">
                             {PRIMARY_DESKTOP_NAV_ITEMS.map(({ view, label }) => (
                                 <button
                                     key={view}
@@ -171,13 +208,24 @@ const Header: React.FC<HeaderProps> = ({
                         <button
                             type="button"
                             onClick={openDrawer}
-                            className="group relative h-12 w-12 overflow-hidden rounded-xl border border-transparent shadow-lg transition duration-200 hover:-translate-y-0.5 hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface"
+                            className="xl:hidden group relative h-12 w-12 overflow-hidden rounded-xl border border-transparent shadow-lg transition duration-200 hover:-translate-y-0.5 hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface"
                             aria-label="Открыть меню"
                             aria-haspopup="dialog"
                             aria-expanded={isDrawerOpen}
                         >
                             <img src={logoUrl} alt="" className="h-full w-full object-contain mix-blend-screen transition duration-200 group-hover:scale-110" />
                         </button>
+                        {(onProfileClick || onUserNameClick || onLogout) && (
+                            <button
+                                type="button"
+                                onClick={handleProfileClick}
+                                className="hidden xl:flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-primary transition hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-primary"
+                                aria-label="Профиль"
+                            >
+                                <span aria-hidden="true">◉</span>
+                                <span className="max-w-[160px] truncate">{userName || 'Профиль'}</span>
+                            </button>
+                        )}
                     </div>
                 </div>
             </header>

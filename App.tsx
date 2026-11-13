@@ -383,7 +383,10 @@ const App: React.FC = () => {
         setSectionsError(null);
         void loadEstimateSections().then(documents => {
             if (!active) return;
-            setSectionsDocument(normalizeEstimateSectionsDocument(documents[0], supabaseUser.id));
+            // Дубль защиты обработчика кэша: чужой документ аккаунта не принимается.
+            const loaded = documents[0];
+            if (loaded && loaded.id !== supabaseUser.id) return;
+            setSectionsDocument(normalizeEstimateSectionsDocument(loaded, supabaseUser.id));
         }).catch(error => {
             if (!active) return;
             console.error('Failed to load estimate sections:', error);
@@ -1889,7 +1892,14 @@ const App: React.FC = () => {
         setSectionsSaving(true);
         try {
             await saveEstimateSections(next);
-            if (sectionsOwnerRef.current === next.id) setSectionsDocument(next);
+            // Перечитываем из кэша: во время сохранения синк мог смёржить удалённый
+            // документ — стейт не должен откатиться к устаревшему next.
+            const stored = (await loadEstimateSections())[0];
+            if (sectionsOwnerRef.current === next.id) {
+                setSectionsDocument(stored && stored.id === next.id
+                    ? normalizeEstimateSectionsDocument(stored, next.id)
+                    : next);
+            }
         } catch (error) {
             console.error('Failed to save estimate sections:', error);
             const message = error instanceof Error ? error.message : 'Не удалось сохранить разделы.';
@@ -2079,8 +2089,9 @@ const App: React.FC = () => {
                     }}
                     onInstall={() => window.electronAPI?.installUpdate?.()}
                     onDismiss={() => {
+                        // Закрытие баннера не отменяет идущую загрузку: downloading
+                        // сбрасывают только обработчики downloaded/error/notAvailable.
                         setAppUpdateInfo(null);
-                        setAppUpdateDownloading(false);
                     }}
                 />
             )}
@@ -2260,6 +2271,7 @@ const App: React.FC = () => {
                 updateAvailableVersion={appUpdateInfo?.version ?? null}
                 updateDownloadedVersion={appUpdateDownloaded ? appUpdateInfo?.version ?? null : null}
                 updateProgress={appUpdateProgress}
+                downloading={appUpdateDownloading}
             />
             <OfflineChangesModal
                 isOpen={isOfflineChangesOpen}

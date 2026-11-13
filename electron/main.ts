@@ -31,7 +31,9 @@ const PROTOCOL_NAME = 'karkasmaster';
 function log(...args: unknown[]) {
   const msg = `[${new Date().toISOString()}] ${args.join(' ')}\n`;
   console.log(...args);
-  try { fs.appendFileSync(LOG_FILE, msg); } catch {}
+  // Асинхронная fire-and-forget запись: не блокирует main-процесс,
+  // ошибка записи файла не валят приложение. Формат и путь файла без изменений.
+  fs.promises.appendFile(LOG_FILE, msg).catch(() => {});
 }
 
 function getDistPath() {

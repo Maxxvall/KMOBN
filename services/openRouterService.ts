@@ -9,6 +9,7 @@ import { CATALOG_CATEGORIES, normalizeEstimateCategory } from './estimateSection
 import { fingerprintData } from './hashing';
 import { normalizeMeasurementUnit, parsePackAreaSqM } from './aiMeasurements';
 import { deriveAIProjectScope, filterItemsToAIProjectScope } from './aiProjectSpec';
+import { ROOF_AREA_PITCH_FACTOR } from './houseCalculator';
 
 export interface AIEstimateRequest {
   area: number;
@@ -499,7 +500,7 @@ const SYSTEM_PROMPT = `Ты - эксперт по составлению стр�
 
 ФОРМУЛА: quantity = ceil(coverage_area / pack_area) + запас
 - запас: 1-2 шт если packs > 2, иначе 0-1
-- coverage_area: СТЕНЫ = периметр×2.8, КРОВЛЯ = площадь×1.3, остальное = площадь проекта
+- coverage_area: СТЕНЫ = периметр×2.8, КРОВЛЯ = площадь×${ROOF_AREA_PITCH_FACTOR}, остальное = площадь проекта
 - Работы ВСЕГДА quantity = 1 (это услуга)
 
 Категории смет: ${CATALOG_CATEGORIES.join(', ')}
@@ -675,9 +676,6 @@ export async function callOpenRouterWithRetry(messages: OpenRouterChatMessage[],
 
       // Production diagnostics intentionally exclude prompts and response bodies.
       const _respContent = data?.choices?.[0]?.message?.content;
-      const _promptTokens = data?.usage?.prompt_tokens;
-      const _completionTokens = data?.usage?.completion_tokens;
-      console.info(`[AI][callOpenRouter] model=${AI_CONFIG.model} prompt_tokens=${_promptTokens ?? '?'} completion_tokens=${_completionTokens ?? '?'} content_length=${String(_respContent || '').length}`);
       if (!_respContent || String(_respContent).trim().length === 0) {
         console.warn('[AI][callOpenRouter] Model returned empty content');
       }
@@ -993,8 +991,8 @@ const estimateWallArea = (floorArea: number, wallHeight = 2.8): number => {
   return Math.ceil(perimeter * wallHeight);
 };
 
-/** Estimate roof area from floor area (pitch factor ~1.3 for typical gable roof). */
-const estimateRoofArea = (floorArea: number, pitchFactor = 1.3): number => {
+/** Estimate roof area from floor area using the shared pitch factor (see houseCalculator). */
+const estimateRoofArea = (floorArea: number, pitchFactor = ROOF_AREA_PITCH_FACTOR): number => {
   return Math.ceil(floorArea * pitchFactor);
 };
 
@@ -1060,7 +1058,7 @@ ${workLines || 'нет данных'}
 - Используй ТОЛЬКО названия из списков выше.
 - price=0 (цены подтянет приложение).
 - Для работ сохраняй единицу тарифа и объём из надёжного примера. Если база тарифа неизвестна — quantity=1, unit="шт" и добавь предупреждение.
-- Материалы: масштабируй quantity под площадь. Если в названии указана площадь упаковки (напр. "75 м2") — рассчитай кол-во упаковок. Для стен учитывай площадь стен (периметр × высота ~2.8м), для кровли — площадь крыши (площадь × 1.3).
+- Материалы: масштабируй quantity под площадь. Если в названии указана площадь упаковки (напр. "75 м2") — рассчитай кол-во упаковок. Для стен учитывай площадь стен (периметр × высота ~2.8м), для кровли — площадь крыши (площадь × ${ROOF_AREA_PITCH_FACTOR}).
 - Окна/двери: используй указанное кол-во окон и дверей для соответствующих позиций.
 
 JSON формат:
@@ -1246,9 +1244,8 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
 
   // --- Stage 1: structure ---
   try {
-    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n- Окон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${templateContext}${scopeContext}${sectionsFilter}\n${referenceContext}\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nВажные правила:\n- Для работ сохраняй единицу тарифа и объём из надёжного примера. Если база тарифа неизвестна — quantity=1, unit=\"шт\" и добавь предупреждение.\n- Материалы: масштабируй под площадь. Если в названии указана площадь упаковки (75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек. Для стен — площадь стен = периметр × 2.8м. Для кровли — площадь × 1.3.\n- Окна/двери: используй указанное кол-во, включая ноль.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
+    const stage1Prompt = `Этап 1/3: Структура.\n\nДанные проекта:\n- Площадь: ${req.area} м²\n- Регион: ${req.region}\n- Тип: ${req.buildingType || 'не указан'}\n- Окон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${templateContext}${scopeContext}${sectionsFilter}\n${referenceContext}\n${adv.text}\n\nБАЗОВЫЕ позиции из шаблона (их нужно учитывать и не дублировать):\n${req.templateItems && req.templateItems.length ? JSON.stringify(req.templateItems.map(i => ({ name: i.name, category: i.category, subgroup: i.subgroup }))) : 'нет'}\n\nУже добавленные позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n\nЗадача: определить основные блоки/разделы сметы и приблизительные объёмы.\n\nВажные правила:\n- Для работ сохраняй единицу тарифа и объём из надёжного примера. Если база тарифа неизвестна — quantity=1, unit=\"шт\" и добавь предупреждение.\n- Материалы: масштабируй под площадь. Если в названии указана площадь упаковки (75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек. Для стен — площадь стен = периметр × 2.8м. Для кровли — площадь × ${ROOF_AREA_PITCH_FACTOR}.\n- Окна/двери: используй указанное кол-во, включая ноль.\n\nФормат ответа: строгий JSON:\n{\n  \"blocks\": [\n    {\"category\": \"КАТЕГОРИЯ\", \"intent\": \"кратко\", \"keyWorks\": [\"...\"], \"volumeHints\": {\"areaFactor\": число } }\n  ],\n  \"assumptions\": [\"...\"],\n  \"warnings\": [\"...\"]\n}\n\nПравила:\n- Если смета частичная (по описанию) — включай только нужные блоки.\n- category только из списка категорий смет.\n- keyWorks только из справочника работ (если не уверен — оставь пустым).`;
 
-    console.info('[AI] Stage 1: sending structure request to model');
     const s1 = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
@@ -1258,7 +1255,6 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
       { maxTokens: 1600, temperature: 0.2 },
     );
     const s1Content = String(s1?.choices?.[0]?.message?.content || '');
-    console.info('[AI] Stage 1: received response (length:', String((s1Content || '').length) + ')');
     const s1Norm = normalizeJsonFromLLM(s1Content);
     const s1Parsed = tryParseJsonWithHeuristics(s1Norm);
     const s1Obj: any = s1Parsed.obj;
@@ -1311,9 +1307,8 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
         ? `\nЭТАЛОН для блока ${cat} (из выбранной пользователем сметы, площадь ${referenceEstimate!.area} м²):\n${JSON.stringify(refItemsForCat.map(i => ({ name: i.name, unit: i.unit, quantity: i.quantity, subgroup: i.subgroup })), null, 0)}\nАдаптируй количества под площадь ${req.area} м².\n`
         : '';
 
-      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\nОкон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${scopeContext}\n${refContext}\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Для работ сохраняй единицу тарифа и объём из надёжного примера; при неизвестной базе тарифа используй quantity=1, unit=\"шт\" и добавь warning\n- Материалы: если в названии указана площадь упаковки (напр. 75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек от покрываемой площади. Для стен площадь = периметр × 2.8м, для кровли = площадь × 1.3\n- Окна/двери: используй указанное кол-во, включая ноль\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
+      const stage2Prompt = `Этап 2/3: Детализация блока.\n\nБлок: ${cat}\nИнтент: ${block.intent || '—'}\nКлючевые работы (ориентир): ${block.keyWorks.join(', ') || '—'}\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\nОкон: ${req.windowCount ?? 'авто'}, Дверей: ${req.doorCount ?? 'авто'}\n${scopeContext}\n${refContext}\n${adv.text}\n\nОграничения блока:\n- Генерируй ТОЛЬКО category=${cat}\n- Используй только имена из справочников\n- Для работ сохраняй единицу тарифа и объём из надёжного примера; при неизвестной базе тарифа используй quantity=1, unit=\"шт\" и добавь warning\n- Материалы: если в названии указана площадь упаковки (напр. 75 м2, 25м2, 70 кв.м) — рассчитай кол-во пачек от покрываемой площади. Для стен площадь = периметр × 2.8м, для кровли = площадь × ${ROOF_AREA_PITCH_FACTOR}\n- Окна/двери: используй указанное кол-во, включая ноль\n- Не дублируй уже имеющиеся позиции: ${(req.existingItems || []).map(i => i.name).join(', ') || 'нет'}\n- Учитывай базовые позиции шаблона и не дублируй их\n\nСправочник материалов (только этот раздел):\n${catMaterials || 'нет'}\n\nСправочник работ (только этот раздел):\n${catWorks || 'нет'}\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
 
-      console.info('[AI] Stage 2: sending detail request for block', cat);
       const s2 = await callOpenRouterWithRetry(
         [
           { role: 'system', content: SYSTEM_PROMPT },
@@ -1324,7 +1319,6 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
       );
 
       const s2Content = String(s2?.choices?.[0]?.message?.content || '');
-      console.info('[AI] Stage 2: received response for block', cat, '(length:', String((s2Content || '').length) + ')');
       return {
         cat,
         parsed: parseEstimateResponse(s2Content, cat),
@@ -1347,7 +1341,6 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
     // --- Stage 3: self-check ---
     const stage3Prompt = `Этап 3/3: Самопроверка и корректировка.\n\nДанные проекта: площадь ${req.area} м², регион ${req.region}, тип ${req.buildingType || 'не указан'}\n${scopeContext}${sectionsFilter}\n\nПромежуточная смета (черновик items):\n${JSON.stringify(parsedItems, null, 0)}\n\n${adv.text}\n\nЗадача:\n1) Удалить дубли/мусорные позиции\n2) Проверить комплектность: если есть работа — добавь необходимые материалы (в рамках справочников и только если уместно по описанию сметы)\n3) Исправить явные несоответствия масштаба количеств (ориентируйся на историю и площадь)\n4) Не выходить за явно выбранные разделы.\n\nФормат ответа: строгий JSON по общей схеме (items/suggestions/warnings).`;
 
-    console.info('[AI] Stage 3: sending self-check request to model');
     const s3 = await callOpenRouterWithRetry(
       [
         { role: 'system', content: SYSTEM_PROMPT },
@@ -1358,7 +1351,6 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
     );
 
     const s3Content = String(s3?.choices?.[0]?.message?.content || '');
-    console.info('[AI] Stage 3: received response (length:', String((s3Content || '').length) + ')');
     const s3Parsed = parseEstimateResponse(s3Content, EstimateCategory.GENERAL);
     if (Array.isArray(s3Parsed.items) && s3Parsed.items.length > 0) {
       parsedItems = s3Parsed.items;
@@ -1379,7 +1371,6 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
     parsedWarnings.push('AI: многоэтапная генерация не вернула позиций, использую упрощённый режим.');
     try {
       const compactPrompt = buildCompactOneShotPrompt(req, referenceContext, sectionsFilter);
-      console.info('[AI] Compact one-shot prompt length:', compactPrompt.length, 'chars');
       const data = await callOpenRouterWithRetry(
         [
           { role: 'system', content: 'Ты эксперт по строительным сметам. Отвечай ТОЛЬКО валидным JSON без пояснений.' },
@@ -1392,7 +1383,6 @@ async function generateEstimateWithAIInternal(req: AIEstimateRequest, cacheKey: 
       parsedItems = parsed.items;
       parsedSuggestions.push(...(parsed.suggestions || []));
       parsedWarnings.push(...(parsed.warnings || []));
-      console.info('[AI] Compact one-shot fallback returned', parsedItems.length, 'items');
     } catch (fallbackErr) {
       if (isAbortError(fallbackErr)) throw createAbortError();
       console.error('[AI] Compact one-shot fallback also failed', fallbackErr);

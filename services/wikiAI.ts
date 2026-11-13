@@ -1,7 +1,7 @@
 import { hasOpenRouterKey } from './aiConfig';
 import { callOpenRouterWithRetry, isAbortError } from './openRouterService';
 import { WIKI_ARTICLES } from './wikiDatabase';
-import { WikiArticle } from '../types';
+import { WikiArticle, normalizeRussianLower } from '../types';
 
 type OpenRouterErrorPayload = {
     error?: {
@@ -52,7 +52,7 @@ const toFriendlyError = (status: number, rawText: string): string => {
 // ─── RAG: поиск релевантных статей ──────────────────────────────────────────
 
 const normalizeToken = (s: string): string =>
-    s.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    normalizeRussianLower(s).replace(/[^a-zа-я0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 
 const STOP_WORDS = new Set([
     'как', 'что', 'это', 'для', 'при', 'или', 'если', 'надо', 'нужно', 'можно', 'какой', 'какая', 'какие',

@@ -19,6 +19,14 @@ export default {
         'text-secondary': '#9CA3AF',
         border: '#374151',
       },
+      // '8xl' — единая ширина контента и шапки (1500px, как в Cutting/HouseCalculator).
+      maxWidth: {
+        '8xl': '93.75rem',
+      },
+      screens: {
+        // Плоская зона 1536–2560px: правила раскладки для 1920px+.
+        '3xl': '1920px',
+      },
     },
   },
   plugins: [],

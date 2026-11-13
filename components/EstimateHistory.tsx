@@ -3,6 +3,7 @@ import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext
 import { getActiveEstimateLabels, getActiveEstimateLabelFilterIds, getEffectiveEstimateLabelIds, matchesEstimateLabels } from '../services/estimateLabels';
 import React, { useState, useMemo, useEffect, useId, useRef } from 'react';
 import { downloadBlob } from '../services/download';
+import { IconArchive, IconDocument, IconDocumentDownload, IconShare, IconTrash } from '@devigner-ui/icons';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { findEstimateVersionDuplicates, getLatestEstimateVersions, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
@@ -640,16 +641,16 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             )}
 
             {/* Desktop table */}
-            <div className="overflow-x-auto hidden md:block">
+            <div className="overflow-x-auto hidden md:block lg:overflow-x-clip">
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
-                            <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">Клиент и смета</th>
-                            <th className="px-3 py-2 text-center text-xs font-medium text-text-secondary">Версия</th>
-                            <th className="px-3 py-2 text-center text-xs font-medium text-text-secondary">Статус</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-text-secondary">Объект</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-text-secondary">Сумма</th>
-                            <th className="px-3 py-2 text-right text-xs font-medium text-text-secondary">Действия</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border px-3 py-2 text-left text-xs font-medium text-text-secondary 3xl:text-sm">Клиент и смета</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border px-3 py-2 text-center text-xs font-medium text-text-secondary 3xl:text-sm">Версия</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border px-3 py-2 text-center text-xs font-medium text-text-secondary 3xl:text-sm">Статус</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border px-3 py-2 text-left text-xs font-medium text-text-secondary 3xl:text-sm">Объект</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border px-3 py-2 text-right text-xs font-medium text-text-secondary 3xl:text-sm">Сумма</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border px-3 py-2 text-right text-xs font-medium text-text-secondary 3xl:text-sm">Действия</th>
                         </tr>
                     </thead>
                     <tbody className="text-text-primary">
@@ -661,9 +662,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                             return (
                                 <tr key={estimate.id} className="border-b border-border/70 transition-colors hover:bg-white/[0.03]">
                                     <td className="px-3 py-2.5 text-left">
-                                        <div className="max-w-[240px] truncate text-sm font-medium">{selectedEstimate.client || 'Без клиента'}</div>
+                                        <div className="max-w-[240px] truncate text-sm font-medium xl:max-w-none">{selectedEstimate.client || 'Без клиента'}</div>
                                         {renderLabels(selectedEstimate)}
-                                        <div className="mt-0.5 text-xs text-text-secondary">
+                                        <div className="mt-0.5 text-xs text-text-secondary 3xl:text-sm">
                                             {selectedEstimate.estimateNumber} · {new Date(selectedEstimate.date).toLocaleDateString('ru-RU')}
                                         </div>
                                     </td>
@@ -679,17 +680,17 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                                         <StatusBadge status={selectedEstimate.status} />
                                     </td>
                                     <td className="px-3 py-2.5 text-left">
-                                        <div className="max-w-[180px] truncate text-sm">{selectedEstimate.buildingType || 'Не указан'}</div>
-                                        <div className="mt-0.5 text-xs text-text-secondary">{selectedEstimate.area} м²</div>
+                                        <div className="max-w-[180px] truncate text-sm xl:max-w-none">{selectedEstimate.buildingType || 'Не указан'}</div>
+                                        <div className="mt-0.5 text-xs text-text-secondary 3xl:text-sm">{selectedEstimate.area} м²</div>
                                     </td>
                                     <td className="whitespace-nowrap px-3 py-2.5 text-right text-sm font-semibold">{selectedEstimate.total.toLocaleString('ru-RU')} ₽</td>
                                     <td className="px-3 py-2.5 text-right">
                                         <div className="flex items-center justify-end gap-1">
-                                            <button onClick={() => editAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-primary transition hover:bg-white/5">Открыть</button>
-                                            <button onClick={() => handleShareEstimate(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">Поделиться</button>
-                                            <button onClick={() => generatePdfAction?.(selectedEstimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">PDF для клиента</button>
-                                            <button onClick={() => setArchivedAction?.(selectedEstimate, archiveView !== 'archive')} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-white/5 hover:text-text-primary">{archiveView === 'archive' ? 'Вернуть' : 'В архив'}</button>
-                                            <button onClick={() => deleteAction?.(estimate)} className="rounded-md px-2 py-1.5 text-sm font-medium text-text-secondary transition hover:bg-red-500/10 hover:text-red-300">Удалить</button>
+                                            <button type="button" onClick={() => editAction?.(selectedEstimate)} aria-label="Открыть смету" title="Открыть" className="flex h-9 w-9 items-center justify-center rounded-md text-text-primary transition hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-primary/60"><IconDocument aria-hidden="true" className="size-4" /></button>
+                                            <button type="button" onClick={() => handleShareEstimate(selectedEstimate)} aria-label="Поделиться сметой" title="Поделиться" className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary transition hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/60"><IconShare aria-hidden="true" className="size-4" /></button>
+                                            <button type="button" onClick={() => generatePdfAction?.(selectedEstimate)} aria-label="PDF для клиента" title="PDF для клиента" className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary transition hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/60"><IconDocumentDownload aria-hidden="true" className="size-4" /></button>
+                                            <button type="button" onClick={() => setArchivedAction?.(selectedEstimate, archiveView !== 'archive')} aria-label={archiveView === 'archive' ? 'Вернуть из архива' : 'В архив'} title={archiveView === 'archive' ? 'Вернуть' : 'В архив'} className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary transition hover:bg-white/5 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/60"><IconArchive aria-hidden="true" className="size-4" /></button>
+                                            <button type="button" onClick={() => deleteAction?.(estimate)} aria-label="Удалить смету" title="Удалить" className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary transition hover:bg-red-500/10 hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-red-400/60"><IconTrash aria-hidden="true" className="size-4" /></button>
                                         </div>
                                     </td>
                                 </tr>

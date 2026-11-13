@@ -321,6 +321,19 @@ const EstimateDropdown: React.FC<{
 
 const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
     const sectionsContext = useOptionalEstimateSections();
+    // Графики растут с широкими экранами (matchMedia-паттерн, как useIsDesktopViewport в редакторе).
+    const [isWideScreen, setIsWideScreen] = useState<boolean>(() =>
+        typeof window === 'undefined' ? false : window.matchMedia('(min-width: 1536px)').matches,
+    );
+    useEffect(() => {
+        const query = window.matchMedia('(min-width: 1536px)');
+        const handleChange = (event: MediaQueryListEvent) => setIsWideScreen(event.matches);
+        setIsWideScreen(query.matches);
+        query.addEventListener('change', handleChange);
+        return () => query.removeEventListener('change', handleChange);
+    }, []);
+    const chartHeight = isWideScreen ? 400 : 320;
+    const compareChartHeight = isWideScreen ? 360 : 280;
     const sectionLabel = useCallback(
         (category: string) => getSectionLabel(category as SectionId, [], sectionsContext?.document),
         [sectionsContext?.document],
@@ -1408,7 +1421,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                             <div className="text-xs text-text-secondary mt-1">Waterfall: первая смета, ключевые категории, итог второй сметы.</div>
                                         </div>
                                     </div>
-                                    <ResponsiveContainer width="100%" height={320}>
+                                    <ResponsiveContainer width="100%" height={chartHeight}>
                                         <BarChart data={comparisonAnalytics.waterfallData} margin={{ top: 8, right: 12, left: 0, bottom: 30 }}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
                                             <XAxis dataKey="name" angle={-18} textAnchor="end" interval={0} height={64} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
@@ -1448,7 +1461,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         </div>
                                     </div>
                                     {comparisonAnalytics.divergingData.length > 0 ? (
-                                        <ResponsiveContainer width="100%" height={320}>
+                                        <ResponsiveContainer width="100%" height={chartHeight}>
                                             <BarChart data={comparisonAnalytics.divergingData} layout="vertical" margin={{ top: 8, right: 24, left: 18, bottom: 8 }}>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
                                                 <XAxis type="number" tickFormatter={(v) => `${Math.round(Number(v) / 1000)}k`} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
@@ -1623,7 +1636,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                             </div>
                         </div>
                     </div>
-                    <ResponsiveContainer width="100%" height={320}>
+                    <ResponsiveContainer width="100%" height={chartHeight}>
                         <LineChart data={expenseTrends}>
                             <defs>
                                 <linearGradient id="trendStroke" x1="0" y1="0" x2="1" y2="0">
@@ -1657,7 +1670,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                 <div className="text-xs text-text-secondary mt-1">Маржа по сметам в выбранном периоде</div>
                             </div>
                         </div>
-                        <ResponsiveContainer width="100%" height={320}>
+                        <ResponsiveContainer width="100%" height={chartHeight}>
                             <LineChart data={marginData}>
                                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
                                 <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
@@ -1683,7 +1696,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                 <div className="text-xs text-text-secondary mt-1">Средняя: {formatRub(averageCostPerSqm)}/м²</div>
                             </div>
                         </div>
-                        <ResponsiveContainer width="100%" height={320}>
+                        <ResponsiveContainer width="100%" height={chartHeight}>
                             <LineChart data={costPerSqmData}>
                                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="rgba(148,163,184,0.18)" />
                                 <XAxis dataKey="date" tickFormatter={(v) => formatDateRu(String(v))} tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
@@ -1718,7 +1731,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
 
                     {estimateComparison.length > 0 ? (
                         hasStackedComparison ? (
-                            <ResponsiveContainer width="100%" height={320}>
+                            <ResponsiveContainer width="100%" height={chartHeight}>
                                 <BarChart data={stackedComparisonData} margin={{ bottom: 10 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.25)" />
                                     <XAxis dataKey="name" tick={CHART_TICK_STYLE} axisLine={CHART_AXIS_STYLE} tickLine={CHART_AXIS_STYLE} />
@@ -1740,7 +1753,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                 </BarChart>
                             </ResponsiveContainer>
                         ) : (
-                            <ResponsiveContainer width="100%" height={280}>
+                            <ResponsiveContainer width="100%" height={compareChartHeight}>
                                 <BarChart data={estimateComparison}>
                                     <defs>
                                         <linearGradient id="barFill" x1="0" y1="0" x2="0" y2="1">
@@ -1840,9 +1853,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {categoriesTable.map((c: any, idx: number) => (
+                                        {categoriesTable.map((c: any) => (
                                             <tr
-                                                key={idx}
+                                                key={c.category}
                                                 className="border-t border-border hover:bg-background/40 transition"
                                             >
                                                 <td className="px-3 py-2 text-text-primary">
@@ -2047,12 +2060,12 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                                                             rowHeight={44}
                                                                             rowComponent={AnalyticsItemsRow}
                                                                             rowProps={{ items: filteredItems, significantThreshold }}
-                                                                            style={{ height: 360 }}
+                                                                            style={{ height: 'clamp(360px, 55vh, 900px)' }}
                                                                         />
                                                                     ) : (
                                                                         <div>
                                                                             {filteredItems.map((it, i) => (
-                                                                                <div key={i} className={`grid grid-cols-[minmax(220px,1fr)_90px_110px_110px_90px_110px_110px_110px_80px] gap-2 px-3 py-2 border-t border-border hover:bg-background/40 transition ${i % 2 === 0 ? 'bg-background/20' : ''}`}>
+                                                                                <div key={`${it.name}-${it.unit || ''}`} className={`grid grid-cols-[minmax(220px,1fr)_90px_110px_110px_90px_110px_110px_110px_80px] gap-2 px-3 py-2 border-t border-border hover:bg-background/40 transition ${i % 2 === 0 ? 'bg-background/20' : ''}`}>
                                                                                     <div className="text-text-primary truncate" title={`${it.name}${it.unit ? ` (${it.unit})` : ''}`}>{it.name}{it.unit ? ` (${it.unit})` : ''}</div>
                                                                                     <div className="text-right text-text-primary tabular-nums">{it.qty1 ?? '—'}</div>
                                                                                     <div className="text-right text-text-primary tabular-nums">{it.price1 ?? '—'}</div>

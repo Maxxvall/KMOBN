@@ -345,13 +345,14 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-            <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-lg md:max-w-3xl max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-bold text-text-primary">Умный мастер смет</h2>
                     <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
                 </div>
 
-                <div className="flex items-center gap-1 mb-6">
+                {/* Горизонтальный степпер — мобильный флоу без изменений */}
+                <div className="flex items-center gap-1 mb-6 md:hidden">
                     {([1, 2, 3, 4, 5] as Step[]).map(s => (
                         <div key={s} className="flex items-center flex-1">
                             <div
@@ -371,6 +372,35 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
                         </div>
                     ))}
                 </div>
+
+                <div className="md:flex md:gap-6">
+                {/* Вертикальный степпер сбоку на десктопе */}
+                <aside className="hidden md:flex md:flex-col md:gap-1 md:w-52 md:shrink-0" aria-label="Шаги мастера">
+                    {([1, 2, 3, 4, 5] as Step[]).map(s => (
+                        <div
+                            key={s}
+                            aria-current={s === step ? 'step' : undefined}
+                            className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition ${
+                                s === step ? 'bg-primary/15 font-semibold text-text-primary' : 'text-text-secondary'
+                            }`}
+                        >
+                            <span
+                                className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold transition ${
+                                    s === step
+                                        ? 'bg-primary text-white'
+                                        : s < step
+                                        ? 'bg-green-600 text-white'
+                                        : 'bg-background text-text-secondary border border-border'
+                                }`}
+                            >
+                                {s < step ? '✓' : STEP_ICONS[s]}
+                            </span>
+                            {STEP_TITLES[s]}
+                        </div>
+                    ))}
+                </aside>
+
+                <div className="md:min-w-0 md:flex-1">
 
                 <div className="text-sm font-semibold text-text-secondary mb-4">
                     Шаг {step}/5: {STEP_TITLES[step]}
@@ -410,6 +440,8 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
                             Создать смету
                         </button>
                     )}
+                </div>
+                </div>
                 </div>
             </div>
         </div>

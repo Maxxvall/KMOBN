@@ -6,6 +6,7 @@ import {
     EstimateStatus,
     EstimateSubgroup,
     SectionId,
+    normalizeRussianLower,
 } from '../types';
 import { roundMoney } from './estimateActuals';
 import { detectHouseScopeId, evaluateHouseScope, getRequiredHouseScopeIds, HouseScopeCheck } from './houseScope';
@@ -24,6 +25,14 @@ export type HousePackage =
     | 'turnkey-engineering';
 
 export type RoofShape = 'single-slope' | 'gable' | 'hip' | 'flat' | 'mansard';
+
+/**
+ * Единый pitch-фактор ПЛОЩАДИ кровли: переводит площадь пятна застройки в площадь
+ * скатной кровли. Единственный источник для всех смет-путей (визард
+ * smartEstimateBuilder и AI-подсказки openRouterService). Это НЕ карта коррекции
+ * количеств по форме крыши — для этого ниже отдельная карта roofFactor.
+ */
+export const ROOF_AREA_PITCH_FACTOR = 1.15;
 
 export interface HouseFinancialRates {
     overheadPercent: number;
@@ -133,8 +142,7 @@ export const HOUSE_TIER_CONFIG: Array<Omit<HouseVariantResult, 'result'>> = [
 const REFERENCE_CLIENT = 'наталья дубровка';
 const REFERENCE_BUILDING = 'одноэтажный дачный дом';
 
-const normalize = (value: string): string => value.toLocaleLowerCase('ru-RU')
-    .replace(/ё/g, 'е')
+const normalize = (value: string): string => normalizeRussianLower(value)
     .replace(/[_\-]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -290,6 +298,9 @@ const packageAllows = (kind: ItemKind, selected: HousePackage): boolean => {
     return true;
 };
 
+// Коррекция РЕАЛЬНЫХ количеств из смет-референсов по ФОРМЕ крыши — это НЕ оценка
+// площади кровли и не ROOF_AREA_PITCH_FACTOR: коэффициент масштабирует позиции
+// референсной сметы под выбранную форму (scaleReferenceItems).
 const roofFactor: Record<RoofShape, number> = {
     'single-slope': 0.95,
     gable: 1,
@@ -534,7 +545,9 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
     }
     validateRates(input.rates);
     const eligible = selectEligibleHouseHistory(input.estimates, input.now);
-    const broaderTypical = eligible.length ? [] : selectHouseHistoryForAi(input.estimates);
+    // Fallback-пул тоже должен быть каркасным домом: если все «типовые» сметы —
+    // бани/террасы, расчёт дома от них не выполняется (честная ошибка вместо неверной базы).
+    const broaderTypical = eligible.length ? [] : selectHouseHistoryForAi(input.estimates).filter(isFrameHouse);
     const history = eligible.length ? eligible : broaderTypical;
     const source = chooseHouseReference(history, input.area, input.package);
     if (!source) throw new Error('Отметьте хотя бы одну пригодную смету меткой «Типовые проекты» для расчёта дома.');
@@ -556,7 +569,7 @@ export function calculateHouseEstimate(input: HouseCalculatorInput): HouseCalcul
         }
     }
     if (!eligible.length && broaderTypical.length) {
-        warnings.push('Тип объекта не распознан автоматически: использована ближайший типовой проект.');
+        warnings.push('Тип объекта не распознан автоматически: использован ближайший типовой проект.');
     }
     const sourceKinds = new Set(source.items.map(itemKind));
     if ((input.package === 'rough-finish' || input.package === 'turnkey' || input.package === 'turnkey-engineering') && !sourceKinds.has('rough-finish')) {

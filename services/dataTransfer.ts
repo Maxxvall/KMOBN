@@ -291,7 +291,10 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     };
 
     const hasEstimateChanged = (existing: Estimate, incoming: Estimate): boolean => {
-      if (JSON.stringify(normalizeEstimateLabelIds(existing.labelIds).sort()) !== JSON.stringify(normalizeEstimateLabelIds(incoming.labelIds).sort())) return true;
+      // «Поле отсутствует» (бэкап до появления меток) — это не «явно пустой список»:
+      // сравниваем метки только когда у входящей записи поле labelIds есть.
+      if (Array.isArray(incoming.labelIds)
+        && JSON.stringify(normalizeEstimateLabelIds(existing.labelIds).sort()) !== JSON.stringify(normalizeEstimateLabelIds(incoming.labelIds).sort())) return true;
       if (existing.client !== incoming.client) return true;
       if (existing.date !== incoming.date) return true;
       if (existing.status !== incoming.status) return true;
@@ -396,10 +399,13 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
     const estimates = rawEstimates.map((e, index) => {
       const mappedId = estimateIdMap.get(e.id) as string;
       const key = `${e.estimateNumber}::v${e.version ?? 0}`;
-      const merged = mergeImportedEstimate(e, existingEstimateByNumberVersion.get(key));
+      const existing = existingEstimateByNumberVersion.get(key);
+      const merged = mergeImportedEstimate(e, existing);
       return {
         ...merged,
-        labelIds: getEffectiveEstimateLabelIds(e, labelsDocument),
+        // Входящая запись без поля labelIds (легаси-бэкап) сохраняет метки существующей
+        // записи; явный [] по-прежнему снимает метки («incoming wins»).
+        labelIds: Array.isArray(e.labelIds) ? getEffectiveEstimateLabelIds(e, labelsDocument) : (existing?.labelIds ?? []),
         labelSnapshots: undefined,
         id: mappedId,
         parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
@@ -534,7 +540,6 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
 
     window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
 
-    console.log('Data imported successfully', importResult);
     return importResult;
   } catch (error) {
     console.error('Failed to import data:', error);

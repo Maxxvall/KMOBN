@@ -3,13 +3,12 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateItem, EstimateSubgroup } from '../types';
 import { getEstimateCategories, getSectionLabel } from './estimateSections';
+import { sanitizeFileName } from './format';
 import LiberationFontUrl from '../assets/LiberationSans-Regular.ttf?url';
 
 const formatCurrency = (value: number) => `${value.toLocaleString('ru-RU')} ₽`;
 
 const safeTotal = (item: EstimateItem) => (item.total ?? item.quantity * item.price);
-
-const sanitizeFileName = (value: string) => value.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
 
 const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
     let binary = '';

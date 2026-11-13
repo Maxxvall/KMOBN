@@ -292,44 +292,44 @@ const Prices: React.FC<PricesProps> = ({
                 </div>
             )}
 
-            {/* Добавление нового материала */}
-            <div className="flex flex-col gap-3 mb-3">
+            {/* Добавление нового материала: вертикальный стек на мобильных, один ряд на lg+ */}
+            <div className="grid grid-cols-1 gap-3 mb-3 lg:grid-cols-[minmax(0,1.2fr)_auto_auto_minmax(0,1fr)_auto] lg:items-start lg:max-w-6xl">
                 <input
                     type="text"
                     placeholder="Наименование материала"
                     className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={newMaterialName}
                     onChange={(e) => setNewMaterialName(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                 />
-                <div className="flex gap-3">
-                    <select
-                        className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                        value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value as SectionId)}
-                    >
-                        {addCategories.map(category => (
-                            <option key={category} value={category}>{sectionLabel(category)}</option>
-                        ))}
-                    </select>
-                    <input
-                        type="number"
-                        placeholder="Цена (₽)"
-                        className="w-28 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                        value={newMaterialPrice}
-                        onChange={(e) => setNewMaterialPrice(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
-                    />
-                </div>
+                <select
+                    aria-label="Категория материала"
+                    className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value as SectionId)}
+                >
+                    {addCategories.map(category => (
+                        <option key={category} value={category}>{sectionLabel(category)}</option>
+                    ))}
+                </select>
+                <input
+                    type="number"
+                    aria-label="Цена материала"
+                    placeholder="Цена (₽)"
+                    className="w-full lg:w-28 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    value={newMaterialPrice}
+                    onChange={(e) => setNewMaterialPrice(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                />
                 <input
                     type="url"
                     placeholder="Ссылка (опционально)"
                     className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={newMaterialLink}
                     onChange={(e) => setNewMaterialLink(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                 />
-                <div className="rounded-lg border border-border bg-background/35 p-3">
+                <div className="lg:col-span-full rounded-lg border border-border bg-background/35 p-3">
                     <label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm font-semibold text-text-primary">
                         <input
                             type="checkbox"
@@ -367,7 +367,7 @@ const Prices: React.FC<PricesProps> = ({
                 </div>
                 <button
                     onClick={handleAdd}
-                    className="w-full min-h-[44px] bg-primary hover:bg-primary-hover active:bg-red-800 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
+                    className="w-full lg:w-auto lg:justify-self-start min-h-[44px] bg-primary hover:bg-primary-hover active:bg-red-800 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300"
                 >
                     Добавить
                 </button>
@@ -410,16 +410,16 @@ const Prices: React.FC<PricesProps> = ({
             </div>
 
             {/* Desktop table */}
-            <div className="overflow-x-auto hidden md:block">
+            <div className="overflow-x-auto hidden md:block lg:overflow-x-clip">
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
-                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Категория</th>
-                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Наименование</th>
-                            <th className="text-right py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Цена (₽)</th>
-                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Ссылка</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Дата добавления</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Действия</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Категория</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Наименование</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-right py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Цена (₽)</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Ссылка</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Дата добавления</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Действия</th>
                         </tr>
                     </thead>
                     <tbody className="text-text-primary">
@@ -478,7 +478,7 @@ const Prices: React.FC<PricesProps> = ({
                                                 className="w-20 p-1 bg-background border border-border rounded text-text-primary"
                                                 value={editingPrice.price}
                                                 onChange={(e) => setEditingPrice({ ...editingPrice, price: e.target.value })}
-                                                onKeyPress={(e) => e.key === 'Enter' && handleSavePrice()}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleSavePrice()}
                                             />
                                             <button
                                                 onClick={handleSavePrice}
@@ -562,7 +562,7 @@ const Prices: React.FC<PricesProps> = ({
                                     className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded text-text-primary"
                                     value={editingPrice.price}
                                     onChange={(e) => setEditingPrice({ ...editingPrice, price: e.target.value })}
-                                    onKeyPress={(e) => e.key === 'Enter' && handleSavePrice()}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSavePrice()}
                                 />
                                 <button onClick={handleSavePrice} className="min-h-[44px] min-w-[44px] bg-green-600 hover:bg-green-700 text-white font-bold rounded flex items-center justify-center">✓</button>
                                 <button onClick={handleCancelEdit} className="min-h-[44px] min-w-[44px] bg-gray-600 hover:bg-gray-700 text-white font-bold rounded flex items-center justify-center">✕</button>

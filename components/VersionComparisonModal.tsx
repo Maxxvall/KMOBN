@@ -92,7 +92,7 @@ const VersionComparisonModal: React.FC<VersionComparisonModalProps> = ({ oldVers
                                     {getSectionLabel(category, [...(oldVersion.sectionSnapshot ?? []), ...(newVersion.sectionSnapshot ?? [])])}
                                 </h4>
                                 {diffs.map((diff, index) => (
-                                    <div key={index} className={`p-3 rounded-md border grid grid-cols-3 gap-4 text-sm mb-2 ${diffStyles[diff.type]}`}>
+                                    <div key={`${diff.type}-${diff.name}-${index}`} className={`p-3 rounded-md border grid grid-cols-3 gap-4 text-sm mb-2 ${diffStyles[diff.type]}`}>
                                         <div className="col-span-3 sm:col-span-1 font-semibold text-text-primary">{diff.name}</div>
                                         <div className="text-text-secondary line-through">{diff.oldValue}</div>
                                         <div className="font-bold text-text-primary">{diff.newValue}</div>

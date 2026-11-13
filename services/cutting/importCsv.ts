@@ -8,6 +8,7 @@ import {
     DEFAULT_CUTTING_SETTINGS,
     getSheetStockProfile,
 } from './types';
+import { normalizeRussianLower } from '../../types';
 
 const HEADER_ALIASES = {
     construction: ['использование в конструкции', 'применение в конструкции', 'наименование', 'adsk использование в конструкции'],
@@ -20,10 +21,8 @@ const HEADER_ALIASES = {
 
 type HeaderKey = keyof typeof HEADER_ALIASES;
 
-const normalizeHeader = (value: string): string => value
-    .replace(/^\uFEFF/, '')
-    .toLocaleLowerCase('ru-RU')
-    .replace(/ё/g, 'е')
+const normalizeHeader = (value: string): string => normalizeRussianLower(value
+    .replace(/^\uFEFF/, ''))
     .replace(/[.,;:_]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();

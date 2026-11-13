@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getActiveEstimateLabelFilterIds, getEffectiveEstimateLabelIds, matchesEstimateLabels, normalizeEstimateLabelDefinitions, TYPICAL_PROJECT_LABEL_ID } from './estimateLabels';
+import { getActiveEstimateLabelFilterIds, getEffectiveEstimateLabelIds, matchesEstimateLabels, normalizeEstimateLabelDefinitions, resolveSaveLabelIds, TYPICAL_PROJECT_LABEL_ID } from './estimateLabels';
 
 describe('estimate labels', () => {
     it('protects the system label and uses active unique assignments with AND matching', () => {
@@ -19,5 +19,15 @@ describe('estimate labels', () => {
         expect(matchesEstimateLabels(estimate, [], document, true)).toBe(false);
         expect(matchesEstimateLabels({ labelIds: [deleted] }, [], document, true)).toBe(true);
         expect(getActiveEstimateLabelFilterIds([bath, deleted], document)).toEqual([bath]);
+    });
+
+    it('resolveSaveLabelIds: catalog not ready keeps labelIds as is, ready applies the current filtering', () => {
+        const bath = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const document = { labels: normalizeEstimateLabelDefinitions([]) };
+        // Справочник не загружен: метки сметы проходят как есть (валидация UUID — в saveLocalRecords).
+        expect(resolveSaveLabelIds({ labelIds: [bath, 'sm-x'] }, document, false)).toEqual([bath, 'sm-x']);
+        expect(resolveSaveLabelIds({}, document, false)).toEqual([]);
+        // Справочник готов: та же фильтрация, что у getEffectiveEstimateLabelIds.
+        expect(resolveSaveLabelIds({ labelIds: [bath, 'unknown'] }, document, true)).toEqual([]);
     });
 });

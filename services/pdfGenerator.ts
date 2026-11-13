@@ -3,6 +3,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Estimate, EstimateSubgroup, EstimateCategory } from '../types';
 import { getEstimateCategories, getSectionLabel, getSectionSubgroups } from './estimateSections';
+import { sanitizeFileName } from './format';
 import { loadPdfResources, PDF_FONT_NAME, registerPdfFont } from './pdfUtils';
 
 // @ts-nocheck остаётся: типы jspdf-autotable v5 не описывают используемые
@@ -368,7 +369,7 @@ export const generatePdf = async (estimate: Estimate, title?: string) => {
     doc.text(totalText, totalX, totalY);
 
     // --- Save ---
-    const fileTitle = (pdfTitle || `Смета_${estimate.estimateNumber}`).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/_+/g, '_');
-    const fileClient = estimate.client.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_');
+    const fileTitle = sanitizeFileName(pdfTitle || `Смета_${estimate.estimateNumber}`).replace(/\s+/g, '_').replace(/_+/g, '_');
+    const fileClient = sanitizeFileName(estimate.client).replace(/\s+/g, '_');
     doc.save(`${fileTitle}_${fileClient}.pdf`);
 };

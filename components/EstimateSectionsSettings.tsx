@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { CustomSectionId, SectionId } from '../types';
-import { normalizeSectionName } from '../services/estimateSections';
+import { getConflictRemovedLabelNames, normalizeSectionName } from '../services/estimateSections';
 import { useEstimateSections } from '../contexts/EstimateSectionsContext';
 
 type FormState = { mode: 'add' } | { mode: 'rename'; id: CustomSectionId; initial: string };
@@ -184,6 +184,15 @@ const EstimateSectionsSettings: React.FC = () => {
           <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
             {(['local', 'remote'] as const).map(side => <div key={side}><p className="font-semibold">{side === 'local' ? 'На этом устройстве' : 'На другом устройстве'} · метки</p><ul className="mt-1 space-y-1">{(document.syncConflict?.[side].labels ?? []).map(label => <li key={label.id} className="break-words">{label.name}{label.deleted ? ' · удалена' : ''}</li>)}</ul></div>)}
           </div>
+          {(['local', 'remote'] as const).map(side => {
+            const removed = getConflictRemovedLabelNames(document, side);
+            if (!removed.length) return null;
+            return (
+              <p key={side} role="note" className="mt-3 text-sm text-amber-200">
+                При выборе «{side === 'local' ? 'Оставить этот вариант' : 'Принять вариант с другого устройства'}» удаление на {side === 'local' ? 'другом устройстве' : 'этом устройстве'} уберёт метку: {removed.join(', ')}.
+              </p>
+            );
+          })}
           <div className="mt-3 flex flex-wrap gap-2">
             <button type="button" onClick={() => void resolveConflict('local').catch(() => undefined)} className="min-h-11 rounded-lg bg-primary px-4 font-semibold text-white">Оставить этот вариант</button>
             <button type="button" onClick={() => void resolveConflict('remote').catch(() => undefined)} className="min-h-11 rounded-lg border border-border px-4">Принять вариант с другого устройства</button>

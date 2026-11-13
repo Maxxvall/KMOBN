@@ -26,7 +26,7 @@ export const deriveAIProjectScope = (
   scopeDescription?: string,
   selectedSections?: SectionId[],
 ): AIProjectScope => {
-  const text = normalizeKey(scopeDescription || '').replace(/ё/g, 'е');
+  const text = normalizeKey(scopeDescription || '');
   const onlyWorks = /только\s+(?:монтажные\s+)?работы/.test(text) && !/работы\s+и\s+материал/.test(text);
   const onlyMaterials = /только\s+материал/.test(text) && !/материал\S*\s+и\s+работ/.test(text);
   const customerMaterials = /материал\S*\s+заказчик|материал\S*\s+предоставляет\s+заказчик|без\s+материал/.test(text);

@@ -107,7 +107,7 @@ export function calculateHouseGeometry(input: HouseGeometryInput): HouseGeometry
     };
 }
 
-const normalizedUnit = (unit: string): string => unit.toLocaleLowerCase('ru-RU').replace(/\s+/g, '').replace(/ё/g, 'е');
+const normalizedUnit = (unit: string): string => normalizeRussianLower(unit).replace(/\s+/g, '');
 const isSquareUnit = (unit: string): boolean => ['м²', 'м2', 'кв.м', 'кв.м.'].includes(normalizedUnit(unit));
 const isCubicUnit = (unit: string): boolean => ['м³', 'м3', 'куб.м', 'куб.м.'].includes(normalizedUnit(unit));
 const isLinearUnit = (unit: string): boolean => ['м', 'м.п', 'м.п.', 'п.м', 'п.м.', 'пог.м', 'пог.м.'].includes(normalizedUnit(unit));

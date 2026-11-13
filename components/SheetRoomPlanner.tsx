@@ -126,7 +126,7 @@ const SheetRoomPlanner: React.FC<{ userId: string; detectedMaterials: string[] }
                 <div className="rounded-xl border border-dashed border-border bg-background/20 p-6 text-center text-sm text-text-secondary">
                     Добавьте помещение для OSB или фанеры.
                 </div>
-            ) : rooms.map((room, index) => {
+            ) : <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">{rooms.map((room, index) => {
                 const profile = SHEET_STOCK_PROFILES[room.material];
                 const layout = calculateRoomSheetLayout(room.length, room.width, profile);
                 return (
@@ -173,7 +173,8 @@ const SheetRoomPlanner: React.FC<{ userId: string; detectedMaterials: string[] }
                         )}
                     </section>
                 );
-            })}
+            })}</div>
+            }
 
             <p className="text-xs leading-5 text-text-secondary">
                 Расчёт показывает прямоугольную схему покрытия каждого помещения. Краевые остатки между разными помещениями автоматически не переносятся.

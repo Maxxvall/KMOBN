@@ -1,13 +1,12 @@
-import { getEffectiveEstimateLabelIds } from '../services/estimateLabels';
+import { resolveSaveLabelIds } from '../services/estimateLabels';
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
+import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
 import { ESTIMATE_CATEGORIES } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups, preserveEstimateSectionSnapshot, setEstimateSectionOrder } from '../services/estimateSections';
 import { IconAdd, IconCheck, IconChevronRight, IconClipboard, IconCopy, IconDoubleChevronDown, IconDoubleChevronUp, IconNote, IconRefresh, IconAlertTriangle, IconTrash } from '@devigner-ui/icons';
 import { generateEstimateWithAI, isAbortError } from '../services/openRouterService';
 import { buildEstimateDirtySignature, buildEstimateItemsSignature } from './estimateEditorSignature';
-import type { EstimateValidationResult } from '../services/estimateValidation';
 import VersionComparisonModal from './VersionComparisonModal';
 import CrewToolPlanPanel from './CrewToolPlanPanel';
 import AILoadingIndicator from './AILoadingIndicator';
@@ -42,28 +41,6 @@ import { EstimateTemplateRow } from './estimate-editor/EstimateTemplateRow';
 import { EstimateToolbar } from './estimate-editor/EstimateToolbar';
 import { useSectionReorder } from './estimate-editor/useSectionReorder';
 import { EditorActionButton } from './estimate-editor/EditorActionButton';
-
-interface EstimateEditorProps {
-    initialEstimate?: Estimate | null;
-    templates?: ProjectTemplate[];
-    materials?: Material[];
-    works?: Work[];
-    bundles?: WorkBundle[];
-    onRequestSave?: (estimate: Estimate) => void;
-    onDraftChange?: (estimate: Estimate) => void;
-    onDirtyChange?: (dirty: boolean) => void;
-    onSaveAsTemplate?: (estimate: Estimate) => void;
-    onDeleteTemplate?: (templateId: string) => void;
-    onBack?: () => void;
-    onManageSections?: () => void;
-    allEstimates?: Estimate[];
-    validationResult?: EstimateValidationResult | null;
-    aiAccess?: {
-        canUseAi: boolean;
-        remaining?: number | null;
-        onConsume?: (reason: 'autocomplete' | 'generation' | 'analysis') => void;
-    };
-}
 
 type NonUrgentTaskHandle =
     | { kind: 'idle'; id: number }
@@ -182,28 +159,28 @@ const cancelNonUrgentTask = (handle?: NonUrgentTaskHandle): void => {
     clearTimeout(handle.id);
 };
 
-const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templates, materials, works, bundles, onRequestSave, onDraftChange, onDirtyChange, onSaveAsTemplate, onDeleteTemplate, onBack, onManageSections, allEstimates, validationResult, aiAccess }) => {
+const EstimateEditor: React.FC = () => {
     const estimateContext = useOptionalEstimateContext();
     const catalogContext = useOptionalCatalogContext();
     const subscriptionContext = useOptionalSubscriptionContext();
     const sectionsContext = useOptionalEstimateSections();
 
-    const initialEstimateValue = initialEstimate ?? estimateContext?.currentEstimate ?? null;
-    const templatesValue = useMemo(() => templates ?? estimateContext?.templates ?? [], [templates, estimateContext?.templates]);
+    const initialEstimateValue = estimateContext?.currentEstimate ?? null;
+    const templatesValue = useMemo(() => estimateContext?.templates ?? [], [estimateContext?.templates]);
     const visibleEstimatesValue = useMemo(() => estimateContext?.estimates ?? [], [estimateContext?.estimates]);
-    const materialsValue = useMemo(() => materials ?? catalogContext?.materials ?? [], [materials, catalogContext?.materials]);
-    const worksValue = useMemo(() => works ?? catalogContext?.works ?? [], [works, catalogContext?.works]);
-    const bundlesValue = useMemo(() => bundles ?? catalogContext?.bundles ?? [], [bundles, catalogContext?.bundles]);
-    const allEstimatesValue = useMemo(() => allEstimates ?? estimateContext?.allEstimates ?? visibleEstimatesValue, [allEstimates, estimateContext?.allEstimates, visibleEstimatesValue]);
-    const onRequestSaveAction = onRequestSave ?? estimateContext?.actions.onRequestSave;
-    const onDraftChangeAction = onDraftChange ?? estimateContext?.actions.onDraftChange;
-    const onDirtyChangeAction = onDirtyChange ?? estimateContext?.actions.onDirtyChange;
-    const onSaveAsTemplateAction = onSaveAsTemplate ?? estimateContext?.actions.onSaveAsTemplate;
-    const onDeleteTemplateAction = onDeleteTemplate ?? estimateContext?.actions.onDeleteTemplate;
-    const onBackAction = onBack ?? estimateContext?.actions.onBack;
-    const onManageSectionsAction = onManageSections ?? estimateContext?.actions.onManageSections;
-    const validationResultValue = validationResult ?? estimateContext?.validationResult ?? null;
-    const aiAccessValue = aiAccess ?? subscriptionContext?.aiAccess;
+    const materialsValue = useMemo(() => catalogContext?.materials ?? [], [catalogContext?.materials]);
+    const worksValue = useMemo(() => catalogContext?.works ?? [], [catalogContext?.works]);
+    const bundlesValue = useMemo(() => catalogContext?.bundles ?? [], [catalogContext?.bundles]);
+    const allEstimatesValue = useMemo(() => estimateContext?.allEstimates ?? visibleEstimatesValue, [estimateContext?.allEstimates, visibleEstimatesValue]);
+    const onRequestSaveAction = estimateContext?.actions.onRequestSave;
+    const onDraftChangeAction = estimateContext?.actions.onDraftChange;
+    const onDirtyChangeAction = estimateContext?.actions.onDirtyChange;
+    const onSaveAsTemplateAction = estimateContext?.actions.onSaveAsTemplate;
+    const onDeleteTemplateAction = estimateContext?.actions.onDeleteTemplate;
+    const onBackAction = estimateContext?.actions.onBack;
+    const onManageSectionsAction = estimateContext?.actions.onManageSections;
+    const validationResultValue = estimateContext?.validationResult ?? null;
+    const aiAccessValue = subscriptionContext?.aiAccess;
 
     const createEmptyEstimate = useCallback((): Estimate => ({
         id: `sm-temp-${Date.now()}`,
@@ -541,7 +518,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             if (isAbortError(e)) {
                                 return;
                             }
-                            console.debug('[EstimateEditor] aiAutocomplete failed', e);
                         } finally {
                             if (autocompleteAbortControllerRef.current === controller) {
                                 autocompleteAbortControllerRef.current = null;
@@ -776,13 +752,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
     const handleMaterialSelect = async (itemId: string, materialName: string) => {
-        console.info('[EstimateEditor] handleMaterialSelect start', { itemId, materialName });
         const material = materialsIndex.get(materialName);
         if (!material) {
             // Allow AI suggestions that are not in the catalog
             const aiSuggested = suggestions[itemId]?.find(suggestion => suggestion.name === materialName);
             if (aiSuggested && typeof aiSuggested.price === 'number') {
-                console.info('[EstimateEditor] applying AI-suggested material', { itemId, name: materialName, price: aiSuggested.price });
                 updateItemFields(itemId, { name: materialName, price: aiSuggested.price, unit: 'шт', catalogMaterialId: undefined, catalogWorkId: undefined });
                 setShowSuggestions(prev => ({ ...prev, [itemId]: false }));
                 setSuggestions(prev => ({ ...prev, [itemId]: [] }));
@@ -791,11 +765,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             console.warn('[EstimateEditor] material not found in pool', { materialName });
             return;
         }
-        console.debug('[EstimateEditor] found material', material);
-
         const price = material.price;
 
-        console.info('[EstimateEditor] applying price to item', { itemId, name: material.name, price, unit: 'шт' });
         updateItemFields(itemId, { name: material.name, price, unit: 'шт', catalogMaterialId: material.id, catalogWorkId: undefined }); // Assume unit шт
     };
 
@@ -1342,9 +1313,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             alert("Пожалуйста, укажите имя клиента.");
             return;
         }
+        // Пока справочник меток грузится или загрузка упала, labelIds не пересчитываем —
+        // фильтрация по неполному справочнику стёрла бы пользовательские метки.
+        const sectionsCatalogReady = Boolean(sectionsContext) && !sectionsContext?.isLoading && !sectionsContext?.error;
         const finalEstimate = {
             ...estimate,
-            labelIds: getEffectiveEstimateLabelIds(estimate, sectionsDocument),
+            labelIds: resolveSaveLabelIds(estimate, sectionsDocument, sectionsCatalogReady),
             id: initialEstimateValue ? estimate.id : `sm-id-${Date.now()}`,
             estimateNumber: initialEstimateValue ? estimate.estimateNumber : generateEstimateNumber(allEstimatesValue.map(item => item.estimateNumber), new Date()),
             sortOrder: initialEstimateValue ? estimate.sortOrder : (estimate.sortOrder ?? Date.now()),
@@ -1360,8 +1334,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                     cacheKey: aiSessionRef.current.cacheKey,
                 });
                 aiSessionRef.current.baselineItems = finalEstimate.items.map(item => ({ ...item }));
-            } catch (e) {
-                console.debug('[EstimateEditor] learning capture failed', e);
+            } catch {
+                // Сбой записи обучения не влияет на сохранение сметы.
             }
         }
 
@@ -1406,7 +1380,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
     return (
-        <div className="space-y-4">
+        <div className="mx-auto max-w-[1600px] space-y-4">
             <div className="rounded-xl border border-border/70 bg-surface p-2 shadow-2xl sm:p-4 md:p-5">
                 <EstimateEditorHeader
                     estimateNumber={initialEstimateValue ? estimate.estimateNumber : undefined}
@@ -1439,7 +1413,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         <div className="font-semibold text-red-400">Предупреждения AI</div>
                         <ul className="list-disc pl-5 text-sm text-text-secondary">
                             {aiWarnings.map((w, idx) => (
-                                <li key={idx}>{w}</li>
+                                <li key={`${w}-${idx}`}>{w}</li>
                             ))}
                         </ul>
                     </div>
@@ -1450,7 +1424,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                         <div className="font-semibold text-text-primary">Рекомендации AI</div>
                         <ul className="list-disc pl-5 text-sm text-text-secondary">
                             {aiTextSuggestions.map((s, idx) => (
-                                <li key={idx}>{s}</li>
+                                <li key={`${s}-${idx}`}>{s}</li>
                             ))}
                         </ul>
                     </div>

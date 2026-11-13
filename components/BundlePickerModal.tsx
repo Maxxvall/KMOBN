@@ -161,7 +161,7 @@ const BundlePickerModal: React.FC<BundlePickerModalProps> = ({ isOpen, onClose, 
                                                 <div className="px-2 pb-2 border-t border-border/50">
                                                     <div className="max-h-32 overflow-y-auto mt-1 space-y-0.5">
                                                         {(bundle.items ?? []).map((item, idx) => (
-                                                            <div key={idx} className="flex justify-between text-xs py-0.5">
+                                                            <div key={`${item.name}-${item.unit ?? ''}-${idx}`} className="flex justify-between text-xs py-0.5">
                                                                 <span className="text-text-secondary truncate mr-2">{item.name || '(пусто)'}</span>
                                                                 <span className="text-text-primary whitespace-nowrap">{item.quantity} {item.unit} × {item.price.toLocaleString('ru-RU')} ₽</span>
                                                             </div>

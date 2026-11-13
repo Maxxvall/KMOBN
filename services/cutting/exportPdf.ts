@@ -7,6 +7,7 @@ import {
     PREMIUM_PDF_PAGE,
 } from '../premiumPdfBrand';
 import { compareCuttingStages, getCuttingStageLabel } from './stageOrder';
+import { sanitizeFileName } from '../format';
 import { CUTTING_STAGE_ORDER, CuttingItem, CuttingPlan, CuttingSettings, CuttingStageId } from './types';
 
 export interface CuttingPdfInput {
@@ -18,7 +19,8 @@ export interface CuttingPdfInput {
 
 type PdfWithTable = jsPDF & { lastAutoTable?: { finalY: number } };
 
-const safeFileName = (value: string): string => value.replace(/\.[^.]+$/, '').replace(/[\\/:*?"<>|]+/g, '_') || 'Раскрой';
+// Срезаем исходное расширение и применяем общий санитайзер; пустой результат — «Раскрой».
+const safeFileName = (value: string): string => sanitizeFileName(value.replace(/\.[^.]+$/, '')) || 'Раскрой';
 const pdfNumberFormatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 
 export const formatCuttingPdfMillimeters = (value: number): string => pdfNumberFormatter.format(value);

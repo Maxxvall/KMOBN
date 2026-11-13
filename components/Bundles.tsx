@@ -126,17 +126,18 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 </div>
             )}
 
-            <div className="flex gap-4 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-start gap-3 sm:gap-4 mb-6 lg:max-w-5xl">
                 <input
                     type="text"
                     placeholder="Название комплекта"
                     className="flex-1 p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={newBundleName}
                     onChange={e => setNewBundleName(e.target.value)}
-                    onKeyPress={e => e.key === 'Enter' && handleAddBundle()}
+                    onKeyDown={e => e.key === 'Enter' && handleAddBundle()}
                 />
                 <select
-                    className="p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    aria-label="Категория комплекта"
+                    className="w-full sm:w-auto p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={selectedCategory}
                     onChange={e => setSelectedCategory(e.target.value as SectionId)}
                 >
@@ -146,7 +147,7 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 </select>
                 <button
                     onClick={handleAddBundle}
-                    className="bg-primary hover:bg-primary-hover text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
+                    className="w-full sm:w-auto bg-primary hover:bg-primary-hover text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300"
                 >
                     Создать
                 </button>
@@ -165,7 +166,7 @@ const Bundles: React.FC<BundlesProps> = ({ bundles, works, materials, onAddBundl
                 </select>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {filteredBundles.map(bundle => {
                     const isExpanded = expandedBundles.has(bundle.id);
                     const isEditing = editingBundleName?.id === bundle.id;

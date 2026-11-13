@@ -162,38 +162,38 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                 </div>
             )}
 
-            {/* Добавление новой работы */}
-            <div className="flex flex-col gap-3 mb-6">
+            {/* Добавление новой работы: вертикальный стек на мобильных, один ряд на lg+ */}
+            <div className="grid grid-cols-1 gap-3 mb-6 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-start lg:max-w-5xl">
                 <input
                     type="text"
                     placeholder="Наименование работы"
                     className="w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
                     value={newWorkName}
                     onChange={(e) => setNewWorkName(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                 />
-                <div className="flex gap-3">
-                    <input
-                        type="number"
-                        placeholder="Цена (₽)"
-                        className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                        value={newWorkPrice}
-                        onChange={(e) => setNewWorkPrice(e.target.value)}
-                        onKeyPress={(e) => e.key === 'Enter' && handleAdd()}
-                    />
-                    <select
-                        className="flex-1 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
-                        value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value as SectionId)}
-                    >
-                        {addCategories.map(category => (
-                            <option key={category} value={category}>{sectionLabel(category)}</option>
-                        ))}
-                    </select>
-                </div>
+                <input
+                    type="number"
+                    aria-label="Цена работы"
+                    placeholder="Цена (₽)"
+                    className="w-full lg:w-28 min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    value={newWorkPrice}
+                    onChange={(e) => setNewWorkPrice(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                />
+                <select
+                    aria-label="Категория работы"
+                    className="min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary"
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value as SectionId)}
+                >
+                    {addCategories.map(category => (
+                        <option key={category} value={category}>{sectionLabel(category)}</option>
+                    ))}
+                </select>
                 <button
                     onClick={handleAdd}
-                    className="w-full min-h-[44px] bg-primary hover:bg-primary-hover active:bg-red-800 text-white font-bold py-2 px-4 rounded-md shadow-md transition duration-300"
+                    className="w-full lg:w-auto lg:justify-self-start min-h-[44px] bg-primary hover:bg-primary-hover active:bg-red-800 text-white font-bold py-2 px-6 rounded-md shadow-md transition duration-300"
                 >
                     Добавить
                 </button>
@@ -228,15 +228,15 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
             </div>
 
             {/* Desktop table */}
-            <div className="overflow-x-auto hidden md:block">
+            <div className="overflow-x-auto hidden md:block lg:overflow-x-clip">
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
-                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Категория</th>
-                            <th className="text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Наименование</th>
-                            <th className="text-right py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Цена (₽)</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Инструмент</th>
-                            <th className="text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Действия</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Категория</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-left py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Наименование</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-right py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Цена (₽)</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Инструмент</th>
+                            <th className="lg:sticky lg:top-[72px] xl:top-[64px] lg:z-10 lg:bg-background lg:border-b lg:border-border text-center py-3 px-4 uppercase font-semibold text-sm text-text-secondary">Действия</th>
                         </tr>
                     </thead>
                     <tbody className="text-text-primary">
@@ -251,7 +251,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                                             value={editingPrice}
                                             onChange={(e) => setEditingPrice(e.target.value)}
                                             className="w-full p-1 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary text-right"
-                                            onKeyPress={(e) => e.key === 'Enter' && handleSave()}
+                                            onKeyDown={(e) => e.key === 'Enter' && handleSave()}
                                         />
                                     ) : (
                                         `${work.price.toLocaleString('ru-RU')} ₽`
@@ -327,7 +327,7 @@ const Works: React.FC<WorksProps> = ({ works, onAddWork, onUpdateWork, onDeleteW
                                     value={editingPrice}
                                     onChange={(e) => setEditingPrice(e.target.value)}
                                     className="w-24 min-h-[44px] p-1 bg-background border border-border rounded text-text-primary text-right"
-                                    onKeyPress={(e) => e.key === 'Enter' && handleSave()}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSave()}
                                 />
                             ) : (
                                 <span className="shrink-0 font-bold text-text-primary text-sm">{work.price.toLocaleString('ru-RU')} ₽</span>

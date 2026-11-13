@@ -325,7 +325,14 @@ export interface GenerationParams {
     region: string;
 }
 
-export const normalizeKey = (s: unknown): string => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+/**
+ * Правило сравнения русского текста: locale-lowercase + ё→е.
+ * Без trim и без схлопывания пробелов — вызывающие добавляют свои правила.
+ * «Ёлка» и «елка» матчатся одинаково во всём приложении.
+ */
+export const normalizeRussianLower = (value: string): string => value.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+
+export const normalizeKey = (s: unknown): string => normalizeRussianLower(String(s || '')).trim().replace(/\s+/g, ' ');
 
 export const safeNumber = (v: unknown, fallback = 0): number => {
   const n = typeof v === 'number' ? v : Number(String(v).replace(',', '.'));

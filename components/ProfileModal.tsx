@@ -5,7 +5,7 @@ import { getActiveUsageMs } from '../services/appUsage';
 import { exportData } from '../services/dataTransfer';
 import { closeIndexedDbCache } from '../services/indexedDbCache';
 import { offlineQueue } from '../services/offlineQueue';
-import { formatBytes } from '../services/format';
+import { formatBytes, formatDuration } from '../services/format';
 import type { UpdateDownloadProgress } from '../electron/types';
 
 interface ProfileModalProps {
@@ -19,15 +19,10 @@ interface ProfileModalProps {
   updateAvailableVersion: string | null;
   updateDownloadedVersion: string | null;
   updateProgress: UpdateDownloadProgress | null;
+  downloading: boolean;
 }
 
 type Tab = 'profile' | 'stats' | 'app';
-
-const formatDuration = (milliseconds: number): string => {
-  const minutes = Math.floor(milliseconds / 60_000);
-  const hours = Math.floor(minutes / 60);
-  return hours ? `${hours} ч ${minutes % 60} мин` : `${minutes} мин`;
-};
 
 const ProfileModal: React.FC<ProfileModalProps> = ({
   isOpen,
@@ -37,6 +32,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   updateAvailableVersion,
   updateDownloadedVersion,
   updateProgress,
+  downloading,
 }) => {
   const [activeTab, setActiveTab] = useState<Tab>('profile');
   const [updateStatus, setUpdateStatus] = useState('');
@@ -230,7 +226,8 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
                   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-text-primary">Обновления</p><p className="mt-1 text-sm text-text-secondary">Версия {appVersion ? `v${appVersion}` : 'загружается'}</p></div></div>
                   {updateProgress && <div className="mt-4 space-y-2"><div className="flex justify-between text-sm"><span className="text-text-secondary">Загрузка обновления</span><span className="font-semibold text-text-primary">{Math.round(updateProgress.percent)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-gray-700"><div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${updateProgress.percent}%` }} /></div><div className="flex justify-between text-xs text-text-secondary"><span>{formatBytes(updateProgress.transferred)} / {formatBytes(updateProgress.total)}</span><span>{formatBytes(updateProgress.bytesPerSecond)}/с</span></div></div>}
                   {!updateProgress && updateDownloadedVersion && <div className="mt-4"><p className="text-sm font-semibold text-emerald-400">Версия v{updateDownloadedVersion} готова к установке</p><button type="button" onClick={() => window.electronAPI?.installUpdate?.()} className={`${primaryButton} mt-3 w-full sm:w-auto`}>Перезапустить и установить</button></div>}
-                  {!updateProgress && !updateDownloadedVersion && updateAvailableVersion && <div className="mt-4"><p className="text-sm font-semibold text-blue-300">Доступна версия v{updateAvailableVersion}</p><button type="button" onClick={() => window.electronAPI?.downloadUpdate?.()} className={`${primaryButton} mt-3 w-full sm:w-auto`}>Скачать обновление</button></div>}
+                  {!updateProgress && !updateDownloadedVersion && updateAvailableVersion && !downloading && <div className="mt-4"><p className="text-sm font-semibold text-blue-300">Доступна версия v{updateAvailableVersion}</p><button type="button" onClick={() => window.electronAPI?.downloadUpdate?.()} className={`${primaryButton} mt-3 w-full sm:w-auto`}>Скачать обновление</button></div>}
+                  {!updateProgress && !updateDownloadedVersion && downloading && <p className="mt-4 text-sm font-semibold text-blue-300">Загрузка обновления уже идёт…</p>}
                   {!updateProgress && !updateDownloadedVersion && !updateAvailableVersion && <div className="mt-4"><button type="button" onClick={handleCheckUpdates} disabled={isCheckingUpdate} className={`${secondaryButton} w-full sm:w-auto`}>{isCheckingUpdate ? 'Проверяю…' : 'Проверить обновления'}</button>{updateStatus && <p className="mt-2 text-sm text-emerald-400">{updateStatus}</p>}</div>}
                 </div>
               )}

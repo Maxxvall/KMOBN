@@ -1,4 +1,4 @@
-import { EstimateCategory, EstimateItem, EstimateSubgroup } from '../types';
+import { EstimateCategory, EstimateItem, EstimateSubgroup, normalizeRussianLower } from '../types';
 import type { HousePackage } from './houseCalculator';
 
 export type HouseScopeStatus = 'included' | 'partial' | 'needs-clarification' | 'not-included';
@@ -63,9 +63,9 @@ const requiredByPackage: Record<HousePackage, HouseScopeId[]> = {
 export const getRequiredHouseScopeIds = (housePackage: HousePackage): HouseScopeId[] => [...requiredByPackage[housePackage]];
 
 const allScopeIds = Object.keys(labels) as HouseScopeId[];
-// Shared house-domain text rule: locale lowercase + ё→е, no trim and no
-// whitespace collapsing (callers that need more own their extra rules).
-export const normalizeRussianLower = (value: string): string => value.toLocaleLowerCase('ru-RU').replace(/ё/g, 'е');
+// Shared house-domain text rule lives in types.ts; re-exported here for
+// house-domain consumers (houseGeometry imports it from this module).
+export { normalizeRussianLower };
 const normalize = normalizeRussianLower;
 const hasAny = (value: string, fragments: string[]): boolean => fragments.some(fragment => value.includes(fragment));
 

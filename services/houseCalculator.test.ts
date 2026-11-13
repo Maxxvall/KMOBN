@@ -5,6 +5,7 @@ import {
     chooseHouseReference,
     HouseCalculatorInput,
     parseHouseDescription,
+    ROOF_AREA_PITCH_FACTOR,
     selectEligibleHouseHistory,
     selectHouseHistoryForAi,
     selectLatestVersions,
@@ -67,12 +68,21 @@ const input = (overrides: Partial<HouseCalculatorInput> = {}): HouseCalculatorIn
 });
 
 describe('houseCalculator history selection', () => {
+    it('exposes the single roof-area pitch factor accepted by the wizard (1.15)', () => {
+        // Спека: единый pitch-фактор площади кровли с единицы пятна застройки.
+        expect(ROOF_AREA_PITCH_FACTOR).toBe(1.15);
+    });
     it('requires the typical ID for every source path and accepts old labelled drafts', () => {
         const ordinary = estimate({ id: 'ordinary', estimateNumber: 'ordinary', labelIds: [] });
         const typical = estimate({ id: 'typical', estimateNumber: 'typical', status: EstimateStatus.DRAFT, date: '2020-01-01', updated_at: null, labelIds: ['system:typical-projects'] });
         expect(selectEligibleHouseHistory([ordinary, typical], NOW)).toEqual([typical]);
         expect(selectHouseHistoryForAi([ordinary, typical])).toEqual([typical]);
         expect(() => calculateHouseEstimate(input({ estimates: [ordinary] }))).toThrow('Типовые проекты');
+    });
+
+    it('refuses to calculate from a banya when typical estimates are not frame houses', () => {
+        const banya = estimate({ id: 'banya', estimateNumber: 'banya', buildingType: 'Баня из бруса' });
+        expect(() => calculateHouseEstimate(input({ estimates: [banya] }))).toThrow('Типовые проекты');
     });
 
     it('never uses stale labelled versions or ordinary scope supplements and fallback sources', () => {
@@ -86,7 +96,8 @@ describe('houseCalculator history selection', () => {
         expect(result.items.some(value => value.name === 'Электрика под ключ')).toBe(false);
         expect(() => calculateHouseEstimate(input({ estimates: [{ ...ordinary, buildingType: 'Неизвестный объект' }] }))).toThrow('Типовые проекты');
         const fallback = { ...ordinary, labelIds: ['system:typical-projects'], status: EstimateStatus.DRAFT, buildingType: 'Неизвестный объект' };
-        expect(calculateHouseEstimate(input({ estimates: [fallback] })).sourceEstimate.id).toBe('ordinary');
+        // Fallback-пул фильтруется isFrameHouse: «Неизвестный объект» без «дом/коттедж» не референс.
+        expect(() => calculateHouseEstimate(input({ estimates: [fallback] }))).toThrow('Типовые проекты');
     });
     it('keeps only the latest estimate version', () => {
         const v1 = estimate({ id: 'v1', version: 1, updated_at: '2026-05-01T00:00:00Z' });

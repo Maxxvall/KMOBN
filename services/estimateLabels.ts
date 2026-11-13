@@ -33,6 +33,16 @@ export const getEffectiveEstimateLabelIds = (estimate: LabelAssignment, document
     return Array.isArray(estimate.labelIds)
         ? [...new Set(estimate.labelIds.filter((id): id is string => isLabelId(id) && active.has(id)))].slice(0, MAX_ESTIMATE_LABELS) : [];
 };
+/**
+ * Что переживает сохранение сметы. Пока справочник меток не загружен или загрузка
+ * упала (catalogReady=false), labelIds проходят как есть — пересчёт по неполному
+ * справочнику стёр бы пользовательские метки; валидация UUID всё равно происходит
+ * в saveLocalRecords. При готовом справочнике — обычная фильтрация по активным меткам.
+ */
+export const resolveSaveLabelIds = (estimate: LabelAssignment, document: LabelDocument | null | undefined, catalogReady: boolean): string[] => {
+    if (!catalogReady) return Array.isArray(estimate.labelIds) ? [...estimate.labelIds] : [];
+    return getEffectiveEstimateLabelIds(estimate, document);
+};
 export const getActiveEstimateLabelFilterIds = (selected: readonly string[], document?: LabelDocument | null): string[] => {
     const active = new Set(getActiveEstimateLabels(document).map(label => label.id));
     return [...new Set(selected)].filter(id => active.has(id));

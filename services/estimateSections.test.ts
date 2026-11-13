@@ -28,6 +28,7 @@ import {
     addEstimateLabel,
     renameEstimateLabel,
     deleteEstimateLabel,
+    getConflictRemovedLabelNames,
 } from './estimateSections';
 
 const item = (category: SectionId, subgroup?: EstimateSubgroup): EstimateItem => ({
@@ -64,6 +65,20 @@ describe('estimate section registry', () => {
         const resolved = resolveEstimateSectionsConflict({ ...local, syncConflict: { local, remote, detectedAt: '2026-11-05' } }, choice);
         expect(resolved.labels).toContainEqual({ id, name: 'Старое имя', deleted: true });
         expect(resolved.baseDocument?.labels).toEqual(remote.labels);
+    });
+
+    it('names the labels each conflict choice would delete, before the user picks', () => {
+        const document = createEstimateSectionsDocument('synthetic');
+        const bath = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        const house = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+        const local = { ...document, labels: [{ id: bath, name: 'Баня' }, { id: house, name: 'Дом' }] };
+        const remote = { ...document, labels: [{ id: bath, name: 'Баня', deleted: true }, { id: house, name: 'Дом' }], serverRevision: 2 };
+        const conflicted = { ...local, syncConflict: { local, remote, detectedAt: '2026-11-13' } };
+        // Локальный вариант хранит «Баню», tombstone другой стороны её удалит.
+        expect(getConflictRemovedLabelNames(conflicted, 'local')).toEqual(['Баня']);
+        // У удалённой стороны «Баня» уже tombstone — удалять нечего.
+        expect(getConflictRemovedLabelNames(conflicted, 'remote')).toEqual([]);
+        expect(getConflictRemovedLabelNames(document, 'local')).toEqual([]);
     });
     it('preserves label tombstones through normalization and independent offline edits', () => {
         const first = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';

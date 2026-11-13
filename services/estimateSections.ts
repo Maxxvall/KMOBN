@@ -1,4 +1,5 @@
-import { normalizeEstimateLabelDefinitions, validateEstimateLabelName, TYPICAL_PROJECT_LABEL_ID } from './estimateLabels';
+import { getActiveEstimateLabels, normalizeEstimateLabelDefinitions, validateEstimateLabelName, TYPICAL_PROJECT_LABEL_ID } from './estimateLabels';
+import { normalizeRussianLower } from '../types';
 import { createOperationId } from './operationId';
 import {
     ESTIMATE_SECTION_DEFINITIONS,
@@ -35,11 +36,9 @@ const builtInById = new Map<SectionId, typeof ESTIMATE_SECTION_DEFINITIONS[numbe
     ESTIMATE_SECTION_DEFINITIONS.map(section => [section.id, section]),
 );
 
-export const normalizeSectionName = (value: unknown): string => String(value ?? '')
+export const normalizeSectionName = (value: unknown): string => normalizeRussianLower(String(value ?? '')
     .trim()
-    .replace(/\s+/g, ' ')
-    .toLocaleLowerCase('ru-RU')
-    .replace(/ё/g, 'е');
+    .replace(/\s+/g, ' '));
 
 export const isCustomSectionId = (value: unknown): value is CustomSectionId => (
     typeof value === 'string' && /^custom:[0-9a-f-]{8,}$/i.test(value)
@@ -347,6 +346,19 @@ export const resolveEstimateSectionsConflict = (
 };
 
 type EstimateSectionsState = Pick<EstimateSectionsDocument, 'definitions' | 'order' | 'labels' | 'serverRevision'>;
+
+/**
+ * Метки, которые исчезнут при выборе варианта конфликта: у выбранной стороны они
+ * активны, но tombstone (с любой стороны) необратимо удалит их в итоговом документе.
+ * Показывается в диалоге конфликта до выбора варианта.
+ */
+export const getConflictRemovedLabelNames = (document: EstimateSectionsDocument, choice: 'local' | 'remote'): string[] => {
+    if (!document.syncConflict) return [];
+    const { local, remote } = document.syncConflict;
+    const selected = choice === 'local' ? local : remote;
+    const tombstoned = new Set([...(local.labels ?? []), ...(remote.labels ?? [])].filter(label => label.deleted).map(label => label.id));
+    return getActiveEstimateLabels(selected).filter(label => tombstoned.has(label.id)).map(label => label.name);
+};
 
 const sameDefinition = (
     left?: UserEstimateSectionDefinition,
