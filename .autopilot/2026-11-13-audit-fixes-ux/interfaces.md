@@ -40,6 +40,13 @@
 - **Владеет:** записью консоли рендерера в файл.
 - **Отдаёт:** асинхронную запись (fire-and-forget с проглатыванием ошибки записи), без смены формата и пути файла.
 
+## Интерфейсы, построенные тикетом 01
+- `services/estimateLabels.ts`: `resolveSaveLabelIds(estimate, document, catalogReady: boolean): string[]` — что переживает сохранение при неготовом справочнике.
+- `services/estimateSections.ts`: `getConflictRemovedLabelNames(document, 'local'|'remote'): string[]` — какие метки удалит tombstone другой стороны.
+- `types.ts`: `normalizeRussianLower(value: string): string` (реэкспорт из houseScope) — общий ё→е-хелпер.
+- `services/houseCalculator.ts`: `ROOF_AREA_PITCH_FACTOR = 1.15` — pitch-фактор площади кровли.
+- `services/format.ts`: `sanitizeFileName(name): string`, `formatDuration(ms): string`; `sanitizePremiumPdfFileName` оставлен как делегат.
+
 ## Швы для тестов
 - Colocated `*.test.ts` (vitest) рядом с сервисом — существующий паттерн, новые чистые функции (`resolveSaveLabelIds`, `roofFactorFor`, `sanitizeFileName`, ё-хелпер) тестируются там же.
 - `dataTransfer.test.ts` — кейсы R02 (поле отсутствует vs `[]`) добавить рядом с существующим тестом «явный []».
