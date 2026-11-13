@@ -213,7 +213,7 @@ const AIMissingItemsModal = ({
                   <div className="font-semibold text-text-primary mb-2">Обоснование</div>
                   <ul className="list-disc pl-5 text-sm text-text-secondary space-y-1">
                     {reasoning.map((r, idx) => (
-                      <li key={idx}>{r}</li>
+                      <li key={`${r}-${idx}`}>{r}</li>
                     ))}
                   </ul>
                 </div>

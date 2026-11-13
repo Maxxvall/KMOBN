@@ -12,7 +12,7 @@ interface HeaderProps {
     mobileStatus?: React.ReactNode;
 }
 
-type NavIconName = 'file-text' | 'house' | 'tag' | 'briefcase-business' | 'more-horizontal' | 'wrench' | 'layers' | 'chart' | 'book-open';
+type NavIconName = 'file-text' | 'house' | 'tag' | 'briefcase-business' | 'more-horizontal' | 'wrench' | 'layers' | 'chart' | 'book-open' | 'log-out';
 
 const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 }) => {
     const commonProps = {
@@ -46,6 +46,8 @@ const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 
             return <svg {...commonProps}><path d="M3 3v18h18" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></svg>;
         case 'book-open':
             return <svg {...commonProps}><path d="M12 7v14" /><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" /></svg>;
+        case 'log-out':
+            return <svg {...commonProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></svg>;
     }
 };
 
@@ -224,6 +226,18 @@ const Header: React.FC<HeaderProps> = ({
                             >
                                 <span aria-hidden="true">◉</span>
                                 <span className="max-w-[160px] truncate">{userName || 'Профиль'}</span>
+                            </button>
+                        )}
+                        {/* xl+: drawer скрыт — выход из аккаунта дублируем в шапку рядом с профилем */}
+                        {onLogout && (
+                            <button
+                                type="button"
+                                onClick={handleLogout}
+                                className="hidden xl:flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-primary transition hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-primary"
+                                aria-label="Выйти"
+                            >
+                                <Icon name="log-out" size={16} />
+                                Выйти
                             </button>
                         )}
                     </div>
