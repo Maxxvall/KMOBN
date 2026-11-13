@@ -2,6 +2,7 @@ import { getActiveEstimateLabels } from './services/estimateLabels';
 import React, { useMemo, useState, useCallback, useEffect, useRef, lazy, Suspense } from 'react';
 import FocusLock from 'react-focus-lock';
 import type { User } from '@supabase/supabase-js';
+import type { UpdateDownloadProgress } from './electron/types';
 import { BoardSpec, Estimate, View, EstimateStatus, ProjectTemplate, Material, Work, EstimateSubgroup, WorkBundle, UserSubscription, normalizeKey, findDuplicates, EstimateSectionsDocument, CustomSectionId, SectionId } from './types';
 import SyncToast from './components/SyncToast';
 import Header from './components/Header';
@@ -308,7 +309,8 @@ const App: React.FC = () => {
     const [isOfflineChangesOpen, setIsOfflineChangesOpen] = useState(false);
     const [appUpdateInfo, setAppUpdateInfo] = useState<{ version: string } | null>(null);
     const [appUpdateDownloaded, setAppUpdateDownloaded] = useState(false);
-    const [appUpdateProgress, setAppUpdateProgress] = useState<{ percent: number; bytesPerSecond: number; transferred: number; total: number } | null>(null);
+    const [appUpdateDownloading, setAppUpdateDownloading] = useState(false);
+    const [appUpdateProgress, setAppUpdateProgress] = useState<UpdateDownloadProgress | null>(null);
     const [restoreArchivedOnSave, setRestoreArchivedOnSave] = useState(true);
     const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const autosaveSuppressedRef = useRef(false);
@@ -789,21 +791,25 @@ const App: React.FC = () => {
             setAppUpdateInfo(info);
             setAppUpdateDownloaded(false);
         };
-        const handleDownloadProgress = (progress: { percent: number; bytesPerSecond: number; transferred: number; total: number }) => {
+        const handleDownloadProgress = (progress: UpdateDownloadProgress) => {
             setAppUpdateProgress(progress);
+            setAppUpdateDownloading(true);
         };
         const handleUpdateDownloaded = (info: { version: string }) => {
             setAppUpdateInfo(info);
             setAppUpdateDownloaded(true);
+            setAppUpdateDownloading(false);
             setAppUpdateProgress(null);
         };
         const handleUpdateNotAvailable = () => {
             setAppUpdateInfo(null);
             setAppUpdateDownloaded(false);
+            setAppUpdateDownloading(false);
             setAppUpdateProgress(null);
         };
         const handleError = () => {
             setAppUpdateProgress(null);
+            setAppUpdateDownloading(false);
         };
 
         window.electronAPI.onUpdateAvailable?.(handleUpdateAvailable);
@@ -2065,9 +2071,17 @@ const App: React.FC = () => {
                 <UpdateBanner
                     version={appUpdateInfo.version}
                     downloaded={appUpdateDownloaded}
-                    onDownload={() => window.electronAPI?.downloadUpdate?.()}
+                    downloading={appUpdateDownloading}
+                    progress={appUpdateProgress}
+                    onDownload={() => {
+                        setAppUpdateDownloading(true);
+                        window.electronAPI?.downloadUpdate?.();
+                    }}
                     onInstall={() => window.electronAPI?.installUpdate?.()}
-                    onDismiss={() => setAppUpdateInfo(null)}
+                    onDismiss={() => {
+                        setAppUpdateInfo(null);
+                        setAppUpdateDownloading(false);
+                    }}
                 />
             )}
             <div className="fixed bottom-4 left-4 z-50 hidden lg:block">

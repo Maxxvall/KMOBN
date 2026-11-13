@@ -13,7 +13,6 @@ const electronAPI: ElectronAPI = {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   downloadUpdate: () => ipcRenderer.invoke('download-update'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
-  cancelUpdate: () => ipcRenderer.invoke('cancel-update'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   isElectron: true,
   openExternal: (url) => ipcRenderer.invoke('open-external', url),

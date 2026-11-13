@@ -5,6 +5,8 @@ import { getActiveUsageMs } from '../services/appUsage';
 import { exportData } from '../services/dataTransfer';
 import { closeIndexedDbCache } from '../services/indexedDbCache';
 import { offlineQueue } from '../services/offlineQueue';
+import { formatBytes } from '../services/format';
+import type { UpdateDownloadProgress } from '../electron/types';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -16,16 +18,10 @@ interface ProfileModalProps {
   bundles: unknown[];
   updateAvailableVersion: string | null;
   updateDownloadedVersion: string | null;
-  updateProgress: { percent: number; bytesPerSecond: number; transferred: number; total: number } | null;
+  updateProgress: UpdateDownloadProgress | null;
 }
 
 type Tab = 'profile' | 'stats' | 'app';
-
-const formatBytes = (bytes: number): string => {
-  if (bytes < 1024) return `${bytes} Б`;
-  if (bytes < 1_048_576) return `${(bytes / 1024).toFixed(1)} КБ`;
-  return `${(bytes / 1_048_576).toFixed(1)} МБ`;
-};
 
 const formatDuration = (milliseconds: number): string => {
   const minutes = Math.floor(milliseconds / 60_000);
@@ -232,7 +228,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
               {window.electronAPI?.isElectron && (
                 <div className="rounded-2xl border border-border bg-background/50 p-5">
                   <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="font-semibold text-text-primary">Обновления</p><p className="mt-1 text-sm text-text-secondary">Версия {appVersion ? `v${appVersion}` : 'загружается'}</p></div></div>
-                  {updateProgress && <div className="mt-4 space-y-2"><div className="flex justify-between text-sm"><span className="text-text-secondary">Загрузка обновления</span><span className="font-semibold text-text-primary">{Math.round(updateProgress.percent)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-gray-700"><div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${updateProgress.percent}%` }} /></div><div className="flex justify-between text-xs text-text-secondary"><span>{formatBytes(updateProgress.transferred)} / {formatBytes(updateProgress.total)}</span><span>{formatBytes(updateProgress.bytesPerSecond)}/с</span></div><button type="button" onClick={() => window.electronAPI?.cancelUpdate?.()} className={`${secondaryButton} mt-2 w-full sm:w-auto`}>Отменить загрузку</button></div>}
+                  {updateProgress && <div className="mt-4 space-y-2"><div className="flex justify-between text-sm"><span className="text-text-secondary">Загрузка обновления</span><span className="font-semibold text-text-primary">{Math.round(updateProgress.percent)}%</span></div><div className="h-2 overflow-hidden rounded-full bg-gray-700"><div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${updateProgress.percent}%` }} /></div><div className="flex justify-between text-xs text-text-secondary"><span>{formatBytes(updateProgress.transferred)} / {formatBytes(updateProgress.total)}</span><span>{formatBytes(updateProgress.bytesPerSecond)}/с</span></div></div>}
                   {!updateProgress && updateDownloadedVersion && <div className="mt-4"><p className="text-sm font-semibold text-emerald-400">Версия v{updateDownloadedVersion} готова к установке</p><button type="button" onClick={() => window.electronAPI?.installUpdate?.()} className={`${primaryButton} mt-3 w-full sm:w-auto`}>Перезапустить и установить</button></div>}
                   {!updateProgress && !updateDownloadedVersion && updateAvailableVersion && <div className="mt-4"><p className="text-sm font-semibold text-blue-300">Доступна версия v{updateAvailableVersion}</p><button type="button" onClick={() => window.electronAPI?.downloadUpdate?.()} className={`${primaryButton} mt-3 w-full sm:w-auto`}>Скачать обновление</button></div>}
                   {!updateProgress && !updateDownloadedVersion && !updateAvailableVersion && <div className="mt-4"><button type="button" onClick={handleCheckUpdates} disabled={isCheckingUpdate} className={`${secondaryButton} w-full sm:w-auto`}>{isCheckingUpdate ? 'Проверяю…' : 'Проверить обновления'}</button>{updateStatus && <p className="mt-2 text-sm text-emerald-400">{updateStatus}</p>}</div>}

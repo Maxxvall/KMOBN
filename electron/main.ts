@@ -330,10 +330,6 @@ ipcMain.handle('install-update', () => {
   }
 });
 
-ipcMain.handle('cancel-update', () => {
-  log('Update cancelled by user');
-});
-
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
