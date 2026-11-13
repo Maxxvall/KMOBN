@@ -432,7 +432,7 @@ const Prices: React.FC<PricesProps> = ({
                                 <td className="text-left py-3 px-4">
                                     <div>{material.name}</div>
                                     {material.boardSpec && (
-                                        <div className="mt-1 text-xs font-medium text-emerald-300">
+                                        <div className="mt-1 text-xs font-medium text-emerald-300 3xl:text-sm">
                                             {material.boardSpec.moisture === 'dry-planed' ? 'СС' : 'ЕВ'} · {formatBoardDimensions(material.boardSpec)}
                                         </div>
                                     )}
@@ -461,7 +461,7 @@ const Prices: React.FC<PricesProps> = ({
                                             href={material.link}
                                             target="_blank"
                                             rel="noreferrer"
-                                            className="text-xs text-primary hover:underline inline-block mt-1"
+                                            className="text-xs text-primary hover:underline inline-block mt-1 3xl:text-sm"
                                         >
                                             Открыть ссылку
                                         </a>
@@ -721,7 +721,7 @@ const Prices: React.FC<PricesProps> = ({
                                                 </option>
                                             ))}
                                     </select>
-                                    <span className="mt-1 block text-xs">Выберите материал только если пара отличается от стандартного правила размеров.</span>
+                                    <span className="mt-1 block text-xs 3xl:text-sm">Выберите материал только если пара отличается от стандартного правила размеров.</span>
                                 </label>
                             </div>
                             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
