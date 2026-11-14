@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import FocusLock from 'react-focus-lock';
+import { Tabs } from './ui/tabs';
 import type { CustomSectionId, SectionId } from '../types';
 import { getConflictRemovedLabelNames, normalizeSectionName } from '../services/estimateSections';
 import { useEstimateSections } from '../contexts/EstimateSectionsContext';
@@ -162,10 +163,16 @@ const EstimateSectionsSettings: React.FC = () => {
       </div>
 
       <div className="mb-4 flex flex-col gap-3 rounded-xl border border-border bg-surface p-3 sm:flex-row sm:items-center">
-        <div className="flex rounded-lg bg-background p-1" role="tablist" aria-label="Состояние разделов">
-          <button type="button" role="tab" aria-selected={tab === 'active'} disabled={Boolean(orderDraft)} onClick={() => setTab('active')} className={`min-h-11 rounded-md px-4 text-sm font-semibold disabled:opacity-50 ${tab === 'active' ? 'bg-primary text-white' : 'text-text-secondary'}`}>Активные</button>
-          <button type="button" role="tab" aria-selected={tab === 'archive'} disabled={Boolean(orderDraft)} onClick={() => setTab('archive')} className={`min-h-11 rounded-md px-4 text-sm font-semibold disabled:opacity-50 ${tab === 'archive' ? 'bg-primary text-white' : 'text-text-secondary'}`}>Архив</button>
-        </div>
+        <Tabs<'active' | 'archive'>
+          tabs={[
+            { id: 'active', label: 'Активные' },
+            { id: 'archive', label: 'Архив' },
+          ]}
+          active={tab}
+          onChange={setTab}
+          disabled={Boolean(orderDraft)}
+          ariaLabel="Состояние разделов"
+        />
         <label className="min-w-0 flex-1">
           <span className="sr-only">Поиск разделов</span>
           <input value={search} disabled={Boolean(orderDraft)} onChange={event => setSearch(event.target.value)} placeholder={orderDraft ? 'Поиск недоступен при сортировке' : 'Найти раздел'} className="min-h-11 w-full rounded-lg border border-border bg-background px-3 text-text-primary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60" />
