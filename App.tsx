@@ -43,6 +43,8 @@ import {
 } from './services/subscriptionService';
 import { setupAppUsageTracking } from './services/appUsage';
 import { exportContractPdf, exportEstimatePdfColored, exportEstimatePdfPlain } from './services/documentExport';
+import { IconBook, IconBriefcase, IconChartSquare, IconChevronRight, IconDocument, IconDocumentDownload, IconFileText, IconHome, IconLayers, IconPlus, IconStarsSparkles, IconTag } from '@devigner-ui/icons';
+import type { PaletteCommand } from './components/CommandPalette';
 import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './services/offlineIdentity';
 import { buildCatalogDuplicateDeletePlan, type CatalogDuplicateDecision } from './services/duplicateManagement';
 import { recalculateEstimateWorkPrices } from './services/estimatePricing';
@@ -57,6 +59,7 @@ const Analytics = lazy(() => import('./components/Analytics'));
 const Cutting = lazy(() => import('./components/Cutting'));
 const Wiki = lazy(() => import('./components/Wiki'));
 const EstimateSectionsSettings = lazy(() => import('./components/EstimateSectionsSettings'));
+const CommandPalette = lazy(() => import('./components/CommandPalette'));
 
 const AUTOSAVE_DELAY_MS = 8000;
 
@@ -83,6 +86,7 @@ type UiState = {
     showContractNameModal: boolean;
     showSaveOptions: boolean;
     showUnsavedModal: boolean;
+    showCommandPalette: boolean;
     pendingView: View | null;
 };
 
@@ -134,6 +138,7 @@ const initialUiState: UiState = {
     showContractNameModal: false,
     showSaveOptions: false,
     showUnsavedModal: false,
+    showCommandPalette: false,
     pendingView: null,
 };
 
@@ -204,6 +209,7 @@ const App: React.FC = () => {
         showContractNameModal,
         showSaveOptions,
         showUnsavedModal,
+        showCommandPalette,
         pendingView,
     } = uiState;
     const {
@@ -233,6 +239,7 @@ const App: React.FC = () => {
     const setShowContractNameModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showContractNameModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showContractNameModal) : v })), []);
     const setShowSaveOptions = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showSaveOptions: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showSaveOptions) : v })), []);
     const setShowUnsavedModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showUnsavedModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showUnsavedModal) : v })), []);
+    const setShowCommandPalette = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showCommandPalette: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showCommandPalette) : v })), []);
     const setPendingView = useCallback((v: React.SetStateAction<View | null>) => setUiState(p => ({ ...p, pendingView: typeof v === 'function' ? (v as (prev: View | null) => View | null)(p.pendingView) : v })), []);
     const setCurrentEstimate = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, currentEstimate: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.currentEstimate) : v })), []);
     const setPendingExportEstimate = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, pendingExportEstimate: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.pendingExportEstimate) : v })), []);
@@ -1204,6 +1211,24 @@ const App: React.FC = () => {
         };
     }, [setOfflineMode]);
 
+    // Единственный глобальный хоткей приложения: Ctrl/Cmd+K открывает и закрывает
+    // палитру команд. Правило клавиши дублирует isCommandPaletteShortcut из
+    // CommandPalette.tsx (там оно покрыто тестом): статический импорт из этого
+    // файла склеил бы ленивый чанк палитры с основным бандлом.
+    useEffect(() => {
+        const handlePaletteShortcut = (event: KeyboardEvent) => {
+            if (event.altKey || event.shiftKey) return;
+            if (!event.ctrlKey && !event.metaKey) return;
+            if (event.key.toLowerCase() !== 'k') return;
+            event.preventDefault();
+            setUiState(p => ({ ...p, showCommandPalette: !p.showCommandPalette }));
+        };
+        window.addEventListener('keydown', handlePaletteShortcut);
+        return () => {
+            window.removeEventListener('keydown', handlePaletteShortcut);
+        };
+    }, []);
+
     useEffect(() => {
         return () => {
             if (toastTimerRef.current) {
@@ -1449,6 +1474,75 @@ const App: React.FC = () => {
             setPendingExportEstimate(null);
         }
     }, [pendingExportEstimate, setPendingExportEstimate, setShowContractNameModal]);
+
+    // Команды палитры — только существующие обработчики; новых бизнес-действий нет.
+    // «Экспорт PDF» и «AI-генерация» видимы, только когда есть активная смета
+    // (currentEstimate живёт лишь в редакторе).
+    const triggerEditorAiGeneration = useCallback(() => {
+        const aiButton = document.querySelector<HTMLButtonElement>('button[aria-label="AI-генерация"]');
+        aiButton?.click();
+    }, []);
+
+    const paletteCommands = useMemo<PaletteCommand[]>(() => {
+        const navigationChildren: PaletteCommand[] = [
+            { id: 'nav-history', label: 'Сметы', icon: <IconFileText aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.HISTORY) },
+            { id: 'nav-house-calculator', label: 'Расчёт дома', icon: <IconHome aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.HOUSE_CALCULATOR) },
+            { id: 'nav-prices', label: 'Материалы', icon: <IconTag aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.PRICES) },
+            { id: 'nav-works', label: 'Работы', icon: <IconBriefcase aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.WORKS) },
+            { id: 'nav-bundles', label: 'Комплекты', icon: <IconBriefcase aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.BUNDLES) },
+            { id: 'nav-analytics', label: 'Аналитика', icon: <IconChartSquare aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.ANALYTICS) },
+            { id: 'nav-cutting', label: 'Раскрой', icon: <IconLayers aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.CUTTING) },
+            { id: 'nav-wiki', label: 'Wiki', icon: <IconBook aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.WIKI) },
+            { id: 'nav-sections', label: 'Разделы смет', icon: <IconLayers aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.SECTIONS) },
+        ];
+
+        const estimateCommands: PaletteCommand[] = estimates.map(estimate => ({
+            id: `estimate:${estimate.id}`,
+            label: estimate.client ? estimate.client : 'Без клиента',
+            hint: `Смета №${estimate.estimateNumber} · v${estimate.version}`,
+            keywords: estimate.estimateNumber,
+            icon: <IconDocument aria-hidden="true" className="size-4" />,
+            perform: () => handleEditPendingEstimate(estimate.id),
+        }));
+
+        const activeEstimateCommands: PaletteCommand[] = currentEstimate
+            ? [
+                {
+                    id: 'export-pdf',
+                    label: 'Экспорт PDF',
+                    hint: 'Активная смета',
+                    icon: <IconDocumentDownload aria-hidden="true" className="size-4" />,
+                    perform: () => handleGeneratePdf(currentEstimate),
+                },
+                {
+                    id: 'ai-generate',
+                    label: 'AI-генерация',
+                    hint: 'Активная смета',
+                    icon: <IconStarsSparkles aria-hidden="true" className="size-4" />,
+                    perform: triggerEditorAiGeneration,
+                },
+            ]
+            : [];
+
+        return [
+            {
+                id: 'create-new',
+                label: 'Новая смета',
+                icon: <IconPlus aria-hidden="true" className="size-4" />,
+                perform: () => { handleCreateNew(); },
+            },
+            ...activeEstimateCommands,
+            {
+                id: 'navigate-sections',
+                label: 'Перейти в раздел',
+                icon: <IconChevronRight aria-hidden="true" className="size-4" />,
+                hint: '9 разделов',
+                perform: () => {},
+                children: navigationChildren,
+            },
+            ...estimateCommands,
+        ];
+    }, [currentEstimate, estimates, handleCreateNew, handleEditPendingEstimate, handleGeneratePdf, handleNavigationAttempt, triggerEditorAiGeneration]);
 
     const markDraftEstimatesWithPriceChange = useCallback((params: { materialName?: string; workName?: string }) => {
         const { materialName, workName } = params;
@@ -2055,6 +2149,7 @@ const App: React.FC = () => {
             <Header
                 currentView={view}
                 onViewChange={handleNavigationAttempt}
+                onOpenCommandPalette={() => setShowCommandPalette(true)}
                 userName={displayName}
                 onLogout={handleLogout}
                 onUserNameClick={handleOpenPasswordChange}
@@ -2289,6 +2384,15 @@ const App: React.FC = () => {
                 onOpenTable={handleOpenPendingTable}
             />
             {passwordRecoveryModal}
+            {showCommandPalette && (
+                <Suspense fallback={null}>
+                    <CommandPalette
+                        open
+                        onClose={() => setShowCommandPalette(false)}
+                        commands={paletteCommands}
+                    />
+                </Suspense>
+            )}
             <SyncToast
                 visible={sync.visible}
                 message={sync.message}

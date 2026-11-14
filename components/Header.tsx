@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from '../types';
+import { IconBook, IconBriefcase, IconChartSquare, IconFileText, IconHome, IconLayers, IconLogout, IconMagnifier, IconMore, IconSledgehammer, IconTag } from '@devigner-ui/icons';
 
 interface HeaderProps {
     currentView: View;
     onViewChange: (view: View) => void;
+    onOpenCommandPalette?: () => void;
     userName?: string | null;
     onLogout?: () => void;
     onUserNameClick?: () => void;
@@ -14,41 +16,39 @@ interface HeaderProps {
 
 type NavIconName = 'file-text' | 'house' | 'tag' | 'briefcase-business' | 'more-horizontal' | 'wrench' | 'layers' | 'chart' | 'book-open' | 'log-out';
 
-const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 }) => {
-    const commonProps = {
-        width: size,
-        height: size,
-        viewBox: '0 0 24 24',
-        fill: 'none',
-        stroke: 'currentColor',
-        strokeWidth: 2,
-        strokeLinecap: 'round' as const,
-        strokeLinejoin: 'round' as const,
-        'aria-hidden': true,
-    };
+// Иконки навигации — из пакета (раньше здесь было 10 inline-SVG).
+// Соответствие «ближайшее по смыслу»: wrench → Sledgehammer, chart → ChartSquare.
+const NAV_ICONS: Record<NavIconName, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> = {
+    'file-text': IconFileText,
+    house: IconHome,
+    tag: IconTag,
+    'briefcase-business': IconBriefcase,
+    'more-horizontal': IconMore,
+    wrench: IconSledgehammer,
+    layers: IconLayers,
+    chart: IconChartSquare,
+    'book-open': IconBook,
+    'log-out': IconLogout,
+};
 
-    switch (name) {
-        case 'file-text':
-            return <svg {...commonProps}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2" /></svg>;
-        case 'house':
-            return <svg {...commonProps}><path d="m3 10 9-7 9 7v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M9 21v-8h6v8" /></svg>;
-        case 'tag':
-            return <svg {...commonProps}><path d="M20.59 13.41 13.4 20.6a2 2 0 0 1-2.82 0L3.4 13.4A2 2 0 0 1 2.82 12V4a2 2 0 0 1 2-2h8a2 2 0 0 1 1.41.59l6.36 6.36a3 3 0 0 1 0 4.24Z" /><circle cx="7.5" cy="7.5" r=".5" fill="currentColor" /></svg>;
-        case 'briefcase-business':
-            return <svg {...commonProps}><rect width="20" height="14" x="2" y="6" rx="2" /><path d="M16 6V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2M2 13a18 18 0 0 0 20 0M12 12h.01" /></svg>;
-        case 'wrench':
-            return <svg {...commonProps}><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.1-3.1a6 6 0 0 1-8.3 7.1l-7.9 7.9a1 1 0 0 1-3-3l7.9-7.9a6 6 0 0 1 7.1-8.3Z" /></svg>;
-        case 'layers':
-            return <svg {...commonProps}><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 17l9 5 9-5" /></svg>;
-        case 'more-horizontal':
-            return <svg {...commonProps}><circle cx="5" cy="12" r="1" fill="currentColor" /><circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="19" cy="12" r="1" fill="currentColor" /></svg>;
-        case 'chart':
-            return <svg {...commonProps}><path d="M3 3v18h18" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></svg>;
-        case 'book-open':
-            return <svg {...commonProps}><path d="M12 7v14" /><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z" /></svg>;
-        case 'log-out':
-            return <svg {...commonProps}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></svg>;
-    }
+const Icon: React.FC<{ name: NavIconName; size?: number }> = ({ name, size = 20 }) => {
+    const Glyph = NAV_ICONS[name];
+    return <Glyph aria-hidden="true" style={{ width: size, height: size }} />;
+};
+
+const SearchButton: React.FC<{ onOpenCommandPalette?: () => void; className?: string }> = ({ onOpenCommandPalette, className = '' }) => {
+    if (!onOpenCommandPalette) return null;
+    return (
+        <button
+            type="button"
+            onClick={onOpenCommandPalette}
+            aria-label="Поиск и команды"
+            title="Поиск и команды (Ctrl+K)"
+            className={`flex items-center justify-center rounded-lg border border-border text-text-primary transition hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-primary ${className}`}
+        >
+            <IconMagnifier aria-hidden="true" className="size-5" />
+        </button>
+    );
 };
 
 const MOBILE_TABS: ReadonlyArray<{ view: View | 'MORE'; label: string; icon: NavIconName }> = [
@@ -96,6 +96,7 @@ const LOGOUT_HOVER = 'text-text-secondary hover:bg-red-500/10 hover:text-red-300
 const Header: React.FC<HeaderProps> = ({
     currentView,
     onViewChange,
+    onOpenCommandPalette,
     userName,
     onLogout,
     onUserNameClick,
@@ -211,6 +212,7 @@ const Header: React.FC<HeaderProps> = ({
                                 </button>
                             ))}
                         </nav>
+                        <SearchButton onOpenCommandPalette={onOpenCommandPalette} className="h-10 w-10" />
                         <button
                             type="button"
                             onClick={openDrawer}
@@ -265,7 +267,10 @@ const Header: React.FC<HeaderProps> = ({
                             <p className="truncate text-xs text-primary">Генератор смет</p>
                         </div>
                     </div>
-                    {mobileStatus && <div className="shrink-0">{mobileStatus}</div>}
+                    <div className="flex shrink-0 items-center gap-2">
+                        <SearchButton onOpenCommandPalette={onOpenCommandPalette} className="h-11 w-11" />
+                        {mobileStatus && <div className="shrink-0">{mobileStatus}</div>}
+                    </div>
                 </div>
             </header>
 
