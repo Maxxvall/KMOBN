@@ -1,8 +1,140 @@
 import React from 'react';
+import { motion, useMotionValue, useSpring } from 'motion/react';
+import { IconYoutube } from '@devigner-ui/icons';
 
 type LandingPageProps = {
     onOpenLogin: () => void;
     onOfflineMode?: () => void;
+};
+
+// ─── Рецепты лендинга (R14): Magnetic / Flip / Contact Lens ─────────────────
+// Анимации живут только здесь, на лендинге; тексты и цели кнопок прежние.
+
+const MagneticButton: React.FC<{
+    onClick: () => void;
+    className?: string;
+    children: React.ReactNode;
+}> = ({ onClick, className, children }) => {
+    const x = useMotionValue(0);
+    const y = useMotionValue(0);
+    const springX = useSpring(x, { stiffness: 260, damping: 18 });
+    const springY = useSpring(y, { stiffness: 260, damping: 18 });
+    const zoneRef = React.useRef<HTMLDivElement>(null);
+    const buttonRef = React.useRef<HTMLButtonElement>(null);
+
+    const handleMove = (event: React.MouseEvent) => {
+        const button = buttonRef.current?.getBoundingClientRect();
+        if (!button) return;
+        const offsetX = event.clientX - (button.left + button.width / 2);
+        const offsetY = event.clientY - (button.top + button.height / 2);
+        x.set(offsetX * 0.25);
+        y.set(offsetY * 0.25);
+    };
+
+    const resetOffset = () => {
+        x.set(0);
+        y.set(0);
+    };
+
+    return (
+        // Зона притяжения чуть шире кнопки; компенсируется отрицательным отступом.
+        <div ref={zoneRef} onMouseMove={handleMove} onMouseLeave={resetOffset} className="inline-block p-4 -m-4">
+            <motion.button
+                ref={buttonRef}
+                type="button"
+                onClick={onClick}
+                style={{ x: springX, y: springY }}
+                className={className}
+            >
+                {children}
+            </motion.button>
+        </div>
+    );
+};
+
+const FlipButton: React.FC<{
+    onClick: () => void;
+    className?: string;
+    label: string;
+}> = ({ onClick, className, label }) => (
+    <motion.button
+        type="button"
+        onClick={onClick}
+        whileHover="hover"
+        className={`block cursor-pointer [perspective:800px] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary ${className ?? ''}`}
+    >
+        <motion.span
+            variants={{ hover: { rotateX: 180 } }}
+            transition={{ duration: 0.45, ease: 'easeInOut' }}
+            className="relative flex items-center justify-center [transform-style:preserve-3d]"
+        >
+            <span className="block whitespace-nowrap [backface-visibility:hidden]">{label}</span>
+            <span
+                aria-hidden="true"
+                className="absolute inset-0 flex items-center justify-center whitespace-nowrap [backface-visibility:hidden] [transform:rotateX(180deg)]"
+            >
+                {label}
+            </span>
+        </motion.span>
+    </motion.button>
+);
+
+// Брендовых иконок VK и Telegram в @devigner-ui/icons@3.6.0 нет — глифы остаются
+// inline; YouTube заменён на IconYoutube из пакета (R01.1).
+const VkGlyph: React.FC = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M12 0C5.373 0 0 5.373 0 12c0 6.627 5.373 12 12 12s12-5.373 12-12C24 5.373 18.627 0 12 0zm4.406 16.5c-.145.395-.52.649-.951.649-.844 0-1.628-.205-2.38-.614-.748-.406-1.182-.72-1.58-1.03-.31-.24-.488-.317-.66-.317-.092 0-.172.06-.172.317v1.4c0 .38-.177.556-.487.556h-.888c-.384 0-.6-.227-.6-.63V8.6c0-.384.14-.544.467-.544h1.107c.28 0 .397.097.462.33.274.9.97 1.66 1.756 2.076.344.2.528.244.658.244.071 0 .163-.03.163-.316V8.6c0-.384.129-.546.46-.546h1.06c.357 0 .495.172.35.493-.96 2.35-1.99 3.7-3.18 4.56.61.084 1.4.08 2.03-.08.6-.16 1.06-.43 1.42-.8.25-.25.47-.33.66-.33.086 0 .18.03.18.31v1.37c0 .37-.13.67-.33.98z" />
+    </svg>
+);
+
+const TelegramGlyph: React.FC = () => (
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+        <path fill="currentColor" d="M21.6 3.4c-.2-.8-.9-1.2-1.6-.9L3.4 10.1c-.7.3-.7 1.2.1 1.5l4.5 1.4 1.4 4.5c.3.8 1.1 1 1.6.6L21.6 5.1c.6-.5.7-1.2.4-1.7z" />
+    </svg>
+);
+
+const SOCIAL_LINKS: { href: string; ariaLabel: string; glyph: React.ReactNode }[] = [
+    { href: 'https://vk.ru/kmobn', ariaLabel: 'ВКонтакте', glyph: <VkGlyph /> },
+    { href: 'https://t.me/karkasmaster40', ariaLabel: 'Telegram', glyph: <TelegramGlyph /> },
+    { href: 'https://www.youtube.com/@KarkasMasterObninsk/videos', ariaLabel: 'YouTube', glyph: <IconYoutube aria-hidden="true" className="h-[18px] w-[18px]" /> },
+];
+
+// Contact Lens: сегмент контактов подсвечивается при наведении, линза-подсветка
+// перекатывается между сегментами; клик = переход в новой вкладке, aria-label прежние.
+const SocialLens: React.FC = () => {
+    const [activeIndex, setActiveIndex] = React.useState<number | null>(null);
+    const lensId = React.useId();
+
+    return (
+        <div className="inline-flex items-center gap-1 rounded-full border border-border bg-surface/50 p-1">
+            {SOCIAL_LINKS.map((link, index) => (
+                <a
+                    key={link.href}
+                    href={link.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label={link.ariaLabel}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onMouseLeave={() => setActiveIndex(current => (current === index ? null : current))}
+                    onFocus={() => setActiveIndex(index)}
+                    onBlur={() => setActiveIndex(current => (current === index ? null : current))}
+                    className="relative flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full px-3 text-text-secondary transition-colors hover:text-text-primary focus-visible:text-text-primary focus-visible:outline-none"
+                >
+                    {activeIndex === index && (
+                        <motion.span
+                            layoutId={lensId}
+                            aria-hidden="true"
+                            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                            className="absolute inset-0 rounded-full bg-primary/15 shadow-[0_0_18px_rgba(220,38,38,0.35)] ring-1 ring-primary/40"
+                        />
+                    )}
+                    <span className="relative" aria-hidden="true">
+                        {link.glyph}
+                    </span>
+                </a>
+            ))}
+        </div>
+    );
 };
 
 const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode }) => {
@@ -24,43 +156,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                         </span>
                     </a>
                     <div className="flex items-center gap-3">
-                        <nav className="hidden items-center gap-2 sm:flex" aria-label="Социальные сети">
-                            <a
-                                href="https://vk.ru/kmobn"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
-                                aria-label="ВКонтакте"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path fill="currentColor" d="M12 0C5.373 0 0 5.373 0 12c0 6.627 5.373 12 12 12s12-5.373 12-12C24 5.373 18.627 0 12 0zm4.406 16.5c-.145.395-.52.649-.951.649-.844 0-1.628-.205-2.38-.614-.748-.406-1.182-.72-1.58-1.03-.31-.24-.488-.317-.66-.317-.092 0-.172.06-.172.317v1.4c0 .38-.177.556-.487.556h-.888c-.384 0-.6-.227-.6-.63V8.6c0-.384.14-.544.467-.544h1.107c.28 0 .397.097.462.33.274.9.97 1.66 1.756 2.076.344.2.528.244.658.244.071 0 .163-.03.163-.316V8.6c0-.384.129-.546.46-.546h1.06c.357 0 .495.172.35.493-.96 2.35-1.99 3.7-3.18 4.56.61.084 1.4.08 2.03-.08.6-.16 1.06-.43 1.42-.8.25-.25.47-.33.66-.33.086 0 .18.03.18.31v1.37c0 .37-.13.67-.33.98z" />
-                                </svg>
-                            </a>
-                            <a
-                                href="https://t.me/karkasmaster40"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
-                                aria-label="Telegram"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path fill="currentColor" d="M21.6 3.4c-.2-.8-.9-1.2-1.6-.9L3.4 10.1c-.7.3-.7 1.2.1 1.5l4.5 1.4 1.4 4.5c.3.8 1.1 1 1.6.6L21.6 5.1c.6-.5.7-1.2.4-1.7z" />
-                                </svg>
-                            </a>
-                            <a
-                                href="https://www.youtube.com/@KarkasMasterObninsk/videos"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-surface text-text-secondary transition hover:border-primary hover:text-text-primary"
-                                aria-label="YouTube"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path
-                                        fill="currentColor"
-                                        d="M21.6 7.2c-.3-1.2-1.3-2.1-2.5-2.4-2.2-.5-7.1-.5-7.1-.5s-4.9 0-7.1.5C3.7 5.1 2.7 6 2.4 7.2c-.5 2.2-.5 4.8-.5 4.8s0 2.6.5 4.8c.3 1.2 1.3 2.1 2.5 2.4 2.2.5 7.1.5 7.1.5s4.9 0 7.1-.5c1.2-.3 2.2-1.2 2.5-2.4.5-2.2.5-4.8.5-4.8s0-2.6-.5-4.8zM10.2 15.5v-7l6.2 3.5-6.2 3.5z"
-                                    />
-                                </svg>
-                            </a>
+                        <nav className="hidden sm:flex items-center" aria-label="Социальные сети">
+                            <SocialLens />
                         </nav>
                         <button
                             type="button"
@@ -99,13 +196,12 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                             стандартизировать решения и ускорять согласования без потери качества.
                         </p>
                         <div className="mt-8 flex items-center justify-center">
-                            <button
-                                type="button"
+                            <MagneticButton
                                 onClick={onOpenLogin}
-                                className="rounded-md bg-primary px-8 py-3.5 min-h-[48px] text-base font-semibold text-text-primary hover:bg-primary-hover active:scale-95 transition-transform"
+                                className="rounded-md bg-primary px-8 py-3.5 min-h-[48px] text-base font-semibold text-text-primary hover:bg-primary-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                             >
                                 Начать работу
-                            </button>
+                            </MagneticButton>
                         </div>
                         <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-sm text-text-secondary">
                             <span className="inline-flex items-center gap-2">✅ Надежная авторизация</span>
@@ -203,13 +299,13 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
                     <div className="rounded-2xl border border-border bg-surface p-8 text-center shadow-[0_24px_80px_rgba(0,0,0,0.25)]">
                         <h3 className="text-xl sm:text-2xl font-semibold">Войдите и начните работать за минуту</h3>
                         <p className="mt-3 text-sm text-text-secondary">Все данные защищены и видны только вашему аккаунту.</p>
-                        <button
-                            type="button"
-                            onClick={onOpenLogin}
-                            className="mt-6 rounded-md bg-primary px-8 py-3.5 min-h-[48px] text-base font-semibold text-text-primary hover:bg-primary-hover active:scale-95 transition-transform"
-                        >
-                            Войти в систему
-                        </button>
+                        <div className="mt-6 flex justify-center">
+                            <FlipButton
+                                onClick={onOpenLogin}
+                                label="Войти в систему"
+                                className="rounded-md bg-primary px-8 py-3.5 min-h-[48px] text-base font-semibold text-text-primary hover:bg-primary-hover"
+                            />
+                        </div>
                     </div>
                 </section>
             </main>
@@ -217,43 +313,8 @@ const LandingPage: React.FC<LandingPageProps> = ({ onOpenLogin, onOfflineMode })
             <footer className="border-t border-border bg-surface/50">
                 <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-6 text-sm text-text-secondary sm:flex-row">
                     <div>© 2026 Каркас Мастер. Премиальная платформа смет.</div>
-                    <div className="flex items-center gap-3" aria-label="Социальные сети">
-                            <a
-                                href="https://vk.ru/kmobn"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
-                                aria-label="ВКонтакте"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path fill="currentColor" d="M12 0C5.373 0 0 5.373 0 12c0 6.627 5.373 12 12 12s12-5.373 12-12C24 5.373 18.627 0 12 0zm4.406 16.5c-.145.395-.52.649-.951.649-.844 0-1.628-.205-2.38-.614-.748-.406-1.182-.72-1.58-1.03-.31-.24-.488-.317-.66-.317-.092 0-.172.06-.172.317v1.4c0 .38-.177.556-.487.556h-.888c-.384 0-.6-.227-.6-.63V8.6c0-.384.14-.544.467-.544h1.107c.28 0 .397.097.462.33.274.9.97 1.66 1.756 2.076.344.2.528.244.658.244.071 0 .163-.03.163-.316V8.6c0-.384.129-.546.46-.546h1.06c.357 0 .495.172.35.493-.96 2.35-1.99 3.7-3.18 4.56.61.084 1.4.08 2.03-.08.6-.16 1.06-.43 1.42-.8.25-.25.47-.33.66-.33.086 0 .18.03.18.31v1.37c0 .37-.13.67-.33.98z" />
-                                </svg>
-                            </a>
-                            <a
-                                href="https://t.me/karkasmaster40"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
-                                aria-label="Telegram"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                    <path fill="currentColor" d="M21.6 3.4c-.2-.8-.9-1.2-1.6-.9L3.4 10.1c-.7.3-.7 1.2.1 1.5l4.5 1.4 1.4 4.5c.3.8 1.1 1 1.6.6L21.6 5.1c.6-.5.7-1.2.4-1.7z" />
-                                </svg>
-                            </a>
-                            <a
-                                href="https://www.youtube.com/@KarkasMasterObninsk/videos"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex h-9 w-9 min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-border bg-background text-text-secondary transition hover:border-primary hover:text-text-primary"
-                            aria-label="YouTube"
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                                <path
-                                    fill="currentColor"
-                                    d="M21.6 7.2c-.3-1.2-1.3-2.1-2.5-2.4-2.2-.5-7.1-.5-7.1-.5s-4.9 0-7.1.5C3.7 5.1 2.7 6 2.4 7.2c-.5 2.2-.5 4.8-.5 4.8s0 2.6.5 4.8c.3 1.2 1.3 2.1 2.5 2.4 2.2.5 7.1.5 7.1.5s4.9 0 7.1-.5c1.2-.3 2.2-1.2 2.5-2.4.5-2.2.5-4.8.5-4.8s0-2.6-.5-4.8zM10.2 15.5v-7l6.2 3.5-6.2 3.5z"
-                                />
-                            </svg>
-                        </a>
+                    <div className="flex items-center" aria-label="Социальные сети">
+                        <SocialLens />
                     </div>
                 </div>
             </footer>

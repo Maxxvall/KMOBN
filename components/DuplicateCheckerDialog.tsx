@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { IconClose, IconRefresh } from '@devigner-ui/icons';
 import { DuplicateGroup, Material, Work, EstimateCategory, type SectionId } from '../types';
 import { getCatalogDuplicateFingerprint, selectPreferredCatalogDuplicate, type CatalogDuplicateDecision } from '../services/duplicateManagement';
+import { formatCatalogItemClipboard } from '../services/estimateClipboard';
 import { getSectionLabel } from '../services/estimateSections';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
+import { CopyButton } from './ui/copy-button';
 
 interface DuplicateCheckerDialogProps {
     isOpen: boolean;
@@ -92,12 +95,18 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
         return new Intl.NumberFormat('ru-RU').format(price) + ' ₽';
     };
 
+    // Спиннера в @devigner-ui/icons нет — ближайшая по смыслу IconRefresh c animate-spin (R01.1).
     const Spinner = () => (
-        <svg className="animate-spin h-4 w-4 inline-block mr-1" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
+        <IconRefresh aria-hidden="true" className="animate-spin mr-1 h-4 w-4 inline-block" />
     );
+
+    // Копия группы: «имя — цена» выжившего (формат из estimateClipboard) + его ID (R09.2).
+    const groupCopyText = (group: DuplicateGroup<Material | Work>): string => {
+        const survivorId = survivorByKey[group.normalizedKey] ?? selectPreferredCatalogDuplicate(group.items)?.id;
+        const survivor = group.items.find(item => item.id === survivorId) ?? group.items[0];
+        if (!survivor) return '';
+        return `${formatCatalogItemClipboard({ name: survivor.name, price: survivor.price })}\nID: ${survivor.id}`;
+    };
 
     return (
         <div
@@ -107,7 +116,13 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
             <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-bold text-text-primary">{title}</h2>
-                    <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
+                    <button
+                        onClick={onClose}
+                        className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary hover:text-text-primary transition-colors"
+                        aria-label="Закрыть"
+                    >
+                        <IconClose aria-hidden="true" className="size-5" />
+                    </button>
                 </div>
 
                 {mergeResult && (
@@ -158,8 +173,8 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                 );
                                 return (
                                     <div key={group.normalizedKey} className="bg-background rounded-lg p-4 border border-border">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <h3 className="text-text-primary font-semibold">
+                                        <div className="flex items-center justify-between gap-2 mb-3">
+                                            <h3 className="min-w-0 text-text-primary font-semibold">
                                                 «{group.displayName}»
                                                 <span className="ml-2 text-sm text-text-secondary">
                                                     ({group.items.length} шт.)
@@ -171,13 +186,19 @@ const DuplicateCheckerDialog: React.FC<DuplicateCheckerDialogProps> = ({
                                                     </span>
                                                 )}
                                             </h3>
-                                            <button
-                                                onClick={() => selectBestInGroup(group)}
-                                                disabled={isMerging}
-                                                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-bold py-1 px-3 rounded-md transition"
-                                            >
-                                                Лучший вариант
-                                            </button>
+                                            <div className="flex shrink-0 items-center gap-2">
+                                                <CopyButton
+                                                    label="Копировать позицию каталога"
+                                                    getValue={() => groupCopyText(group)}
+                                                />
+                                                <button
+                                                    onClick={() => selectBestInGroup(group)}
+                                                    disabled={isMerging}
+                                                    className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-sm font-bold py-1 px-3 rounded-md transition"
+                                                >
+                                                    Лучший вариант
+                                                </button>
+                                            </div>
                                         </div>
                                         <table className="w-full text-sm">
                                             <thead>

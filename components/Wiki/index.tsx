@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { IconChevronRight, IconClose, IconSearchNormal } from '@devigner-ui/icons';
 import { WikiArticle as WikiArticleType } from '../../types';
 import { WIKI_ARTICLES, WIKI_CATEGORIES, WIKI_SUBCATEGORIES } from '../../services/wikiDatabase';
 import { askWikiAI } from '../../services/wikiAI';
@@ -185,9 +186,7 @@ const Wiki: React.FC = () => {
             {/* Search */}
             <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                    <svg className="w-4 h-4 text-text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M11 19a8 8 0 100-16 8 8 0 000 16z" />
-                    </svg>
+                    <IconSearchNormal aria-hidden="true" className="w-4 h-4 text-text-secondary" />
                 </div>
                 <input
                     type="text"
@@ -203,7 +202,7 @@ const Wiki: React.FC = () => {
                         className="absolute inset-y-0 right-0 pr-4 flex items-center text-text-secondary hover:text-text-primary"
                         aria-label="Очистить поиск"
                     >
-                        ✕
+                        <IconClose aria-hidden="true" className="w-4 h-4" />
                     </button>
                 )}
             </div>
@@ -380,9 +379,7 @@ const Wiki: React.FC = () => {
                                                     </div>
                                                 </div>
                                                 <div className="flex-shrink-0 text-text-secondary/40 group-hover:text-primary transition-colors">
-                                                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                                    </svg>
+                                                    <IconChevronRight aria-hidden="true" className="w-5 h-5" />
                                                 </div>
                                             </div>
                                         </button>

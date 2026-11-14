@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { IconChartSquare, IconClose, IconSettingSlidersHorizontal, IconUserCircle } from '@devigner-ui/icons';
 import { downloadBlob } from '../services/download';
 import { User } from '@supabase/supabase-js';
 import { getActiveUsageMs } from '../services/appUsage';
@@ -131,10 +132,10 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
   if (!isOpen) return null;
 
   const activeUsage = getActiveUsageMs(localStorage, usageNow);
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'profile', label: 'Профиль', icon: '◉' },
-    { id: 'stats', label: 'Статистика', icon: '↗' },
-    { id: 'app', label: 'Приложение', icon: '⚙' },
+  const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: 'profile', label: 'Профиль', icon: <IconUserCircle aria-hidden="true" className="size-4" /> },
+    { id: 'stats', label: 'Статистика', icon: <IconChartSquare aria-hidden="true" className="size-4" /> },
+    { id: 'app', label: 'Приложение', icon: <IconSettingSlidersHorizontal aria-hidden="true" className="size-4" /> },
   ];
   const primaryButton = 'inline-flex min-h-11 items-center justify-center rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-950/20 transition duration-200 hover:bg-primary-hover hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface active:translate-y-0 disabled:pointer-events-none disabled:opacity-50';
   const secondaryButton = 'inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-text-primary transition duration-200 hover:border-gray-500 hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50';
@@ -153,14 +154,14 @@ const ProfileModal: React.FC<ProfileModalProps> = ({
             </div>
           </div>
           <button type="button" onClick={onClose} className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-text-secondary transition hover:bg-gray-800 hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-primary" aria-label="Закрыть профиль">
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m6 6 12 12M18 6 6 18" /></svg>
+            <IconClose aria-hidden="true" className="h-5 w-5" />
           </button>
         </header>
 
         <nav className="grid grid-cols-3 gap-1 border-b border-border bg-background/40 p-2" aria-label="Разделы профиля">
           {tabs.map((tab) => (
             <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`min-h-11 rounded-xl px-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-primary ${activeTab === tab.id ? 'bg-surface text-text-primary shadow-sm ring-1 ring-border' : 'text-text-secondary hover:bg-surface hover:text-text-primary'}`}>
-              <span className="mr-1.5 text-base" aria-hidden="true">{tab.icon}</span>{tab.label}
+              <span className="mr-1.5 inline-flex items-center" aria-hidden="true">{tab.icon}</span>{tab.label}
             </button>
           ))}
         </nav>

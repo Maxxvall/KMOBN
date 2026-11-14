@@ -1,4 +1,6 @@
 import React from 'react';
+import { IconClose, IconDownload } from '@devigner-ui/icons';
+import { Island } from './ui/island';
 import type { UpdateDownloadProgress } from '../electron/types';
 import { formatBytes } from '../services/format';
 
@@ -17,76 +19,73 @@ const UpdateBanner: React.FC<UpdateBannerProps> = ({ version, downloaded, downlo
   const percent = progress ? Math.min(100, Math.max(0, Math.round(progress.percent))) : 0;
 
   return (
-    <div className="bg-gradient-to-r from-blue-600/90 to-indigo-600/90 text-white px-4 py-3 flex items-center justify-between gap-4 text-sm backdrop-blur-sm border-b border-blue-500/30">
-      <div className="flex items-center gap-2 min-w-0 flex-1">
-        <svg
-          className={`w-5 h-5 shrink-0 ${isDownloading ? 'animate-pulse' : ''}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-          aria-hidden="true"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-        </svg>
-        <span className="truncate">
-          {downloaded
-            ? `Обновление v${version} готово к установке`
-            : isDownloading
-              ? `Загрузка обновления v${version}`
-              : `Доступна версия v${version}`}
-        </span>
-        {isDownloading && (
-          <div
-            className="flex flex-1 items-center gap-2 min-w-[4rem]"
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={percent}
-            aria-label="Прогресс загрузки обновления"
-          >
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/25">
-              <div
-                className="h-full rounded-full bg-white transition-[width] duration-300 ease-out"
-                style={{ width: `${percent}%` }}
-              />
+    <div className="fixed right-4 top-4 z-50 w-[calc(100%-2rem)] max-w-md">
+      <Island open>
+        {/* Пилюля → раскрытие: строка статуса, при скачивании добавляется прогресс */}
+        <div className="flex w-full min-w-0 flex-col gap-2 py-0.5">
+          <div className="flex min-w-0 items-center gap-2">
+            <IconDownload
+              aria-hidden="true"
+              className={`size-5 shrink-0 text-text-primary ${isDownloading ? 'animate-pulse' : ''}`}
+            />
+            <span className="min-w-0 truncate text-sm text-text-primary">
+              {downloaded
+                ? `Обновление v${version} готово к установке`
+                : isDownloading
+                  ? `Загрузка обновления v${version}`
+                  : `Доступна версия v${version}`}
+            </span>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              {downloaded && (
+                <button
+                  onClick={onInstall}
+                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover active:scale-95"
+                >
+                  Установить
+                </button>
+              )}
+              {!downloaded && !isDownloading && (
+                <button
+                  onClick={onDownload}
+                  className="rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-primary-hover active:scale-95"
+                >
+                  Скачать
+                </button>
+              )}
+              <button
+                onClick={onDismiss}
+                className="rounded-md p-1.5 text-text-secondary transition-colors hover:bg-white/10 hover:text-text-primary"
+                aria-label="Закрыть"
+              >
+                <IconClose aria-hidden="true" className="size-4" />
+              </button>
             </div>
-            <span className="shrink-0 text-xs font-semibold tabular-nums">{percent}%</span>
-            {progress && (
-              <span className="hidden lg:inline shrink-0 text-xs text-white/70">
-                {formatBytes(progress.bytesPerSecond)}/с
-              </span>
-            )}
           </div>
-        )}
-      </div>
-      <div className="flex items-center gap-2 shrink-0">
-        {downloaded ? (
-          <button
-            onClick={onInstall}
-            className="px-4 py-1.5 bg-white text-blue-600 rounded-md font-semibold hover:bg-blue-50 transition-colors active:scale-95"
-          >
-            Установить
-          </button>
-        ) : (
-          !isDownloading && (
-            <button
-              onClick={onDownload}
-              className="px-4 py-1.5 bg-white text-blue-600 rounded-md font-semibold hover:bg-blue-50 transition-colors active:scale-95"
+          {isDownloading && (
+            <div
+              className="flex items-center gap-2"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={percent}
+              aria-label="Прогресс загрузки обновления"
             >
-              Скачать
-            </button>
-          )
-        )}
-        <button
-          onClick={onDismiss}
-          className="p-1.5 hover:bg-white/20 rounded-md transition-colors"
-          aria-label="Закрыть"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-      </div>
+              <div className="h-1.5 min-w-[4rem] flex-1 overflow-hidden rounded-full bg-border">
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
+                  style={{ width: `${percent}%` }}
+                />
+              </div>
+              <span className="shrink-0 text-xs font-semibold tabular-nums text-text-primary">{percent}%</span>
+              {progress && (
+                <span className="hidden shrink-0 text-xs text-text-secondary lg:inline">
+                  {formatBytes(progress.bytesPerSecond)}/с
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </Island>
     </div>
   );
 };

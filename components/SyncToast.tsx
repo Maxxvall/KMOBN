@@ -1,4 +1,6 @@
 import React from 'react';
+import { IconAlertTriangle, IconCheck, IconClose, IconInfoCircle, IconRefresh } from '@devigner-ui/icons';
+import { Island } from './ui/island';
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
@@ -32,14 +34,26 @@ const autosaveAccentFor = (s: SaveStatus) =>
     ? 'bg-sky-500 text-sky-200'
     : accentFor(s === 'saved' ? 'success' : s === 'error' ? 'error' : undefined, 'bg-slate-500 text-slate-200');
 
-const iconFor = (t?: Props['type']) => {
+// R10.1: текстовые глифы `✓ ! i` заменены на иконки пакета; семантика та же.
+const statusIconFor = (t?: Props['type']) => {
   switch (t) {
     case 'success':
-      return '✓';
+      return <IconCheck aria-hidden="true" className="size-4" />;
     case 'error':
-      return '!';
+      return <IconAlertTriangle aria-hidden="true" className="size-4" />;
     default:
-      return 'i';
+      return <IconInfoCircle aria-hidden="true" className="size-4" />;
+  }
+};
+
+const autosaveIconFor = (s: SaveStatus) => {
+  switch (s) {
+    case 'saving':
+      return <IconRefresh aria-hidden="true" className="size-3.5 animate-spin" />;
+    case 'error':
+      return <IconAlertTriangle aria-hidden="true" className="size-3.5" />;
+    default:
+      return <IconCheck aria-hidden="true" className="size-3.5" />;
   }
 };
 
@@ -55,36 +69,41 @@ const SyncToast: React.FC<Props> = ({
   lastSaved,
   saveError,
 }) => {
-  // 1) Если есть явное toast-сообщение — показываем его (как и раньше)
+  // 1) Если есть явное toast-сообщение — показываем его островком (как и раньше)
   if (visible) {
     return (
-      <div
-        className="fixed right-4 bottom-4 z-50 w-[calc(100%-2rem)] max-w-sm rounded-2xl border border-border bg-surface/95 text-text-primary shadow-2xl backdrop-blur"
-        role="status"
-        aria-live="polite"
-      >
-        <div className="flex items-start gap-3 px-4 py-3">
-          <div className={`flex h-8 w-8 items-center justify-center rounded-full ${accentFor(type)}`} aria-hidden="true">
-            <span className="text-sm font-semibold">{iconFor(type)}</span>
-          </div>
-          <div className="flex-1 text-sm leading-snug">
-            {message}
-          </div>
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="-mr-1 -mt-1 rounded-full border border-border px-2 py-1 text-xs text-text-secondary transition hover:text-text-primary"
-              aria-label="Закрыть"
+      <div className="fixed right-4 bottom-4 z-50 w-[calc(100%-2rem)] max-w-sm">
+        <Island open={visible}>
+          <div
+            className="flex items-start gap-3 py-0.5"
+            role="status"
+            aria-live="polite"
+          >
+            <div
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${accentFor(type)}`}
+              aria-hidden="true"
             >
-              ✕
-            </button>
-          )}
-        </div>
+              {statusIconFor(type)}
+            </div>
+            <div className="min-w-0 flex-1 self-center text-sm leading-snug">
+              {message}
+            </div>
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="-mr-1 -mt-0.5 shrink-0 rounded-full p-1.5 text-text-secondary transition hover:bg-white/5 hover:text-text-primary"
+                aria-label="Закрыть"
+              >
+                <IconClose aria-hidden="true" className="size-4" />
+              </button>
+            )}
+          </div>
+        </Island>
       </div>
     );
   }
 
-  // 2) Иначе — компактный индикатор автосохранения
+  // 2) Иначе — компактный индикатор автосохранения в той же пилюле-островке
   const shouldShowAutosave = saveStatus !== 'idle' || !!lastSaved || !!saveError;
   if (!shouldShowAutosave) return null;
 
@@ -103,18 +122,25 @@ const SyncToast: React.FC<Props> = ({
         : undefined;
 
   return (
-    <div
-      className="fixed right-4 bottom-4 z-40 rounded-xl border border-border bg-surface/90 text-text-primary shadow-xl backdrop-blur"
-      role="status"
-      aria-live="polite"
-    >
-      <div className="flex items-center gap-2 px-3 py-2">
-        <span className={`inline-flex h-2.5 w-2.5 rounded-full ${autosaveAccentFor(saveStatus)}`} aria-hidden="true" />
-        <div className="text-xs leading-snug whitespace-nowrap">
-          {label}
-          {details ? <span className="ml-1 text-text-secondary">{details}</span> : null}
+    <div className="fixed right-4 bottom-4 z-40 max-w-[calc(100%-2rem)]">
+      <Island open>
+        <div
+          className="flex items-center gap-2 py-0.5"
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${autosaveAccentFor(saveStatus)}`}
+            aria-hidden="true"
+          >
+            {autosaveIconFor(saveStatus)}
+          </span>
+          <div className="text-xs leading-snug whitespace-nowrap">
+            {label}
+            {details ? <span className="ml-1 text-text-secondary">{details}</span> : null}
+          </div>
         </div>
-      </div>
+      </Island>
     </div>
   );
 };

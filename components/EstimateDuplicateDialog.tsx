@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
+import { IconClose, IconRefresh } from '@devigner-ui/icons';
 import { getEstimateContentFingerprint, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
+import { CopyButton } from './ui/copy-button';
 
 interface EstimateDuplicateDialogProps {
     isOpen: boolean;
@@ -75,11 +77,9 @@ const EstimateDuplicateDialog: React.FC<EstimateDuplicateDialogProps> = ({
     const formatPrice = (total: number) =>
         new Intl.NumberFormat('ru-RU').format(total) + ' ₽';
 
+    // Спиннера в @devigner-ui/icons нет — ближайшая по смыслу IconRefresh c animate-spin (R01.1).
     const Spinner = () => (
-        <svg className="animate-spin h-4 w-4 inline-block mr-1" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
+        <IconRefresh aria-hidden="true" className="animate-spin mr-1 h-4 w-4 inline-block" />
     );
 
     return (
@@ -87,7 +87,13 @@ const EstimateDuplicateDialog: React.FC<EstimateDuplicateDialogProps> = ({
             <div className="bg-surface p-6 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-4">
                     <h2 className="text-xl font-bold text-text-primary">Дубли версий смет</h2>
-                    <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
+                    <button
+                        onClick={onClose}
+                        className="flex h-9 w-9 items-center justify-center rounded-md text-text-secondary hover:text-text-primary transition-colors"
+                        aria-label="Закрыть"
+                    >
+                        <IconClose aria-hidden="true" className="size-5" />
+                    </button>
                 </div>
 
                 {deleteResult && (
@@ -134,12 +140,18 @@ const EstimateDuplicateDialog: React.FC<EstimateDuplicateDialogProps> = ({
                         <div className="space-y-4">
                             {duplicateGroups.map(group => (
                                 <div key={group.estimateNumber} className="bg-background rounded-lg p-4 border border-border">
-                                    <h3 className="text-text-primary font-semibold mb-3">
-                                        Смета №{group.estimateNumber}
-                                        <span className="ml-2 text-sm text-text-secondary">
-                                            (главная: v{group.latestVersion.version})
-                                        </span>
-                                    </h3>
+                                    <div className="flex items-center justify-between gap-2 mb-3">
+                                        <h3 className="min-w-0 text-text-primary font-semibold">
+                                            Смета №{group.estimateNumber}
+                                            <span className="ml-2 text-sm text-text-secondary">
+                                                (главная: v{group.latestVersion.version})
+                                            </span>
+                                        </h3>
+                                        <CopyButton
+                                            label="Копировать номер сметы"
+                                            getValue={() => group.estimateNumber}
+                                        />
+                                    </div>
 
                                     {/* Main version - always kept */}
                                     <div className="bg-green-500/10 border border-green-500/30 rounded-md p-3 mb-3">
