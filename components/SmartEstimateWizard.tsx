@@ -374,74 +374,74 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
                 </div>
 
                 <div className="md:flex md:gap-6">
-                {/* Вертикальный степпер сбоку на десктопе */}
-                <aside className="hidden md:flex md:flex-col md:gap-1 md:w-52 md:shrink-0" aria-label="Шаги мастера">
-                    {([1, 2, 3, 4, 5] as Step[]).map(s => (
-                        <div
-                            key={s}
-                            aria-current={s === step ? 'step' : undefined}
-                            className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition ${
-                                s === step ? 'bg-primary/15 font-semibold text-text-primary' : 'text-text-secondary'
-                            }`}
-                        >
-                            <span
-                                className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                                    s === step
-                                        ? 'bg-primary text-white'
-                                        : s < step
-                                        ? 'bg-green-600 text-white'
-                                        : 'bg-background text-text-secondary border border-border'
+                    {/* Вертикальный степпер сбоку на десктопе */}
+                    <aside className="hidden md:flex md:flex-col md:gap-1 md:w-52 md:shrink-0" aria-label="Шаги мастера">
+                        {([1, 2, 3, 4, 5] as Step[]).map(s => (
+                            <div
+                                key={s}
+                                aria-current={s === step ? 'step' : undefined}
+                                className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition ${
+                                    s === step ? 'bg-primary/15 font-semibold text-text-primary' : 'text-text-secondary'
                                 }`}
                             >
-                                {s < step ? '✓' : STEP_ICONS[s]}
-                            </span>
-                            {STEP_TITLES[s]}
+                                <span
+                                    className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold transition ${
+                                        s === step
+                                            ? 'bg-primary text-white'
+                                            : s < step
+                                            ? 'bg-green-600 text-white'
+                                            : 'bg-background text-text-secondary border border-border'
+                                    }`}
+                                >
+                                    {s < step ? '✓' : STEP_ICONS[s]}
+                                </span>
+                                {STEP_TITLES[s]}
+                            </div>
+                        ))}
+                    </aside>
+
+                    <div className="md:min-w-0 md:flex-1">
+        
+                        <div className="text-sm font-semibold text-text-secondary mb-4">
+                            Шаг {step}/5: {STEP_TITLES[step]}
                         </div>
-                    ))}
-                </aside>
-
-                <div className="md:min-w-0 md:flex-1">
-
-                <div className="text-sm font-semibold text-text-secondary mb-4">
-                    Шаг {step}/5: {STEP_TITLES[step]}
-                </div>
-
-                <div className="min-h-[200px]">
-                    {step === 1 && renderStep1()}
-                    {step === 2 && renderStep2()}
-                    {step === 3 && renderStep3()}
-                    {step === 4 && renderStep4()}
-                    {step === 5 && renderStep5()}
-                </div>
-
-                <div className="flex gap-3 mt-6">
-                    {step > 1 && (
-                        <button
-                            onClick={() => setStep((step - 1) as Step)}
-                            className="flex-1 py-2 px-4 border border-border rounded-md text-text-primary hover:bg-background transition font-medium"
-                        >
-                            Назад
-                        </button>
-                    )}
-                    {step < 5 ? (
-                        <button
-                            onClick={() => setStep((step + 1) as Step)}
-                            disabled={!canProceed}
-                            className="flex-1 py-2 px-4 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold rounded-md transition"
-                        >
-                            Далее
-                        </button>
-                    ) : (
-                        <button
-                            onClick={handleConfirm}
-                            disabled={!canProceed}
-                            className="flex-1 py-2 px-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-bold rounded-md transition"
-                        >
-                            Создать смету
-                        </button>
-                    )}
-                </div>
-                </div>
+        
+                        <div className="min-h-[200px]">
+                            {step === 1 && renderStep1()}
+                            {step === 2 && renderStep2()}
+                            {step === 3 && renderStep3()}
+                            {step === 4 && renderStep4()}
+                            {step === 5 && renderStep5()}
+                        </div>
+        
+                        <div className="flex gap-3 mt-6">
+                            {step > 1 && (
+                                <button
+                                    onClick={() => setStep((step - 1) as Step)}
+                                    className="flex-1 py-2 px-4 border border-border rounded-md text-text-primary hover:bg-background transition font-medium"
+                                >
+                                    Назад
+                                </button>
+                            )}
+                            {step < 5 ? (
+                                <button
+                                    onClick={() => setStep((step + 1) as Step)}
+                                    disabled={!canProceed}
+                                    className="flex-1 py-2 px-4 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-bold rounded-md transition"
+                                >
+                                    Далее
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={handleConfirm}
+                                    disabled={!canProceed}
+                                    className="flex-1 py-2 px-4 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 disabled:opacity-50 text-white font-bold rounded-md transition"
+                                >
+                                    Создать смету
+                                </button>
+                            )}
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
