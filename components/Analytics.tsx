@@ -186,7 +186,7 @@ const RollingValue: React.FC<{ value: string }> = ({ value }) => {
             ease: 'easeOut',
             onUpdate: (latest) => {
                 const token = Math.round(latest).toLocaleString('ru-RU');
-                setDisplay(value.replace(match[0], token));
+                setDisplay(value.replace(match[0].replace(/[\s\u00A0]+$/, ''), token));
             },
         });
         controlsRef.current = controls;
