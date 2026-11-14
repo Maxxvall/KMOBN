@@ -59,16 +59,15 @@ const MOBILE_TABS: ReadonlyArray<{ view: View | 'MORE'; label: string; icon: Nav
     { view: 'MORE', label: 'Ещё', icon: 'more-horizontal' },
 ];
 
-const PRIMARY_DESKTOP_NAV_ITEMS = [
-    { view: View.HISTORY, label: 'Сметы' },
-    { view: View.PRICES, label: 'Материалы' },
-    { view: View.WORKS, label: 'Работы' },
-] as const;
-
-// Все 9 разделов инлайн в шапке на широких экранах (xl+).
-const XL_NAV_ITEMS = [
+// В верхней панели закреплены только «Сметы» и «Расчёт дома» —
+// остальные разделы живут в боковом меню (drawer).
+const TOP_NAV_ITEMS = [
     { view: View.HISTORY, label: 'Сметы', icon: 'file-text' },
     { view: View.HOUSE_CALCULATOR, label: 'Расчёт дома', icon: 'house' },
+] as const;
+
+// Боковое меню — все разделы, кроме закреплённых в шапке.
+const DRAWER_NAV_ITEMS = [
     { view: View.PRICES, label: 'Материалы', icon: 'tag' },
     { view: View.WORKS, label: 'Работы', icon: 'briefcase-business' },
     { view: View.BUNDLES, label: 'Комплекты', icon: 'briefcase-business' },
@@ -78,16 +77,15 @@ const XL_NAV_ITEMS = [
     { view: View.SECTIONS, label: 'Разделы смет', icon: 'layers' },
 ] as const;
 
-const DRAWER_NAV_ITEMS = [
-    { view: View.HOUSE_CALCULATOR, label: 'Расчёт дома', icon: 'house' },
+// Мобильное «Ещё» — разделы, которых нет в нижней панели
+// (Сметы/Дом/Материалы/Работы там уже есть).
+const MORE_TABS = [
     { view: View.BUNDLES, label: 'Комплекты', icon: 'briefcase-business' },
-    { view: View.ANALYTICS, label: 'Аналитика', icon: 'more-horizontal' },
+    { view: View.ANALYTICS, label: 'Аналитика', icon: 'chart' },
     { view: View.CUTTING, label: 'Раскрой', icon: 'layers' },
-    { view: View.WIKI, label: 'Wiki', icon: 'file-text' },
+    { view: View.WIKI, label: 'Wiki', icon: 'book-open' },
     { view: View.SECTIONS, label: 'Разделы смет', icon: 'layers' },
 ] as const;
-
-const MORE_TABS = DRAWER_NAV_ITEMS.filter(({ view }) => view !== View.HOUSE_CALCULATOR);
 
 // Единый рецепт кнопки «Выйти» (шапка xl+ и drawer): нейтральный текст,
 // красный hover — удаление красным. Layout-специфика остаётся на месте.
@@ -175,9 +173,9 @@ const Header: React.FC<HeaderProps> = ({
                         <p className="truncate text-lg font-bold tracking-tight">KARKAS MASTER <span className="font-normal text-primary">| Генератор смет</span></p>
                     </div>
                     <div className="flex items-center gap-2">
-                        {/* xl+: все 9 разделов инлайн с иконками */}
-                        <nav className="hidden xl:flex items-center gap-1" aria-label="Основная навигация">
-                            {XL_NAV_ITEMS.map(({ view, label, icon }) => (
+                        {/* lg+: в шапке только закреплённые «Сметы» и «Расчёт дома», остальное — в боковом меню */}
+                        <nav className="flex items-center gap-1" aria-label="Основная навигация">
+                            {TOP_NAV_ITEMS.map(({ view, label, icon }) => (
                                 <button
                                     key={view}
                                     type="button"
@@ -194,29 +192,11 @@ const Header: React.FC<HeaderProps> = ({
                                 </button>
                             ))}
                         </nav>
-                        {/* lg…xl: прежние три раздела, остальное в drawer */}
-                        <nav className="xl:hidden flex items-center gap-1" aria-label="Основная навигация">
-                            {PRIMARY_DESKTOP_NAV_ITEMS.map(({ view, label }) => (
-                                <button
-                                    key={view}
-                                    type="button"
-                                    onClick={() => onViewChange(view)}
-                                    aria-current={currentView === view ? 'page' : undefined}
-                                    className={`rounded-lg px-4 py-2 font-semibold transition duration-200 active:scale-95 ${
-                                        currentView === view
-                                            ? 'bg-primary text-white shadow-md shadow-primary/20'
-                                            : 'text-text-primary hover:bg-white/5'
-                                    }`}
-                                >
-                                    {label}
-                                </button>
-                            ))}
-                        </nav>
                         <SearchButton onOpenCommandPalette={onOpenCommandPalette} className="h-10 w-10" />
                         <button
                             type="button"
                             onClick={openDrawer}
-                            className="xl:hidden group relative h-12 w-12 overflow-hidden rounded-xl border border-transparent shadow-lg transition duration-200 hover:-translate-y-0.5 hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface"
+                            className="group relative h-12 w-12 overflow-hidden rounded-xl border border-transparent shadow-lg transition duration-200 hover:-translate-y-0.5 hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface"
                             aria-label="Открыть меню"
                             aria-haspopup="dialog"
                             aria-expanded={isDrawerOpen}
