@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import { Badge } from './ui/badge';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 import { MAX_ESTIMATE_LABEL_NAME_LENGTH, TYPICAL_PROJECT_LABEL_ID } from '../services/estimateLabels';
 
@@ -48,15 +49,14 @@ export const EstimateLabelsPicker: React.FC<EstimateLabelsPickerProps> = ({ sele
                 <div id={`${id}-panel`} className="absolute left-0 right-0 z-30 mt-1 max-h-[60vh] min-w-0 overflow-y-auto rounded-lg border border-border bg-surface p-2 text-text-primary">
                     {onWithoutLabelsChange && <label className="flex min-h-11 items-center gap-2 px-2 text-sm"><input type="checkbox" checked={Boolean(withoutLabels)} onChange={event => { onWithoutLabelsChange(event.target.checked); if (event.target.checked) onChange([]); }} className="h-4 w-4 accent-primary focus-visible:ring-2 focus-visible:ring-primary" />Без метки</label>}
                     {activeLabels.map(label => (
-                        <div key={label.id} className="flex flex-wrap items-center gap-x-1 border-b border-border last:border-0">
-                            <label className="flex min-h-11 min-w-0 flex-1 items-center gap-2 px-2 text-sm">
-                                <input type="checkbox" checked={selectedIds.includes(label.id)} disabled={disabled || Boolean(maxSelected && selected.length >= maxSelected && !selectedIds.includes(label.id))} onChange={event => { onWithoutLabelsChange?.(false); onChange(event.target.checked ? [...selectedIds, label.id] : selectedIds.filter(value => value !== label.id)); }} className="h-4 w-4 shrink-0 accent-primary focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50" />
-                                <span className="min-w-0 break-words">{label.name}</span>
-                            </label>
-                            {label.id !== TYPICAL_PROJECT_LABEL_ID && <div className="flex flex-wrap pl-2">
+                        <div key={label.id} className="flex min-h-11 flex-wrap items-center gap-x-2 gap-y-1 border-b border-border px-2 py-1 last:border-0">
+                            <input type="checkbox" aria-label={label.name} checked={selectedIds.includes(label.id)} disabled={disabled || Boolean(maxSelected && selected.length >= maxSelected && !selectedIds.includes(label.id))} onChange={event => { onWithoutLabelsChange?.(false); onChange(event.target.checked ? [...selectedIds, label.id] : selectedIds.filter(value => value !== label.id)); }} className="h-4 w-4 shrink-0 accent-primary focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50" />
+                            <Badge size="sm" className="min-w-0 max-w-full" style={{ whiteSpace: 'normal' }} onRemove={label.id !== TYPICAL_PROJECT_LABEL_ID ? () => { if (disabled) return; setDeleting(label.id); setForm(null); setError(''); } : undefined} removeLabel={`Удалить метку «${label.name}»`}>
+                                <span className="break-words">{label.name}</span>
+                            </Badge>
+                            {label.id !== TYPICAL_PROJECT_LABEL_ID && (
                                 <button type="button" disabled={disabled} aria-label={`Переименовать метку «${label.name}»`} className={actionClass} onClick={() => { setForm({ id: label.id, name: label.name }); setDeleting(null); setError(''); }}>Изменить</button>
-                                <button type="button" disabled={disabled} aria-label={`Удалить метку «${label.name}»`} className={`${actionClass} text-red-400`} onClick={() => { setDeleting(label.id); setForm(null); setError(''); }}>Удалить</button>
-                            </div>}
+                            )}
                         </div>
                     ))}
                     {deleting && <div className="p-2 text-sm"><p>Снять метку «{activeLabels.find(label => label.id === deleting)?.name}» со всех смет? Сметы сохранятся.</p><div className="mt-2 flex flex-wrap gap-2"><button type="button" disabled={disabled} className={`${actionClass} text-red-400`} onClick={() => void run(() => context.deleteLabel(deleting))}>Удалить метку</button><button type="button" className={actionClass} disabled={saving} onClick={() => setDeleting(null)}>Отмена</button></div></div>}

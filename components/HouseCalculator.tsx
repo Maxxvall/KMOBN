@@ -15,6 +15,7 @@ import {
     selectHouseHistoryForAi,
 } from '../services/houseCalculator';
 import type { HouseGeometryInput } from '../services/houseGeometry';
+import { Slider } from './ui/slider';
 import { HOUSE_SCOPE_STATUS_LABELS } from '../services/houseScope';
 import { explainHouseCalculation } from '../services/openRouterService';
 import { buildCrewToolPlan } from '../services/toolPlanning';
@@ -432,10 +433,10 @@ const HouseCalculator: React.FC<HouseCalculatorProps> = ({ estimates, materials,
                             </div>
                             {calculationMode === 'area' ? <div className="sm:col-span-2 lg:col-span-3">
                                 <div className="mb-2 flex items-end justify-between gap-4">
-                                    <label htmlFor="house-area" className="text-sm font-medium text-text-secondary">Общая площадь по смете</label>
+                                    <span className="text-sm font-medium text-text-secondary">Общая площадь по смете</span>
                                     <div className="flex items-center gap-2"><input id="house-area-number" aria-label="Площадь числом" type="number" min={20} max={500} value={area} onChange={e => setArea(Math.min(500, Math.max(20, Number(e.target.value) || 20)))} className={`${inputClass} w-24 text-right font-semibold`} /><span className="text-sm text-text-secondary">м²</span></div>
                                 </div>
-                                <input id="house-area" type="range" min={20} max={500} step={1} value={area} onChange={e => setArea(Number(e.target.value))} className="h-11 w-full cursor-pointer accent-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" />
+                                <Slider min={20} max={500} step={1} value={area} onChange={setArea} ariaLabel="Общая площадь по смете" formatValue={value => `${value} м²`} />
                                 <div className="flex justify-between text-xs text-text-secondary"><span>20 м²</span><span>500 м²</span></div>
                             </div> : <div className="grid gap-4 sm:col-span-2 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-4">
                                 <label className="text-sm text-text-secondary">Длина дома<span className="relative mt-2 block"><input type="number" min={1} step={0.1} value={houseLength} onChange={event => setHouseLength(Math.max(1, Number(event.target.value) || 1))} className={`${inputClass} pr-8`} /><span className="pointer-events-none absolute right-3 top-3">м</span></span></label>

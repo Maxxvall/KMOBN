@@ -4,7 +4,8 @@ import ReactDOM from 'react-dom';
 import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
 import { ESTIMATE_CATEGORIES } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups, preserveEstimateSectionSnapshot, setEstimateSectionOrder } from '../services/estimateSections';
-import { IconAdd, IconCheck, IconChevronRight, IconClipboard, IconCopy, IconDoubleChevronDown, IconDoubleChevronUp, IconNote, IconRefresh, IconAlertTriangle, IconTrash } from '@devigner-ui/icons';
+import { IconAdd, IconCheck, IconChevronDown, IconChevronRight, IconClipboard, IconCopy, IconDoubleChevronDown, IconDoubleChevronUp, IconNote, IconRefresh, IconAlertTriangle, IconTrash } from '@devigner-ui/icons';
+import { ContextMenu, useContextMenu } from './ui/context-menu';
 import { generateEstimateWithAI, isAbortError } from '../services/openRouterService';
 import { buildEstimateDirtySignature, buildEstimateItemsSignature } from './estimateEditorSignature';
 import VersionComparisonModal from './VersionComparisonModal';
@@ -284,6 +285,17 @@ const EstimateEditor: React.FC = () => {
             ...Object.fromEntries(visibleCategories.map(category => [category, !allCategoriesCollapsed])),
         }));
     };
+    // R08.1: ПКМ на заголовке раздела открывает меню тех же действий, что и прямые
+    // кнопки (ничего не заменяет). Мобильные продолжают пользоваться кнопками и
+    // жестом переноса: useContextMenu сам отказывается открываться на touch-first
+    // устройствах (опасное место №8 — жест не трогается).
+    const sectionContextMenu = useContextMenu();
+    const [sectionContextMenuCategory, setSectionContextMenuCategory] = useState<SectionId | null>(null);
+    const openSectionContextMenu = useCallback((event: React.MouseEvent, category: SectionId) => {
+        if ((event.target as Element).closest('button, a, input, select, textarea')) return;
+        setSectionContextMenuCategory(category);
+        sectionContextMenu.openFromEvent(event);
+    }, [sectionContextMenu]);
     const [openNotes, setOpenNotes] = useState<Record<string, boolean>>({});
     const [materialToAdd, setMaterialToAdd] = useState<EstimateItem | null>(null);
     const [workToAdd, setWorkToAdd] = useState<EstimateItem | null>(null);
@@ -1175,6 +1187,17 @@ const EstimateEditor: React.FC = () => {
         setPasteModalOpen(true);
     }, []);
 
+    // Выбор пункта ПКМ-меню раздела — те же обработчики, что у прямых кнопок.
+    const handleSectionContextSelect = (id: string) => {
+        const category = sectionContextMenuCategory;
+        setSectionContextMenuCategory(null);
+        if (!category) return;
+        if (id === 'toggle-collapse') toggleCategoryCollapse(category);
+        if (id === 'duplicate') handleDuplicateSection(category);
+        if (id === 'paste') handleOpenPasteModal(category);
+        if (id === 'remove') removeVisibleCategory(category);
+    };
+
     const handlePasteFromEstimate = useCallback((items: EstimateItem[], _targetCategory: SectionId) => {
         setEstimate(prev => {
             const updatedItems = [...prev.items, ...items];
@@ -1601,6 +1624,38 @@ const EstimateEditor: React.FC = () => {
                         <div ref={sectionReorder.insertionMarkerRef} aria-hidden="true" className="pointer-events-none fixed left-0 top-0 z-[99] h-1 rounded bg-primary" style={{ visibility: 'hidden' }} />
                     </>, document.body,
                 )}
+                {sectionContextMenuCategory !== null && (
+                    <ContextMenu
+                        handle={sectionContextMenu}
+                        items={[
+                            {
+                                id: 'toggle-collapse',
+                                label: collapsedCategories[sectionContextMenuCategory] ? 'Развернуть' : 'Свернуть',
+                                icon: collapsedCategories[sectionContextMenuCategory]
+                                    ? <IconChevronRight aria-hidden="true" className="size-4" />
+                                    : <IconChevronDown aria-hidden="true" className="size-4" />,
+                            },
+                            {
+                                id: 'duplicate',
+                                label: 'Дублировать',
+                                icon: <IconCopy aria-hidden="true" className="size-4" />,
+                                disabled: (groupedItems.get(sectionContextMenuCategory) || []).length === 0,
+                            },
+                            {
+                                id: 'paste',
+                                label: 'Из другой сметы',
+                                icon: <IconClipboard aria-hidden="true" className="size-4" />,
+                            },
+                            {
+                                id: 'remove',
+                                label: 'Удалить раздел',
+                                icon: <IconTrash aria-hidden="true" className="size-4" />,
+                                tone: 'danger',
+                            },
+                        ]}
+                        onSelect={handleSectionContextSelect}
+                    />
+                )}
                 <div id="estimate-sections" ref={sectionReorder.containerRef} className={`mt-2 space-y-3 sm:space-y-4 ${sectionReorder.preview ? 'select-none cursor-grabbing' : ''}`}>
                     {visibleCategories.map((category, catIndex) => {
                         const items = groupedItems.get(category) || [];
@@ -1615,6 +1670,7 @@ const EstimateEditor: React.FC = () => {
                                     onClick={event => {
                                         if (!(event.target as Element).closest('button, a, input, select, textarea')) toggleCategoryCollapse(category);
                                     }}
+                                    onContextMenu={event => openSectionContextMenu(event, category)}
                                     onKeyDown={event => sectionReorder.onHeaderKeyDown(event, category)}
                                     className="w-full bg-gray-900/50 p-2 sm:p-3 flex flex-wrap items-center gap-2 rounded-t-lg border-b border-border text-left select-none"
                                     style={{ WebkitTouchCallout: 'none' }}

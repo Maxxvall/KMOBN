@@ -1,4 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+    IconAlertTriangle,
+    IconCalculator,
+    IconDocument,
+    IconDownload,
+    IconRefresh,
+    IconUpload,
+} from '@devigner-ui/icons';
+import { Tabs, type TabItem } from './ui/tabs';
+import { Switch } from './ui/switch';
 import { generateCuttingPdf } from '../services/cutting/exportPdf';
 import { decodeCuttingFile, parseCuttingText, validateCuttingItems } from '../services/cutting/importCsv';
 import { optimizeCuttingPlan } from '../services/cutting/optimizer';
@@ -24,27 +34,10 @@ import SheetRoomPlanner from './SheetRoomPlanner';
 
 type CuttingSubgroup = 'boards' | 'sheets';
 
-type IconName = 'upload' | 'alert' | 'calculator' | 'file' | 'reset' | 'download';
-
-const Icon: React.FC<{ name: IconName; className?: string }> = ({ name, className = 'h-5 w-5' }) => {
-    const props = {
-        className,
-        viewBox: '0 0 24 24',
-        fill: 'none',
-        stroke: 'currentColor',
-        strokeWidth: 2,
-        strokeLinecap: 'round' as const,
-        strokeLinejoin: 'round' as const,
-        'aria-hidden': true,
-    };
-
-    if (name === 'upload') return <svg {...props}><path d="M12 3v12M7 8l5-5 5 5" /><path d="M5 15v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>;
-    if (name === 'alert') return <svg {...props}><path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>;
-    if (name === 'calculator') return <svg {...props}><rect x="4" y="2" width="16" height="20" rx="2" /><path d="M8 6h8v4H8zM8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" /></svg>;
-    if (name === 'file') return <svg {...props}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" /><path d="M14 2v6h6M8 13h8M8 17h5" /></svg>;
-    if (name === 'download') return <svg {...props}><path d="M12 3v12M7 10l5 5 5-5" /><path d="M5 19h14" /></svg>;
-    return <svg {...props}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></svg>;
-};
+const CUTTING_TABS: readonly TabItem<CuttingSubgroup>[] = [
+    { id: 'boards', label: 'Пиломатериал' },
+    { id: 'sheets', label: 'OSB и фанера' },
+];
 
 const inputClass = 'min-h-11 w-full rounded-lg border border-border bg-background px-3 text-sm text-text-primary outline-none transition placeholder:text-text-secondary focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30';
 const focusClass = 'outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background';
@@ -303,7 +296,7 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
                 </div>
                 {importResult && (
                     <button type="button" onClick={reset} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-background/50 px-4 text-sm font-medium text-text-primary transition hover:bg-white/5 ${focusClass}`}>
-                        <Icon name="reset" className="h-4 w-4" /> Новый файл
+                        <IconRefresh aria-hidden="true" className="h-4 w-4" /> Новый файл
                     </button>
                 )}
             </header>
@@ -329,7 +322,7 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
                         className="sr-only"
                         onChange={event => { const file = event.target.files?.[0]; if (file) void readFile(file); }}
                     />
-                    <Icon name="upload" className="mx-auto h-7 w-7 text-primary" />
+                    <IconUpload aria-hidden="true" className="mx-auto h-7 w-7 text-primary" />
                     <p className="mt-2 text-sm font-medium text-text-primary">{isReading ? 'Читаем файл…' : 'Перетащите файл сюда'}</p>
                     <p className="mt-1 text-xs text-text-secondary">или</p>
                     <label htmlFor="cutting-file" className={`mt-2 inline-flex min-h-11 cursor-pointer items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-white transition hover:bg-primary-hover ${focusClass}`}>
@@ -337,7 +330,7 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
                     </label>
                 </div>
 
-                {fileError && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"><Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />{fileError}</div>}
+                {fileError && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"><IconAlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />{fileError}</div>}
 
                 {importResult && (
                     <>
@@ -372,7 +365,7 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
                         {showSkippedRows && importResult.skippedRows > 0 && (
                             <div id="cutting-skipped-rows" className="mt-3 overflow-hidden rounded-xl border border-amber-400/40 bg-amber-400/[0.07]">
                                 <div className="flex items-start gap-3 border-b border-amber-400/25 px-3 py-3 sm:px-4">
-                                    <Icon name="alert" className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
+                                    <IconAlertTriangle aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-amber-300" />
                                     <div>
                                         <h3 className="text-sm font-semibold text-amber-100">Эти строки не попали в расчёт</h3>
                                         <p className="mt-1 text-xs leading-5 text-text-secondary">Исправьте указанные значения в исходном файле и загрузите его заново.</p>
@@ -401,26 +394,13 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
                 )}
             </Section>
 
-            <div role="tablist" aria-label="Раздел раскроя" className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-background/45 p-1">
-                <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeSubgroup === 'boards'}
-                    onClick={() => setActiveSubgroup('boards')}
-                    className={`min-h-11 rounded-lg px-3 text-sm font-semibold transition ${focusClass} ${activeSubgroup === 'boards' ? 'bg-primary text-white shadow' : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'}`}
-                >
-                    Пиломатериал
-                </button>
-                <button
-                    type="button"
-                    role="tab"
-                    aria-selected={activeSubgroup === 'sheets'}
-                    onClick={() => setActiveSubgroup('sheets')}
-                    className={`min-h-11 rounded-lg px-3 text-sm font-semibold transition ${focusClass} ${activeSubgroup === 'sheets' ? 'bg-primary text-white shadow' : 'text-text-secondary hover:bg-white/5 hover:text-text-primary'}`}
-                >
-                    OSB и фанера
-                </button>
-            </div>
+            <Tabs<CuttingSubgroup>
+                tabs={CUTTING_TABS}
+                active={activeSubgroup}
+                onChange={setActiveSubgroup}
+                ariaLabel="Раздел раскроя"
+                className="w-full [&>button]:flex-1"
+            />
 
             {activeSubgroup === 'boards' && importResult && (
                 <>
@@ -428,7 +408,7 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
                         <Section title="Проверка данных" description="Красные ошибки блокируют расчёт. Исправьте значения ниже или исходный файл.">
                             <div role="alert" className="space-y-2">
                                 {settingsErrors.map(message => (
-                                    <div key={message} className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"><Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />{message}</div>
+                                    <div key={message} className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"><IconAlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />{message}</div>
                                 ))}
                                 {errorIssues.map(issue => <IssueRow key={issue.id} issue={issue} />)}
                                 {warningIssues.map(issue => <IssueRow key={issue.id} issue={issue} />)}
@@ -459,19 +439,22 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
                             <NumberField label="Заготовка, мм" value={settings.boardStockLength} min={1} step={10} onChange={value => updateSetting('boardStockLength', value)} hint="По умолчанию 6050" />
                             <NumberField label="Пропил доски, мм" value={settings.boardKerf} min={0} step={0.5} onChange={value => updateSetting('boardKerf', value)} />
                             <NumberField label="Полезный остаток от, мм" value={settings.usefulOffcutLength} min={0} step={50} onChange={value => updateSetting('usefulOffcutLength', value)} />
-                            <label className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-border bg-background px-3 py-2 transition hover:border-text-secondary">
-                                <input type="checkbox" checked={settings.separateStages} onChange={event => updateSetting('separateStages', event.target.checked)} className="h-5 w-5 rounded border-border accent-primary" />
-                                <span><span className="block text-sm font-medium text-text-primary">Не смешивать этапы</span><span className="block text-xs text-text-secondary">Отдельная доска для каждого блока</span></span>
-                            </label>
+                            <div
+                                onClick={event => { if ((event.target as Element).closest('button')) return; updateSetting('separateStages', !settings.separateStages); }}
+                                className="flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-border bg-background px-3 py-2 transition hover:border-text-secondary"
+                            >
+                                <Switch checked={settings.separateStages} onChange={value => updateSetting('separateStages', value)} ariaLabel="Не смешивать этапы" className="shrink-0" />
+                                <span className="min-w-0"><span className="block text-sm font-medium text-text-primary">Не смешивать этапы</span><span className="block text-xs text-text-secondary">Отдельная доска для каждого блока</span></span>
+                            </div>
                         </div>
 
                         <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
                             <button type="button" disabled={!canCalculate} onClick={calculate} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-white transition hover:bg-primary-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 ${focusClass}`}>
-                                <Icon name="calculator" /> Рассчитать раскрой
+                                <IconCalculator aria-hidden="true" className="h-5 w-5" /> Рассчитать раскрой
                             </button>
                             {!canCalculate && <p className="text-sm text-text-secondary">Исправьте ошибки, чтобы запустить расчёт.</p>}
                         </div>
-                        {calculationError && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"><Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />{calculationError}</div>}
+                        {calculationError && <div role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200"><IconAlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />{calculationError}</div>}
                     </Section>
                 </>
             )}
@@ -487,7 +470,7 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
                             <p className="mt-1 text-sm text-text-secondary">Отход доски {formatPercent(plan.totalBoardWastePercentage)}</p>
                         </div>
                         <button type="button" disabled={isExporting} onClick={() => void exportPdf()} className={`inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-background/50 px-4 text-sm font-semibold text-text-primary transition hover:bg-background disabled:cursor-wait disabled:opacity-60 ${focusClass}`}>
-                            <Icon name="download" /> {isExporting ? 'Формируем PDF…' : 'Скачать PDF'}
+                            <IconDownload aria-hidden="true" className="h-5 w-5" /> {isExporting ? 'Формируем PDF…' : 'Скачать PDF'}
                         </button>
                     </div>
 
@@ -549,7 +532,7 @@ const Cutting: React.FC<{ userId: string }> = ({ userId }) => {
 
             {activeSubgroup === 'boards' && !importResult && (
                 <div className="rounded-xl border border-border bg-background/20 p-6 text-center text-sm text-text-secondary">
-                    <Icon name="file" className="mx-auto h-7 w-7" />
+                    <IconDocument aria-hidden="true" className="mx-auto h-7 w-7" />
                     <p className="mt-2">После загрузки здесь появятся проверка строк, этапы и настройки раскроя.</p>
                 </div>
             )}
@@ -561,7 +544,7 @@ const IssueRow: React.FC<{ issue: CuttingImportIssue }> = ({ issue }) => {
     const isError = issue.severity === 'error';
     return (
         <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${isError ? 'border-red-500/40 bg-red-500/10 text-red-200' : 'border-amber-500/40 bg-amber-500/10 text-amber-100'}`}>
-            <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
+            <IconAlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
             <span><span className="font-semibold">Строка {issue.sourceRow}.</span> {issue.message}</span>
         </div>
     );

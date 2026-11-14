@@ -1,6 +1,8 @@
 import React, { Dispatch, SetStateAction } from 'react';
 import { BoardInventoryState } from '../../services/boardMaterialSwitch';
+import { formatEstimateItemsClipboard } from '../../services/estimateClipboard';
 import { BoardMoisture, Estimate, SectionId } from '../../types';
+import { CopyButton } from '../ui/copy-button';
 import {
     IconArrowSwapHorizontal,
     IconBookmark,
@@ -86,6 +88,12 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
                         <IconBookmark aria-hidden="true" className="size-4" />
                     </button>
                 )}
+                {estimate.items.length > 0 && (
+                    <CopyButton
+                        getValue={() => formatEstimateItemsClipboard(estimate.items, { resolveSectionLabel: sectionLabel })}
+                        label="Копировать список позиций"
+                    />
+                )}
             </div>
             <div className="grid min-w-0 flex-1 basis-full grid-cols-2 gap-2 sm:basis-[520px] sm:grid-cols-[auto_auto_minmax(180px,1fr)_auto]">
                 <button
@@ -167,7 +175,13 @@ export const EstimateToolbar: React.FC<EstimateToolbarProps> = ({
             <div className="flex w-full min-w-0 flex-wrap items-center gap-x-4 gap-y-3 border-t border-border/70 pt-3">
                 <div className="min-w-fit flex-1 tabular-nums sm:flex-none">
                     <div className="text-xs font-medium text-text-secondary">Итого по смете</div>
-                    <div className="mt-0.5 whitespace-nowrap text-xl font-bold leading-tight text-primary sm:text-2xl">{estimate.total.toLocaleString('ru-RU')}&nbsp;₽</div>
+                    <div className="mt-0.5 flex items-center gap-1 whitespace-nowrap text-xl font-bold leading-tight text-primary sm:text-2xl">
+                        <span>{estimate.total.toLocaleString('ru-RU')}&nbsp;₽</span>
+                        <CopyButton
+                            getValue={() => `${estimate.total.toLocaleString('ru-RU')} ₽`}
+                            label="Копировать итог сметы"
+                        />
+                    </div>
                 </div>
                 <dl className="order-3 flex min-w-0 flex-1 basis-full flex-wrap gap-x-5 gap-y-2 tabular-nums sm:order-none sm:basis-auto sm:border-l sm:border-border sm:pl-4">
                     {([

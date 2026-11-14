@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
+import { motion } from 'motion/react';
+import { IconCheck, IconDocumentText, IconLocation, IconRuler, IconSledgehammer, IconWindowFrame } from '@devigner-ui/icons';
 import {
     Estimate,
     EstimateStatus,
@@ -33,13 +35,80 @@ const STEP_TITLES: Record<Step, string> = {
     5: 'Результат',
 };
 
-const STEP_ICONS: Record<Step, string> = {
-    1: '📐',
-    2: '🏗',
-    3: '🪟',
-    4: '📍',
-    5: '✅',
+// R06.1: Timeline-степпер — активный шаг съезжает с рельсы (spring), линия
+// изгибается следом. Эмодзи заменены иконками пакета (опасное место №9).
+const STEP_ICONS: Record<Step, React.ReactNode> = {
+    1: <IconRuler aria-hidden="true" className="size-4" />,
+    2: <IconSledgehammer aria-hidden="true" className="size-4" />,
+    3: <IconWindowFrame aria-hidden="true" className="size-4" />,
+    4: <IconLocation aria-hidden="true" className="size-4" />,
+    5: <IconDocumentText aria-hidden="true" className="size-4" />,
 };
+
+const WIZARD_STEPS: readonly Step[] = [1, 2, 3, 4, 5];
+const STEP_SPRING = { type: 'spring' as const, stiffness: 420, damping: 30 };
+
+// Рельса Timeline: точка h-7 с центром на 14px; активная съезжает на 12px
+// (вниз на мобильной горизонтальной рельсе, вправо на десктопной вертикальной).
+const MOBILE_RAIL_Y = 14;
+const STEP_DIP = 12;
+
+const TimelineConnectorMobile: React.FC<{ bent: 'left' | 'right' | null; filled: boolean }> = ({ bent, filled }) => (
+    <svg
+        aria-hidden="true"
+        viewBox="0 0 100 40"
+        preserveAspectRatio="none"
+        className={`h-10 min-w-2 flex-1 ${filled ? 'text-green-600' : 'text-border'}`}
+    >
+        <path
+            d={bent === 'right'
+                ? `M0 ${MOBILE_RAIL_Y} C 40 ${MOBILE_RAIL_Y}, 60 ${MOBILE_RAIL_Y + STEP_DIP}, 100 ${MOBILE_RAIL_Y + STEP_DIP}`
+                : bent === 'left'
+                    ? `M0 ${MOBILE_RAIL_Y + STEP_DIP} C 40 ${MOBILE_RAIL_Y + STEP_DIP}, 60 ${MOBILE_RAIL_Y}, 100 ${MOBILE_RAIL_Y}`
+                    : `M0 ${MOBILE_RAIL_Y} L100 ${MOBILE_RAIL_Y}`}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+        />
+    </svg>
+);
+
+// Вертикальная рельса десктоп-сайдбара: колонка w-7, активная точка съезжает на 12px вправо.
+const TimelineConnectorVertical: React.FC<{ bent: 'start' | 'end' | null; filled: boolean }> = ({ bent, filled }) => (
+    <svg
+        aria-hidden="true"
+        viewBox="0 0 28 20"
+        preserveAspectRatio="none"
+        className={`absolute bottom-0 left-0 top-7 w-7 ${filled ? 'text-green-600' : 'text-border'}`}
+    >
+        <path
+            d={bent === 'start'
+                ? 'M26 0 C 26 7, 14 13, 14 20'
+                : bent === 'end'
+                    ? 'M14 0 C 14 7, 26 13, 26 20'
+                    : 'M14 0 L14 20'}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            vectorEffect="non-scaling-stroke"
+        />
+    </svg>
+);
+
+const TimelineStepDot: React.FC<{ state: 'done' | 'active' | 'future'; children?: React.ReactNode; className?: string }> = ({ state, children, className }) => (
+    <span
+        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition-colors ${
+            state === 'active'
+                ? 'bg-primary text-white'
+                : state === 'done'
+                    ? 'bg-green-600 text-white'
+                    : 'border border-border bg-background text-text-secondary'
+        } ${className ?? ''}`}
+    >
+        {state === 'done' ? <IconCheck aria-hidden="true" className="size-4" /> : children}
+    </span>
+);
 
 const SelectGroup: React.FC<{
     label: string;
@@ -351,51 +420,59 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
                     <button onClick={onClose} className="text-text-secondary hover:text-text-primary text-2xl leading-none">&times;</button>
                 </div>
 
-                {/* Горизонтальный степпер — мобильный флоу без изменений */}
-                <div className="flex items-center gap-1 mb-6 md:hidden">
-                    {([1, 2, 3, 4, 5] as Step[]).map(s => (
-                        <div key={s} className="flex items-center flex-1">
-                            <div
-                                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                                    s === step
-                                        ? 'bg-primary text-white'
-                                        : s < step
-                                        ? 'bg-green-600 text-white'
-                                        : 'bg-background text-text-secondary border border-border'
-                                }`}
+                {/* Горизонтальный Timeline — мобильный флоу без изменений, кликов по шагам нет */}
+                <div className="mb-6 flex items-start md:hidden" role="group" aria-label="Шаги мастера">
+                    {WIZARD_STEPS.map((s, index) => (
+                        <React.Fragment key={s}>
+                            <motion.span
+                                aria-current={s === step ? 'step' : undefined}
+                                animate={{ y: s === step ? STEP_DIP : 0 }}
+                                transition={STEP_SPRING}
+                                className="relative z-10"
                             >
-                                {s < step ? '✓' : STEP_ICONS[s]}
-                            </div>
-                            {s < 5 && (
-                                <div className={`flex-1 h-0.5 mx-1 ${s < step ? 'bg-green-600' : 'bg-border'}`} />
+                                <TimelineStepDot state={s === step ? 'active' : s < step ? 'done' : 'future'}>
+                                    {STEP_ICONS[s]}
+                                </TimelineStepDot>
+                            </motion.span>
+                            {index < WIZARD_STEPS.length - 1 && (
+                                <TimelineConnectorMobile
+                                    bent={s === step ? 'left' : WIZARD_STEPS[index + 1] === step ? 'right' : null}
+                                    filled={s < step}
+                                />
                             )}
-                        </div>
+                        </React.Fragment>
                     ))}
                 </div>
 
                 <div className="md:flex md:gap-6">
-                    {/* Вертикальный степпер сбоку на десктопе */}
-                    <aside className="hidden md:flex md:flex-col md:gap-1 md:w-52 md:shrink-0" aria-label="Шаги мастера">
-                        {([1, 2, 3, 4, 5] as Step[]).map(s => (
+                    {/* Вертикальный Timeline сбоку на десктопе */}
+                    <aside className="hidden md:flex md:w-52 md:shrink-0 md:flex-col" aria-label="Шаги мастера">
+                        {WIZARD_STEPS.map((s, index) => (
                             <div
                                 key={s}
                                 aria-current={s === step ? 'step' : undefined}
-                                className={`flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition ${
-                                    s === step ? 'bg-primary/15 font-semibold text-text-primary' : 'text-text-secondary'
-                                }`}
+                                className={`flex items-start gap-3 ${index < WIZARD_STEPS.length - 1 ? 'pb-4' : ''}`}
                             >
-                                <span
-                                    className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-xs font-bold transition ${
-                                        s === step
-                                            ? 'bg-primary text-white'
-                                            : s < step
-                                            ? 'bg-green-600 text-white'
-                                            : 'bg-background text-text-secondary border border-border'
-                                    }`}
-                                >
-                                    {s < step ? '✓' : STEP_ICONS[s]}
-                                </span>
-                                {STEP_TITLES[s]}
+                                <div className="relative w-7 shrink-0 self-stretch">
+                                    {index < WIZARD_STEPS.length - 1 && (
+                                        <TimelineConnectorVertical
+                                            bent={s === step ? 'start' : WIZARD_STEPS[index + 1] === step ? 'end' : null}
+                                            filled={s < step}
+                                        />
+                                    )}
+                                    <motion.span
+                                        animate={{ x: s === step ? STEP_DIP : 0 }}
+                                        transition={STEP_SPRING}
+                                        className="relative z-10"
+                                    >
+                                        <TimelineStepDot state={s === step ? 'active' : s < step ? 'done' : 'future'}>
+                                            {STEP_ICONS[s]}
+                                        </TimelineStepDot>
+                                    </motion.span>
+                                </div>
+                                <div className={`pt-1.5 text-sm leading-6 ${s === step ? 'font-semibold text-text-primary' : 'text-text-secondary'}`}>
+                                    {STEP_TITLES[s]}
+                                </div>
                             </div>
                         ))}
                     </aside>
