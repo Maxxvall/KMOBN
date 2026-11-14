@@ -11,9 +11,9 @@ window.STATE =
   "memoryFile": "AGENTS.md",
   "memoryOwner": "user",
   "skillDir": "C:/Users/Administrator/.agents/skills/autopilot",
-  "baseCommit": "c42302e",
+  "baseCommit": "7ce1a6f",
   "startedAt": "2026-11-13T22:29:06+03:00",
-  "updatedAt": "2026-11-14T08:53:02+03:00",
+  "updatedAt": "2026-11-14T08:53:40+03:00",
   "finishedAt": null,
   "stages": [
     {
@@ -150,7 +150,7 @@ window.STATE =
         "R44"
       ],
       "blockedBy": [],
-      "wave": 1,
+      "wave": 4,
       "zone": [
         "components/EstimateEditor.tsx",
         "components/estimate-editor/",
@@ -162,7 +162,8 @@ window.STATE =
       ],
       "review": "нет (ревью ветки после)",
       "model": "обычная",
-      "status": "pending",
+      "status": "in-progress",
+      "startedAt": "2026-11-14T08:53:06+03:00",
       "retries": 0,
       "repairs": 0
     },
@@ -173,13 +174,14 @@ window.STATE =
         "R43"
       ],
       "blockedBy": [],
-      "wave": 1,
+      "wave": 4,
       "zone": [
         "components/SmartEstimateWizard.tsx"
       ],
       "review": "нет (ревью ветки после)",
       "model": "обычная",
-      "status": "pending",
+      "status": "in-progress",
+      "startedAt": "2026-11-14T08:53:06+03:00",
       "retries": 0,
       "repairs": 0
     },
@@ -312,9 +314,12 @@ window.STATE =
     "2026-11-14T08:51:43+03:00",
     "2026-11-14T08:52:12+03:00",
     "2026-11-14T08:53:00+03:00",
-    "2026-11-14T08:53:02+03:00"
+    "2026-11-14T08:53:02+03:00",
+    "2026-11-14T08:53:04+03:00",
+    "2026-11-14T08:53:06+03:00",
+    "2026-11-14T08:53:40+03:00"
   ],
-  "rev": 52,
+  "rev": 55,
   "waiting": null,
   "waits": [
     {
@@ -656,6 +661,22 @@ window.STATE =
       "g": "G3",
       "ok": false,
       "problems": 8
+    },
+    {
+      "t": "2026-11-14T08:53:06+03:00",
+      "k": "ticket",
+      "ids": [
+        "02",
+        "03"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T08:53:40+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
     }
   ],
   "reqList": [
@@ -898,9 +919,9 @@ window.STATE =
       "deferred": 0
     },
     "G3": {
-      "ok": false,
-      "at": "2026-11-14T08:53:02+03:00",
-      "problems": 8
+      "ok": true,
+      "at": "2026-11-14T08:53:40+03:00",
+      "problems": 0
     }
   },
   "result": null,

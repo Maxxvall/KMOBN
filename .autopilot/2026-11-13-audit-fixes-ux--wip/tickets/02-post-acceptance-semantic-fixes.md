@@ -3,7 +3,7 @@
 **Требования:** R35, R36, R37, R38, R39, R40, R41, R44
 **Зависит от:** —
 **Зона:** `components/EstimateEditor.tsx` · `components/estimate-editor/` · `hooks/useEstimateCrud.ts` · `App.tsx` · `services/premiumPdf.ts` · `services/documentExport.ts` · `components/Header.tsx`
-**Волна:** 1
+**Волна:** 4 (после севших 01/F1/F2)
 **Ревью:** нет (ревью ветки после)
 **Модель:** обычная
 
