@@ -2,19 +2,19 @@ window.STATE =
 {
   "version": 2,
   "slug": "audit-fixes-ux",
-  "dir": "2026-11-13-audit-fixes-ux",
+  "dir": "2026-11-13-audit-fixes-ux--wip",
   "title": "Исправления дельта-аудита и UX больших экранов",
   "mode": "semi",
   "depth": "normal",
   "tier": null,
-  "briefFile": "2026-11-13-brief.md",
+  "briefFile": "2026-11-14-brief.md",
   "memoryFile": "AGENTS.md",
   "memoryOwner": "user",
   "skillDir": "C:/Users/Administrator/.agents/skills/autopilot",
   "baseCommit": "c42302e",
   "startedAt": "2026-11-13T22:29:06+03:00",
-  "updatedAt": "2026-11-14T00:24:19+03:00",
-  "finishedAt": "2026-11-14T00:24:19+03:00",
+  "updatedAt": "2026-11-14T08:53:02+03:00",
+  "finishedAt": null,
   "stages": [
     {
       "id": "preflight",
@@ -25,53 +25,47 @@ window.STATE =
     {
       "id": "manifest",
       "status": "done",
-      "startedAt": "2026-11-13T22:29:35+03:00",
-      "finishedAt": "2026-11-13T22:31:23+03:00"
+      "startedAt": "2026-11-14T08:44:27+03:00",
+      "finishedAt": "2026-11-14T08:46:43+03:00"
     },
     {
       "id": "briefing",
-      "status": "done",
-      "startedAt": "2026-11-13T22:31:23+03:00",
-      "finishedAt": "2026-11-13T22:38:28+03:00"
+      "status": "skipped",
+      "startedAt": "2026-11-14T08:46:41+03:00",
+      "finishedAt": "2026-11-14T08:46:41+03:00",
+      "note": "брифинг не потребовался: диагнозы аудита закрывают все развилки, решений за пользователя нет"
     },
     {
       "id": "spec",
       "status": "done",
-      "startedAt": "2026-11-13T22:38:28+03:00",
-      "finishedAt": "2026-11-13T22:46:55+03:00"
+      "startedAt": "2026-11-14T08:46:43+03:00",
+      "finishedAt": "2026-11-14T08:52:12+03:00"
     },
     {
       "id": "plan",
-      "status": "done",
-      "startedAt": "2026-11-13T22:46:55+03:00",
-      "finishedAt": "2026-11-13T22:55:32+03:00"
+      "status": "active",
+      "startedAt": "2026-11-14T08:52:12+03:00"
     },
     {
       "id": "build",
-      "status": "done",
-      "startedAt": "2026-11-13T22:55:32+03:00",
-      "finishedAt": "2026-11-13T23:45:50+03:00"
+      "status": "pending"
     },
     {
       "id": "review",
-      "status": "done",
-      "startedAt": "2026-11-13T23:45:50+03:00",
-      "finishedAt": "2026-11-14T00:00:34+03:00"
+      "status": "pending"
     },
     {
       "id": "final",
-      "status": "done",
-      "startedAt": "2026-11-14T00:00:34+03:00",
-      "finishedAt": "2026-11-14T00:24:19+03:00"
+      "status": "pending"
     }
   ],
   "requirements": {
-    "total": 34,
+    "total": 44,
     "done": 32,
-    "inTicket": 0,
+    "inTicket": 9,
     "inSpec": 0,
     "placeholder": 0,
-    "deferred": 2,
+    "deferred": 3,
     "dropped": 0
   },
   "tickets": [
@@ -143,6 +137,53 @@ window.STATE =
       "commit": "64788bb"
     },
     {
+      "id": "02",
+      "title": "Доводка: семантические фиксы известных багов",
+      "requirements": [
+        "R35",
+        "R36",
+        "R37",
+        "R38",
+        "R39",
+        "R40",
+        "R41",
+        "R44"
+      ],
+      "blockedBy": [],
+      "wave": 1,
+      "zone": [
+        "components/EstimateEditor.tsx",
+        "components/estimate-editor/",
+        "hooks/useEstimateCrud.ts",
+        "App.tsx",
+        "services/premiumPdf.ts",
+        "services/documentExport.ts",
+        "components/Header.tsx"
+      ],
+      "review": "нет (ревью ветки после)",
+      "model": "обычная",
+      "status": "pending",
+      "retries": 0,
+      "repairs": 0
+    },
+    {
+      "id": "03",
+      "title": "Доводка: реформат отступов Wizard",
+      "requirements": [
+        "R43"
+      ],
+      "blockedBy": [],
+      "wave": 1,
+      "zone": [
+        "components/SmartEstimateWizard.tsx"
+      ],
+      "review": "нет (ревью ветки после)",
+      "model": "обычная",
+      "status": "pending",
+      "retries": 0,
+      "repairs": 0
+    },
+    {
       "id": "F1",
       "title": "Ремонт ветки: находки ревью",
       "requirements": [
@@ -183,10 +224,10 @@ window.STATE =
       "review": "да — ремонт ветки",
       "model": "сильная",
       "status": "done",
-      "retries": 0,
-      "repairs": 0,
       "startedAt": "2026-11-14T00:15:46+03:00",
       "finishedAt": "2026-11-14T00:20:46+03:00",
+      "retries": 0,
+      "repairs": 0,
       "tests": {
         "passed": 408,
         "failed": 0
@@ -209,12 +250,9 @@ window.STATE =
   "additions": [],
   "coverage": {
     "found": 3,
-    "fixed": 1,
-    "deferred": 2,
-    "items": [
-      "R32/R33 (монолиты, @ts-nocheck) — вне рамок: договорённость «дальний рефакторинг — отдельная работа», вопрос задан на брифинге без ответа; вернётся в отчёт «что не вошло»",
-      "ссылки на брифинг без ответа (R32/R33/U4/R11) — по построению: ответы пользователя отсутствуют, решения записаны как ASSUMPTION в манифесте, не в бриф"
-    ]
+    "fixed": 3,
+    "deferred": 0,
+    "items": []
   },
   "concerns": [
     "R10/D01: пустой пул типовых даёт честную ошибку вместо несуществующего «расчёта по нормам»",
@@ -222,11 +260,7 @@ window.STATE =
     "Header xl+: drawer-кнопка скрыта, вместо неё кнопка профиля (раньше профиль был только в drawer)",
     "Works.tsx без 3xl-бампа: в десктопной таблице/формах нет text-xs (заголовки text-sm, text-xs только в mobile-карточках) — бамп дал бы мёртвые классы"
   ],
-  "blind": {
-    "checked": 1,
-    "matched": 1,
-    "mismatches": []
-  },
+  "blind": null,
   "beats": [
     "2026-11-13T22:29:06+03:00",
     "2026-11-13T22:29:35+03:00",
@@ -270,9 +304,17 @@ window.STATE =
     "2026-11-14T00:22:24+03:00",
     "2026-11-14T00:23:28+03:00",
     "2026-11-14T00:24:10+03:00",
-    "2026-11-14T00:24:19+03:00"
+    "2026-11-14T00:24:19+03:00",
+    "2026-11-14T08:44:27+03:00",
+    "2026-11-14T08:46:39+03:00",
+    "2026-11-14T08:46:41+03:00",
+    "2026-11-14T08:46:43+03:00",
+    "2026-11-14T08:51:43+03:00",
+    "2026-11-14T08:52:12+03:00",
+    "2026-11-14T08:53:00+03:00",
+    "2026-11-14T08:53:02+03:00"
   ],
-  "rev": 44,
+  "rev": 52,
   "waiting": null,
   "waits": [
     {
@@ -562,6 +604,58 @@ window.STATE =
       "t": "2026-11-14T00:24:19+03:00",
       "k": "finish",
       "result": "Дельта-аудит 13.11 закрыт: метки/синк/баннер починены, кровля-ё-санитайзер в единых источниках, UX больших экранов U1-U10; 408/408 тестов, слепая приёмка прошла"
+    },
+    {
+      "t": "2026-11-14T08:44:27+03:00",
+      "k": "reopen"
+    },
+    {
+      "t": "2026-11-14T08:46:41+03:00",
+      "k": "stage",
+      "id": "briefing",
+      "act": "skip",
+      "note": "брифинг не потребовался: диагнозы аудита закрывают все развилки, решений за пользователя нет"
+    },
+    {
+      "t": "2026-11-14T08:46:43+03:00",
+      "k": "gate",
+      "g": "G1",
+      "ok": true,
+      "open": 0,
+      "total": 44
+    },
+    {
+      "t": "2026-11-14T08:46:43+03:00",
+      "k": "stage",
+      "id": "spec",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T08:51:43+03:00",
+      "k": "gate",
+      "g": "G2",
+      "ok": true,
+      "found": 3,
+      "fixed": 3,
+      "deferred": 0
+    },
+    {
+      "t": "2026-11-14T08:52:12+03:00",
+      "k": "stage",
+      "id": "plan",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T08:53:00+03:00",
+      "k": "tickets",
+      "n": 5
+    },
+    {
+      "t": "2026-11-14T08:53:02+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": false,
+      "problems": 8
     }
   ],
   "reqList": [
@@ -736,35 +830,80 @@ window.STATE =
       "id": "R34i",
       "text": "(подразумевается) после правок npm run check зелёный (тесты/типы/линт); поведение смет, синка и расчётов не сломано",
       "status": "done"
+    },
+    {
+      "id": "R35",
+      "text": "«Прежний краткий индикатор успеха при отмене удаления шаблона»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R36",
+      "text": "«потерянная aria-связь „Пояснения\"»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R37",
+      "text": "«дубли стилей полей редактора»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R38",
+      "text": "«6 lint warnings react-hooks/exhaustive-deps (setEstimate) в EstimateEditor:445, 874, 1066, 1171, 1184, 1208 — прежние»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R39",
+      "text": "«ложное „Не удалось сохранить\" при сбое перечитывания кэша»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R40",
+      "text": "«editor max-w дублирует 8xl»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R41",
+      "text": "«premium-пайплайн продублирован в documentExport»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R42",
+      "text": "«Analytics-ключ name+unit»",
+      "status": "deferred",
+      "why": "бриф 14.11; доводка: проверено аудитом — НЕ БАГ (элементы уже смёржены itemsMap-ключом ${name}___${unit}, дубли невозможны; Analytics.tsx:604-620) — правка сверх сказанного, вне рамок"
+    },
+    {
+      "id": "R43",
+      "text": "«отступ Wizard»",
+      "status": "in-ticket"
+    },
+    {
+      "id": "R44",
+      "text": "«logout xl+ без красного hover; aria-дубль»",
+      "status": "in-ticket"
     }
   ],
   "gates": {
     "G1": {
-      "ok": false,
-      "at": "2026-11-13T22:38:28+03:00",
-      "open": 32,
-      "total": 34
+      "ok": true,
+      "at": "2026-11-14T08:46:43+03:00",
+      "open": 0,
+      "total": 44
     },
     "G2": {
       "ok": true,
-      "at": "2026-11-13T22:46:45+03:00",
+      "at": "2026-11-14T08:51:43+03:00",
       "found": 3,
-      "fixed": 1,
-      "deferred": 2
+      "fixed": 3,
+      "deferred": 0
     },
     "G3": {
-      "ok": true,
-      "at": "2026-11-14T00:15:44+03:00",
-      "problems": 0
-    },
-    "G4": {
-      "ok": true,
-      "at": "2026-11-14T00:23:28+03:00",
-      "checked": 1,
-      "matched": 1
+      "ok": false,
+      "at": "2026-11-14T08:53:02+03:00",
+      "problems": 8
     }
   },
-  "result": "Дельта-аудит 13.11 закрыт: метки/синк/баннер починены, кровля-ё-санитайзер в единых источниках, UX больших экранов U1-U10; 408/408 тестов, слепая приёмка прошла",
+  "result": null,
   "report": [
     "App.tsx ~1892: если после успешного сохранения разделов перечитывание кэша падает, показывается «Не удалось сохранить» при фактическом успехе — редкий случай, данные целы",
     "Редактор смет: его ограничение ширины фактически дублирует общий лимит экрана (8xl=1500px) и через него работает; при смене общего лимита ширина редактора молча поедет следом",
@@ -775,5 +914,5 @@ window.STATE =
     "Header xl+: aria-label=«Выйти» дублирует видимый текст кнопки — избыточно, не вредит",
     "Мобильные карточки справочников (Prices/Works) и счётчики пагинации ниже sm держат text-xs без 3xl-бампа — на 1920px+ невидимы, за пределами условия; категория та же, если U10 когда-то расширят на мобильную плотность"
   ],
-  "blindRounds": 2
+  "blindRounds": 0
 }

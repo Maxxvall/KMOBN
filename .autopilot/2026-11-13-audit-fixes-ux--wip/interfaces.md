@@ -47,6 +47,11 @@
 - `services/houseCalculator.ts`: `ROOF_AREA_PITCH_FACTOR = 1.15` — pitch-фактор площади кровли.
 - `services/format.ts`: `sanitizeFileName(name): string`, `formatDuration(ms): string`; `sanitizePremiumPdfFileName` оставлен как делегат.
 
+## Интерфейсы доводки (тикеты 02/03)
+- `services/premiumPdf.ts`: новый экспорт `generatePremiumEstimatePdf(estimate, materials?, title?)` — полный premium-пайплайн (загрузка шрифтов, проверка, save) в одном месте; `documentExport.exportEstimatePdfColored` только делегирует, СВОЯ сигнатура неизменна.
+- Контракт `components/ui/delete-button.tsx` (DeleteButton): `onConfirm` может ОТКЛОНИТЬСЯ — отмена пользователя; тогда кнопка возвращается в покой, галочка «done» только на реальном успехе.
+- Граница ширины: `max-w-8xl` (tailwind.config) — единственный ограничитель контента; локальные max-w внутри main не добавляются.
+
 ## Швы для тестов
 - Colocated `*.test.ts` (vitest) рядом с сервисом — существующий паттерн, новые чистые функции (`resolveSaveLabelIds`, `roofFactorFor`, `sanitizeFileName`, ё-хелпер) тестируются там же.
 - `dataTransfer.test.ts` — кейсы R02 (поле отсутствует vs `[]`) добавить рядом с существующим тестом «явный []».
