@@ -2,7 +2,7 @@ window.STATE =
 {
   "version": 2,
   "slug": "devigner-ui-upgrade",
-  "dir": "2026-11-14-devigner-ui-upgrade--wip",
+  "dir": "2026-11-14-devigner-ui-upgrade",
   "title": "Апгрейд UI на компоненты devignerui",
   "mode": "semi",
   "depth": "normal",
@@ -11,10 +11,10 @@ window.STATE =
   "memoryFile": "AGENTS.md",
   "memoryOwner": "user",
   "skillDir": "C:/Users/Administrator/.agents/skills/autopilot",
-  "baseCommit": null,
+  "baseCommit": "73625cf",
   "startedAt": "2026-11-14T09:28:48+03:00",
-  "updatedAt": "2026-11-14T09:57:40+03:00",
-  "finishedAt": null,
+  "updatedAt": "2026-11-14T11:51:21+03:00",
+  "finishedAt": "2026-11-14T11:51:21+03:00",
   "stages": [
     {
       "id": "preflight",
@@ -42,26 +42,33 @@ window.STATE =
     },
     {
       "id": "plan",
-      "status": "active",
-      "startedAt": "2026-11-14T09:55:09+03:00"
+      "status": "done",
+      "startedAt": "2026-11-14T09:55:09+03:00",
+      "finishedAt": "2026-11-14T09:58:02+03:00"
     },
     {
       "id": "build",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-14T09:58:02+03:00",
+      "finishedAt": "2026-11-14T11:07:18+03:00"
     },
     {
       "id": "review",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-14T11:07:18+03:00",
+      "finishedAt": "2026-11-14T11:22:09+03:00"
     },
     {
       "id": "final",
-      "status": "pending"
+      "status": "done",
+      "startedAt": "2026-11-14T11:22:09+03:00",
+      "finishedAt": "2026-11-14T11:51:21+03:00"
     }
   ],
   "requirements": {
     "total": 15,
-    "done": 0,
-    "inTicket": 15,
+    "done": 5,
+    "inTicket": 10,
     "inSpec": 0,
     "placeholder": 0,
     "deferred": 0,
@@ -97,9 +104,16 @@ window.STATE =
       ],
       "review": "да — фундамент",
       "model": "сильная",
-      "status": "pending",
+      "status": "review",
+      "startedAt": "2026-11-14T09:58:30+03:00",
+      "finishedAt": "2026-11-14T10:21:26+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      },
+      "commit": "015df23"
     },
     {
       "id": "02",
@@ -130,9 +144,16 @@ window.STATE =
       ],
       "review": "нет",
       "model": "обычная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-14T10:22:19+03:00",
+      "finishedAt": "2026-11-14T10:35:36+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      },
+      "commit": "9ac690e"
     },
     {
       "id": "03",
@@ -160,9 +181,16 @@ window.STATE =
       ],
       "review": "нет",
       "model": "обычная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-14T10:22:19+03:00",
+      "finishedAt": "2026-11-14T10:36:24+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      },
+      "commit": "7791d3c"
     },
     {
       "id": "04",
@@ -192,9 +220,16 @@ window.STATE =
       ],
       "review": "нет",
       "model": "обычная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-14T10:22:19+03:00",
+      "finishedAt": "2026-11-14T10:51:11+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 0,
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      },
+      "commit": "4365fab"
     },
     {
       "id": "05",
@@ -217,12 +252,99 @@ window.STATE =
       ],
       "review": "нет",
       "model": "обычная",
-      "status": "pending",
+      "status": "done",
+      "startedAt": "2026-11-14T10:37:54+03:00",
+      "finishedAt": "2026-11-14T11:07:11+03:00",
       "retries": 0,
-      "repairs": 0
+      "repairs": 1,
+      "repairFindings": [
+        "критерий AI-генерация держится на DOM-click по aria-label — нужен шов через EstimateContext (экшен), DOM-click удалить"
+      ],
+      "tests": {
+        "passed": 424,
+        "failed": 0
+      },
+      "commit": "57cb3c0"
+    },
+    {
+      "id": "06",
+      "title": "Dropzone в EstimateTransferModal",
+      "requirements": [
+        "R13.1"
+      ],
+      "blockedBy": [
+        "01"
+      ],
+      "wave": 3,
+      "zone": [
+        "components/EstimateTransferModal.tsx"
+      ],
+      "review": "нет",
+      "model": "обычная",
+      "status": "done",
+      "startedAt": "2026-11-14T10:37:54+03:00",
+      "finishedAt": "2026-11-14T10:45:29+03:00",
+      "retries": 0,
+      "repairs": 0,
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      },
+      "commit": "7a85bfb"
+    },
+    {
+      "id": "F1",
+      "title": "Ремонт ветки: пробел перед ₽ в KPI-карточках",
+      "requirements": [
+        "R11"
+      ],
+      "blockedBy": [],
+      "wave": 4,
+      "zone": [
+        "components/Analytics.tsx"
+      ],
+      "review": "да — ремонт ветки",
+      "model": "сильная",
+      "status": "review",
+      "startedAt": "2026-11-14T11:15:17+03:00",
+      "finishedAt": "2026-11-14T11:19:27+03:00",
+      "retries": 0,
+      "repairs": 0,
+      "tests": {
+        "passed": 424,
+        "failed": 0
+      },
+      "commit": "cf00b17"
+    },
+    {
+      "id": "F2",
+      "title": "Ремонт приёмки: табы в EstimateSectionsSettings",
+      "requirements": [
+        "R02"
+      ],
+      "blockedBy": [],
+      "wave": 5,
+      "zone": [
+        "components/estimate-editor/EstimateSectionsSettings.tsx"
+      ],
+      "review": "да — ремонт ветки",
+      "model": "сильная",
+      "status": "review",
+      "retries": 0,
+      "repairs": 0,
+      "startedAt": "2026-11-14T11:36:15+03:00",
+      "finishedAt": "2026-11-14T11:44:53+03:00",
+      "tests": {
+        "passed": 424,
+        "failed": 0
+      },
+      "commit": "7246033"
     }
   ],
-  "tests": null,
+  "tests": {
+    "passed": 424,
+    "failed": 0
+  },
   "debt": {
     "placeholders": [],
     "assumptions": [],
@@ -244,8 +366,20 @@ window.STATE =
       "R01: пересчёт файлов — 14 из списка: delete-button → своя история R04.1, SheetRoomPlanner — рисунок; миграция 12 файлов"
     ]
   },
-  "concerns": [],
-  "blind": null,
+  "concerns": [
+    "T01: Tabs объявлен функцией, не React.FC (generic); ContextMenu handle-API — расширение границ; motion/react как анимационная зависимость",
+    "T02: VK/TG-иконок нет в пакете (остались inline, причина в коде); UpdateBanner теперь fixed top-right (островок); магнитная зона CTA компенсирована отступом",
+    "T03: EstimateTransferModal был вне зон — заведён таск 06; экспортные alert сохранены (критерий — только импорт); ПКМ desktop-only; KPI-визуал — приёмка владельца",
+    "T04: additions в HouseCalculator — Choice-кнопки, не чекбоксы: Switch не применялся (по критерию «если нет — не выдумывать»); Timeline-визуал адаптирован сам (готового рецепта не было); клик по названию чипа метки не переключает выбор (×-кнопка внутри label)",
+    "Ревью T01: ui/slider.tsx:21 — TRACK_BASE/FILL захардкожены в inline-градиенте вместо токенов (совпадают с темой, но не поедут при её смене); ui/context-menu.tsx:110 — косметика отступов",
+    "Ревью T01: ui/file-upload.tsx:123 — accept не фильтрует drag-n-drop, валидация у потребителя (по контракту корректно)",
+    "T05: правило Ctrl/Cmd+K продублировано инлайном в App-keydown (статический импорт склеил бы lazy-чанк; канон — в CommandPalette.tsx, покрыт тестом); размер чанка сборкой не проверялся (правило AGENTS.md: сборка только под packaging/vite)"
+  ],
+  "blind": {
+    "checked": 1,
+    "matched": 1,
+    "mismatches": []
+  },
   "beats": [
     "2026-11-14T09:28:48+03:00",
     "2026-11-14T09:29:11+03:00",
@@ -259,9 +393,46 @@ window.STATE =
     "2026-11-14T09:55:01+03:00",
     "2026-11-14T09:55:09+03:00",
     "2026-11-14T09:57:38+03:00",
-    "2026-11-14T09:57:40+03:00"
+    "2026-11-14T09:57:40+03:00",
+    "2026-11-14T09:57:51+03:00",
+    "2026-11-14T09:58:02+03:00",
+    "2026-11-14T09:58:30+03:00",
+    "2026-11-14T10:21:26+03:00",
+    "2026-11-14T10:21:28+03:00",
+    "2026-11-14T10:22:19+03:00",
+    "2026-11-14T10:35:36+03:00",
+    "2026-11-14T10:36:24+03:00",
+    "2026-11-14T10:37:24+03:00",
+    "2026-11-14T10:37:26+03:00",
+    "2026-11-14T10:37:28+03:00",
+    "2026-11-14T10:37:54+03:00",
+    "2026-11-14T10:45:29+03:00",
+    "2026-11-14T10:51:11+03:00",
+    "2026-11-14T10:51:13+03:00",
+    "2026-11-14T10:54:24+03:00",
+    "2026-11-14T11:01:44+03:00",
+    "2026-11-14T11:01:46+03:00",
+    "2026-11-14T11:01:48+03:00",
+    "2026-11-14T11:07:11+03:00",
+    "2026-11-14T11:07:18+03:00",
+    "2026-11-14T11:15:03+03:00",
+    "2026-11-14T11:15:04+03:00",
+    "2026-11-14T11:15:06+03:00",
+    "2026-11-14T11:15:17+03:00",
+    "2026-11-14T11:19:27+03:00",
+    "2026-11-14T11:19:30+03:00",
+    "2026-11-14T11:22:09+03:00",
+    "2026-11-14T11:36:06+03:00",
+    "2026-11-14T11:36:11+03:00",
+    "2026-11-14T11:36:13+03:00",
+    "2026-11-14T11:36:15+03:00",
+    "2026-11-14T11:44:53+03:00",
+    "2026-11-14T11:44:55+03:00",
+    "2026-11-14T11:48:04+03:00",
+    "2026-11-14T11:48:28+03:00",
+    "2026-11-14T11:51:21+03:00"
   ],
-  "rev": 14,
+  "rev": 51,
   "waiting": null,
   "waits": [
     {
@@ -354,6 +525,302 @@ window.STATE =
       "g": "G3",
       "ok": true,
       "problems": 0
+    },
+    {
+      "t": "2026-11-14T09:58:02+03:00",
+      "k": "stage",
+      "id": "build",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T09:58:30+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T10:21:26+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T10:21:28+03:00",
+      "k": "ticket",
+      "ids": [
+        "01"
+      ],
+      "act": "review"
+    },
+    {
+      "t": "2026-11-14T10:22:19+03:00",
+      "k": "ticket",
+      "ids": [
+        "02",
+        "03",
+        "04"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T10:35:36+03:00",
+      "k": "ticket",
+      "ids": [
+        "02"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T10:36:24+03:00",
+      "k": "ticket",
+      "ids": [
+        "03"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T10:37:24+03:00",
+      "k": "tickets",
+      "n": 6
+    },
+    {
+      "t": "2026-11-14T10:37:26+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-14T10:37:28+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 3
+    },
+    {
+      "t": "2026-11-14T10:37:54+03:00",
+      "k": "ticket",
+      "ids": [
+        "04",
+        "05",
+        "06"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T10:45:29+03:00",
+      "k": "ticket",
+      "ids": [
+        "06"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T10:51:11+03:00",
+      "k": "ticket",
+      "ids": [
+        "04"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 415,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T10:51:13+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 1
+    },
+    {
+      "t": "2026-11-14T10:54:24+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 2
+    },
+    {
+      "t": "2026-11-14T11:01:44+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 424,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T11:01:46+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "repair",
+      "note": "критерий AI-генерация держится на DOM-click по aria-label — нужен шов через EstimateContext (экшен), DOM-click удалить"
+    },
+    {
+      "t": "2026-11-14T11:01:48+03:00",
+      "k": "add",
+      "key": "concerns",
+      "n": 1
+    },
+    {
+      "t": "2026-11-14T11:07:11+03:00",
+      "k": "ticket",
+      "ids": [
+        "05"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 424,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T11:07:18+03:00",
+      "k": "stage",
+      "id": "review",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T11:15:03+03:00",
+      "k": "add",
+      "key": "report",
+      "n": 3
+    },
+    {
+      "t": "2026-11-14T11:15:04+03:00",
+      "k": "tickets",
+      "n": 7
+    },
+    {
+      "t": "2026-11-14T11:15:06+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-14T11:15:17+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T11:19:27+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 424,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T11:19:30+03:00",
+      "k": "ticket",
+      "ids": [
+        "F1"
+      ],
+      "act": "review"
+    },
+    {
+      "t": "2026-11-14T11:22:09+03:00",
+      "k": "stage",
+      "id": "final",
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T11:36:06+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": false,
+      "checked": 17,
+      "matched": 16
+    },
+    {
+      "t": "2026-11-14T11:36:11+03:00",
+      "k": "tickets",
+      "n": 8
+    },
+    {
+      "t": "2026-11-14T11:36:13+03:00",
+      "k": "gate",
+      "g": "G3",
+      "ok": true,
+      "problems": 0
+    },
+    {
+      "t": "2026-11-14T11:36:15+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "start"
+    },
+    {
+      "t": "2026-11-14T11:44:53+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "done",
+      "tests": {
+        "passed": 424,
+        "failed": 0
+      }
+    },
+    {
+      "t": "2026-11-14T11:44:55+03:00",
+      "k": "ticket",
+      "ids": [
+        "F2"
+      ],
+      "act": "review"
+    },
+    {
+      "t": "2026-11-14T11:48:04+03:00",
+      "k": "tests",
+      "passed": 424,
+      "failed": 0
+    },
+    {
+      "t": "2026-11-14T11:48:28+03:00",
+      "k": "gate",
+      "g": "G4",
+      "ok": true,
+      "checked": 1,
+      "matched": 1
+    },
+    {
+      "t": "2026-11-14T11:51:21+03:00",
+      "k": "finish",
+      "result": "UI собран на компонентах devignerui: иконки 3.6.0 (13 файлов мигрированы), общие Tabs/Badge/DeleteButton/календарь с пресетами, палитра Ctrl+K, ПКМ-меню, CopyButton, островки SyncToast/UpdateBanner, KPI-кривая, Switch, dropzone-импорт, лендинг Magnetic/Flip/Lens; 424/424 теста, lint 0/0; слепая приёмка 17/17"
     }
   ],
   "reqList": [
@@ -375,7 +842,7 @@ window.STATE =
     {
       "id": "R04",
       "text": "«примени это все что нашел»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R05",
@@ -385,12 +852,12 @@ window.STATE =
     {
       "id": "R06",
       "text": "«примени это все что нашел»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R07",
       "text": "«примени это все что нашел»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R08",
@@ -410,7 +877,7 @@ window.STATE =
     {
       "id": "R11",
       "text": "«примени это все что нашел»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R12",
@@ -425,7 +892,7 @@ window.STATE =
     {
       "id": "R14",
       "text": "«примени это все что нашел»",
-      "status": "in-ticket"
+      "status": "done"
     },
     {
       "id": "R15",
@@ -449,9 +916,21 @@ window.STATE =
     },
     "G3": {
       "ok": true,
-      "at": "2026-11-14T09:57:40+03:00",
+      "at": "2026-11-14T11:36:13+03:00",
       "problems": 0
+    },
+    "G4": {
+      "ok": true,
+      "at": "2026-11-14T11:48:28+03:00",
+      "checked": 1,
+      "matched": 1
     }
   },
-  "result": null
+  "result": "UI собран на компонентах devignerui: иконки 3.6.0 (13 файлов мигрированы), общие Tabs/Badge/DeleteButton/календарь с пресетами, палитра Ctrl+K, ПКМ-меню, CopyButton, островки SyncToast/UpdateBanner, KPI-кривая, Switch, dropzone-импорт, лендинг Magnetic/Flip/Lens; 424/424 теста, lint 0/0; слепая приёмка 17/17",
+  "report": [
+    "Клик по названию метки в панели меток теперь не переключает выбор — только чекбокс (побочный эффект removable-чипов; вернуть клик по названию можно по просьбе)",
+    "Слайдер площади использует hex-цвета темы напрямую в градиенте (совпадают с текущей темой; при её смене поправить ui/slider.tsx:21)",
+    "Размер основного чанка сборкой не замерялся (сборка не гонялась по правилам проекта); палитра честно вынесена в lazy-чанк, разделение структурное"
+  ],
+  "blindRounds": 2
 }

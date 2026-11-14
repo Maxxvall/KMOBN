@@ -86,6 +86,50 @@ React.lazy), Timeline-степпер — локальный визуал в Smar
 | `npm run check` | Приёмка таска: typecheck + lint 0/0 + vitest (408+ тестов) |
 | `npx vitest run services/estimateClipboard.test.ts` | Один тест-файл (подставить нужный путь) |
 
+## Выставлено таском 01 (факт, += к границам)
+
+- Анимационная зависимость: **`motion`** (импорты `motion/react`) — в dependencies; `@devigner-ui/icons@3.6.0`.
+- `Tabs<T extends string>({ tabs: { id; label; count? }[]; active; onChange; disabled?; ariaLabel; className? })` — объявлен функцией, не React.FC (generic-компонент нельзя типизировать FC — отмечено в коде).
+- `Badge({ tone?; size?; icon?; count?; onRemove?; removeLabel? } + HTMLAttributes<span>)` — `removeLabel` добавлен ради a11y кнопки удаления (дефолт «Убрать»).
+- `DeleteButton({ onConfirm; label?; confirmLabel?; className? })` — фазы idle→confirm→pending→done.
+- `DateRangePicker({ from?; to?; onFromChange; onToChange; fromLabel?; toLabel?; className? })` — ISO, `''` = не задано.
+- `CopyButton({ getValue: () => string | Promise<string>; label?; className? })`.
+- `Switch({ checked; onChange; label?; ariaLabel; className? })` — `role="switch"`.
+- `Slider({ min; max; step?; value; onChange; ariaLabel; formatValue?; className? })`.
+- `useContextMenu(): { position; openFromEvent(e); open(x, y); close }` + `ContextMenu({ handle; items: { id; label; icon?; tone?: 'danger'; disabled? }[]; onSelect })` — handle-расширение к границам из спецификации: позиционирование у курсора и навешивание на `<tr>` без обёртки.
+- `Island({ open; children; className? })`; `FileDropzone({ accept; multiple?; onFiles; describeResult?; className? })`.
+- `estimateClipboard`: `formatEstimateItemsClipboard(items, { resolveSectionLabel? })`, `formatCatalogItemClipboard({ name; price; unit? })`.
+- `useEstimateCrud.handleDeleteTemplate` пробрасывает сбой БД дальше (галочка только при реальном удалении; alert сохранён).
+
+## Выставлено таском 02 (факт, += к границам)
+
+- В `@devigner-ui/icons@3.6.0` нет иконок VK и Telegram (проверено по index.d.ts) — бренды остаются inline с комментарием-причиной; YouTube → `IconYoutube`, Google → `IconGoogle`.
+- Пропсы `SyncToast` и `UpdateBanner` не изменились (App.tsx не тронут); UpdateBanner — плавающий островок fixed top-right.
+- Локальные компоненты внутри `LandingPage.tsx` (не экспортируются): `MagneticButton{onClick; className; children}`, `FlipButton{onClick; className; label}`, `SocialLens` — по 2 копии header/footer.
+- Таб-глифы ProfileModal → `IconUserCircle/IconChartSquare/IconSettingSlidersHorizontal`.
+
+## Выставлено таском 03 (факт, += к границам)
+
+- `PeriodPreset` += `'custom'`; payload хранилища `kmobn:analytics:filters:v1` += `customPeriodFrom`/`customPeriodTo` (ISO, `''` = не задано; старые записи → дефолт quarter; сам ключ не менялся).
+- Локальный `KpiCard` (Analytics) += опциональный проп `series?: number[]`.
+- Иконки Analytics: `IconDocumentText/IconRuble/IconGraphUp/IconRuler/IconStar` + `IconDocument` (EmptyState); Sparkline остался inline.
+- ПКМ строк истории — desktop-only по контракту `useContextMenu`; alert-отчёты убраны только у импорта (экспортные alert сохранены по критерию).
+
+## Выставлено таском 05 (факт, += к границам)
+
+- `components/CommandPalette.tsx` (React.lazy, default export): `CommandPalette({ open, onClose, commands })`; экспортирует `PaletteCommand { id; label; icon?; hint?; keywords?; perform; children? }`, `filterCommands(commands, query)`, `isCommandPaletteShortcut(event)`.
+- `Header`: опциональный проп `onOpenCommandPalette?: () => void`; NavIconName → иконки пакета (wrench→IconSledgehammer, chart→IconChartSquare, log-out→IconLogout, book-open→IconBook и др.).
+- `UiState` += `showCommandPalette: boolean` (initialUiState + обёртка setShowCommandPalette).
+- Правило Ctrl/Cmd+K продублировано инлайном в App-keydown (статический импорт isCommandPaletteShortcut склеил бы lazy-чанк; каноническое правило — в CommandPalette.tsx, покрыто тестом).
+- Тест: `components/commandPalette.test.ts` (9 тестов; REDPROOF — 7/9 красных на заглушке).
+
+## Ремонт T05 (шов AI-генерации, факт)
+
+- `EstimateActions` += `onRequestAiGeneration?: () => void`; `EstimateContextValue` += `aiGenerationRequest: number`.
+- App: `UiState` += `aiGenerationRequest: number` (initialUiState 0); `requestAiGeneration()` — инкремент счётчика; провайдер отдаёт `aiGenerationRequest` + `actions.onRequestAiGeneration`.
+- Команда палитры «AI-генерация» → `perform: requestAiGeneration`; DOM-click удалён.
+- EstimateEditor — источник истины модалки: эффект срабатывает на прирост счётчика (не на маунте, не во время isLoading); `handleAiGenerateClick` со всеми прежними валидациями, обёрнут в useCallback.
+
 - Electron E2E не нужен: десктоп-интеграция не меняется (IPC-контракты сохраняются).
 - Приёмка каждого таска: `npm run check` (typecheck + lint 0/0 + vitest 408+).
 - Тесты прогонять при изменении расчётного/сервисного поведения; E2E Electron — только для изменённых десктоп-флоу (здесь: нет).
