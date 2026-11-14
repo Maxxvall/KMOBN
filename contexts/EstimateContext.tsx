@@ -18,10 +18,15 @@ type EstimateActions = {
   onDeleteTemplate?: (templateId: string) => void;
   onBack?: () => void;
   onManageSections?: () => void;
+  // Запрос AI-генерации из Command Palette: палитра вызывает экшен,
+  // редактор остаётся источником истины своей AI-модалки и валидаций
+  // (счётчик запросов читается через aiGenerationRequest).
+  onRequestAiGeneration?: () => void;
 };
 
 type EstimateContextValue = {
   view: View;
+  aiGenerationRequest: number;
   setView: React.Dispatch<React.SetStateAction<View>>;
   estimates: Estimate[];
   allEstimates: Estimate[];

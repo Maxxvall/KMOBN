@@ -87,6 +87,7 @@ type UiState = {
     showSaveOptions: boolean;
     showUnsavedModal: boolean;
     showCommandPalette: boolean;
+    aiGenerationRequest: number;
     pendingView: View | null;
 };
 
@@ -139,6 +140,7 @@ const initialUiState: UiState = {
     showSaveOptions: false,
     showUnsavedModal: false,
     showCommandPalette: false,
+    aiGenerationRequest: 0,
     pendingView: null,
 };
 
@@ -210,6 +212,7 @@ const App: React.FC = () => {
         showSaveOptions,
         showUnsavedModal,
         showCommandPalette,
+        aiGenerationRequest,
         pendingView,
     } = uiState;
     const {
@@ -240,6 +243,9 @@ const App: React.FC = () => {
     const setShowSaveOptions = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showSaveOptions: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showSaveOptions) : v })), []);
     const setShowUnsavedModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showUnsavedModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showUnsavedModal) : v })), []);
     const setShowCommandPalette = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showCommandPalette: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showCommandPalette) : v })), []);
+    // Экшен контекста EstimateContext.actions.onRequestAiGeneration: счётчик
+    // запросов, который редактор слушает и открывает свою AI-модалку.
+    const requestAiGeneration = useCallback(() => setUiState(p => ({ ...p, aiGenerationRequest: p.aiGenerationRequest + 1 })), []);
     const setPendingView = useCallback((v: React.SetStateAction<View | null>) => setUiState(p => ({ ...p, pendingView: typeof v === 'function' ? (v as (prev: View | null) => View | null)(p.pendingView) : v })), []);
     const setCurrentEstimate = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, currentEstimate: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.currentEstimate) : v })), []);
     const setPendingExportEstimate = useCallback((v: React.SetStateAction<Estimate | null>) => setEditorState(p => ({ ...p, pendingExportEstimate: typeof v === 'function' ? (v as (prev: Estimate | null) => Estimate | null)(p.pendingExportEstimate) : v })), []);
@@ -1478,11 +1484,6 @@ const App: React.FC = () => {
     // Команды палитры — только существующие обработчики; новых бизнес-действий нет.
     // «Экспорт PDF» и «AI-генерация» видимы, только когда есть активная смета
     // (currentEstimate живёт лишь в редакторе).
-    const triggerEditorAiGeneration = useCallback(() => {
-        const aiButton = document.querySelector<HTMLButtonElement>('button[aria-label="AI-генерация"]');
-        aiButton?.click();
-    }, []);
-
     const paletteCommands = useMemo<PaletteCommand[]>(() => {
         const navigationChildren: PaletteCommand[] = [
             { id: 'nav-history', label: 'Сметы', icon: <IconFileText aria-hidden="true" className="size-4" />, perform: () => handleNavigationAttempt(View.HISTORY) },
@@ -1519,7 +1520,7 @@ const App: React.FC = () => {
                     label: 'AI-генерация',
                     hint: 'Активная смета',
                     icon: <IconStarsSparkles aria-hidden="true" className="size-4" />,
-                    perform: triggerEditorAiGeneration,
+                    perform: requestAiGeneration,
                 },
             ]
             : [];
@@ -1542,7 +1543,7 @@ const App: React.FC = () => {
             },
             ...estimateCommands,
         ];
-    }, [currentEstimate, estimates, handleCreateNew, handleEditPendingEstimate, handleGeneratePdf, handleNavigationAttempt, triggerEditorAiGeneration]);
+    }, [currentEstimate, estimates, handleCreateNew, handleEditPendingEstimate, handleGeneratePdf, handleNavigationAttempt, requestAiGeneration]);
 
     const markDraftEstimatesWithPriceChange = useCallback((params: { materialName?: string; workName?: string }) => {
         const { materialName, workName } = params;
@@ -1892,6 +1893,7 @@ const App: React.FC = () => {
         setTemplates,
         currentEstimate,
         setCurrentEstimate,
+        aiGenerationRequest,
         validationResult: editorValidationResult,
         actions: {
             onCreateNew: handleCreateNew,
@@ -1908,6 +1910,7 @@ const App: React.FC = () => {
             onDeleteTemplate: handleDeleteTemplate,
             onBack: handleBackToHistory,
             onManageSections: () => handleNavigationAttempt(View.SECTIONS),
+            onRequestAiGeneration: requestAiGeneration,
         },
     }), [
         view,
@@ -1916,6 +1919,7 @@ const App: React.FC = () => {
         currentEstimate,
         setView,
         setCurrentEstimate,
+        aiGenerationRequest,
         editorValidationResult,
         handleCreateNew,
         handleEdit,
@@ -1931,6 +1935,7 @@ const App: React.FC = () => {
         handleDeleteTemplate,
         handleBackToHistory,
         handleNavigationAttempt,
+        requestAiGeneration,
     ]);
 
     const catalogContextValue = useMemo(() => ({

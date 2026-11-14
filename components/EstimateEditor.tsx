@@ -180,6 +180,8 @@ const EstimateEditor: React.FC = () => {
     const onDeleteTemplateAction = estimateContext?.actions.onDeleteTemplate;
     const onBackAction = estimateContext?.actions.onBack;
     const onManageSectionsAction = estimateContext?.actions.onManageSections;
+    // Счётчик запросов AI-генерации из Command Palette (см. actions.onRequestAiGeneration).
+    const aiGenerationRequest = estimateContext?.aiGenerationRequest ?? 0;
     const validationResultValue = estimateContext?.validationResult ?? null;
     const aiAccessValue = subscriptionContext?.aiAccess;
 
@@ -1378,7 +1380,7 @@ const EstimateEditor: React.FC = () => {
     const mobileFieldStyles = "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9";
 
     // Проверки перед открытием AI-генерации (перенесены как есть из ряда шаблона).
-    const handleAiGenerateClick = () => {
+    const handleAiGenerateClick = useCallback(() => {
         if (!hasOpenRouterKey()) {
             alert('AI не настроен: укажите защищённый AI gateway или локальный ключ для разработки.');
             return;
@@ -1392,7 +1394,20 @@ const EstimateEditor: React.FC = () => {
             return;
         }
         setAiGenModalOpen(true);
-    };
+    }, [estimate.buildingType, estimate.area]);
+
+    // Запрос из Command Palette (actions.onRequestAiGeneration): редактор остаётся
+    // источником истины своей AI-модалки — открываем её тем же handleAiGenerateClick,
+    // что и кнопку тулбара. Счётчик читаем только на прирост; на маунте (включая
+    // возврат в редактор со старым счётчиком) ничего не запускаем. isLoading —
+    // как у кнопки (disabled во время генерации).
+    const lastAiGenerationRequestRef = useRef(aiGenerationRequest);
+    useEffect(() => {
+        if (aiGenerationRequest === lastAiGenerationRequestRef.current) return;
+        lastAiGenerationRequestRef.current = aiGenerationRequest;
+        if (isLoading) return;
+        handleAiGenerateClick();
+    }, [aiGenerationRequest, handleAiGenerateClick, isLoading]);
 
     const hasValidationIssues = Boolean(validationResultValue && validationResultValue.issues.length > 0);
     const getFieldClass = (itemId: string, field: 'name' | 'quantity' | 'price', base: string) => {
