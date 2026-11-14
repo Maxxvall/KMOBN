@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { downloadBlob } from '../services/download';
 import FocusLock from 'react-focus-lock';
 import type { Estimate } from '../types';
 import { createEstimateTransfer, parseEstimateTransfer } from '../services/dataTransfer';
+import { FileDropzone, type FileUploadResult } from './ui/file-upload';
 
 type EstimateTransferModalProps = {
     mode: 'share' | 'import';
@@ -40,8 +41,10 @@ const EstimateTransferModal: React.FC<EstimateTransferModalProps> = ({ mode, est
     const [error, setError] = useState<string | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const fileResultRef = useRef<Map<File, FileUploadResult>>(new Map());
 
     useEffect(() => {
+        fileResultRef.current.clear();
         setPayload('');
         setPreview(null);
         setError(null);
@@ -76,16 +79,28 @@ const EstimateTransferModal: React.FC<EstimateTransferModalProps> = ({ mode, est
         }
     };
 
-    const handleFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
+    const handleImportFiles = async (files: File[]) => {
+        const file = files[0];
         if (!file) return;
         try {
-            updatePayload(await file.text());
+            const text = await file.text();
+            let result: FileUploadResult = { status: 'ok', message: 'Смета распознана' };
+            try {
+                parseEstimateTransfer(text.trim());
+            } catch (reason) {
+                // Без throw: describeResult покажет текст разбора в карточке с «Повторить»;
+                // вставленный в textarea код при неудаче файла не затрагивается.
+                result = { status: 'error', message: reason instanceof Error ? reason.message : 'Не удалось прочитать смету.' };
+            }
+            fileResultRef.current.set(file, result);
+            if (result.status === 'ok') updatePayload(text);
         } catch {
-            setError('Не удалось прочитать выбранный файл.');
-        } finally {
-            event.target.value = '';
+            fileResultRef.current.set(file, { status: 'error', message: 'Не удалось прочитать выбранный файл.' });
         }
+    };
+
+    const describeFileResult = (file: File): FileUploadResult => {
+        return fileResultRef.current.get(file) ?? { status: 'error', message: 'Не удалось прочитать выбранный файл.' };
     };
 
     const handleImport = async () => {
@@ -154,10 +169,11 @@ const EstimateTransferModal: React.FC<EstimateTransferModalProps> = ({ mode, est
                                     className="mt-2 min-h-36 w-full rounded-lg border border-border bg-background p-3 font-mono text-xs text-text-primary placeholder:text-text-secondary focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/40"
                                 />
                             </label>
-                            <label className="flex min-h-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-background px-4 py-2 text-sm font-semibold text-text-primary transition hover:bg-white/5">
-                                Выбрать файл сметы
-                                <input type="file" accept=".json,application/json" onChange={handleFile} className="sr-only" />
-                            </label>
+                            <FileDropzone
+                                accept=".json,application/json"
+                                onFiles={handleImportFiles}
+                                describeResult={describeFileResult}
+                            />
                             {preview && (
                                 <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/10 p-4 text-sm">
                                     <p className="font-semibold text-emerald-200">Готово к добавлению</p>
