@@ -2,12 +2,13 @@ import { EstimateLabelsPicker } from './EstimateLabelsPicker';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 import { getActiveEstimateLabels, getActiveEstimateLabelFilterIds, getEffectiveEstimateLabelIds, matchesEstimateLabels } from '../services/estimateLabels';
 import React, { useState, useMemo, useEffect, useId, useRef } from 'react';
+import FocusLock from 'react-focus-lock';
 import { downloadBlob } from '../services/download';
 import { IconArchive, IconDocument, IconDocumentDownload, IconShare, IconTrash } from '@devigner-ui/icons';
 import { createPortal } from 'react-dom';
 import { Estimate, EstimateStatus, ProjectTemplate, View } from '../types';
 import { findEstimateVersionDuplicates, getLatestEstimateVersions, type EstimateDuplicateDeleteRequest, type EstimateDuplicateGroup } from '../services/estimateIntelligence';
-import { exportData, importData, importSharedEstimate, validateImportData } from '../services/dataTransfer';
+import { exportData, importData, importSharedEstimate, validateImportData, type ImportResult } from '../services/dataTransfer';
 
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
@@ -16,6 +17,9 @@ import EstimateDuplicateDialog from './EstimateDuplicateDialog';
 import EstimateTransferModal from './EstimateTransferModal';
 import { StatusBadge } from './estimate-editor/StatusBadge';
 import { DateRangePicker } from './ui/date-range-picker';
+import { Tabs } from './ui/tabs';
+import { ContextMenu, useContextMenu } from './ui/context-menu';
+import { FileDropzone, type FileUploadResult } from './ui/file-upload';
 
 interface EstimateHistoryProps {
     estimates?: Estimate[];
@@ -26,6 +30,27 @@ interface EstimateHistoryProps {
     onDeleteVersion?: (estimate: Estimate) => void;
     onGeneratePdf?: (estimate: Estimate) => void;
 }
+
+// Сводка импорта для карточки dropzone (текст прежнего alert-отчёта).
+const describeImportCounts = (label: string, block: { added: number; updated: number; unchanged: number; inFileDuplicates?: number }): string | null => {
+    const parts: string[] = [];
+    if (block.added > 0) parts.push(`${block.added} новых`);
+    if (block.updated > 0) parts.push(`${block.updated} изменено`);
+    if (block.unchanged > 0) parts.push(`${block.unchanged} без изменений`);
+    if (block.inFileDuplicates && block.inFileDuplicates > 0) parts.push(`${block.inFileDuplicates} дублей в файле`);
+    return parts.length > 0 ? `${label}: ${parts.join(', ')}` : null;
+};
+
+const buildImportSummary = (result: ImportResult): string => {
+    const lines = [
+        describeImportCounts('Сметы', result.estimates),
+        describeImportCounts('Шаблоны', result.templates),
+        describeImportCounts('Материалы', result.materials),
+        describeImportCounts('Работы', result.works),
+        describeImportCounts('Комплекты', result.bundles),
+    ].filter((line): line is string => line !== null);
+    return lines.length > 0 ? `Импорт завершён: ${lines.join('; ')}` : 'Данные импортированы, новых записей нет.';
+};
 
 const HistoryActionsMenu: React.FC<{
     desktop?: boolean;
@@ -291,6 +316,34 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [duplicateGroups, setDuplicateGroups] = useState<EstimateDuplicateGroup[]>([]);
     const [transferModal, setTransferModal] = useState<'share' | 'import' | null>(null);
     const [estimateToShare, setEstimateToShare] = useState<Estimate | null>(null);
+    const importResultsRef = useRef<Map<File, FileUploadResult>>(new Map());
+    const [showImportModal, setShowImportModal] = useState(false);
+
+    // ПКМ на строке таблицы (desktop-only; мобильные карточки продолжают кнопки).
+    const rowMenu = useContextMenu();
+    const [rowMenuTarget, setRowMenuTarget] = useState<{ estimate: Estimate; selectedEstimate: Estimate } | null>(null);
+    const rowMenuItems = useMemo(() => [
+        { id: 'open', label: 'Открыть', icon: <IconDocument aria-hidden="true" className="size-4" /> },
+        { id: 'share', label: 'Поделиться', icon: <IconShare aria-hidden="true" className="size-4" /> },
+        { id: 'pdf', label: 'PDF для клиента', icon: <IconDocumentDownload aria-hidden="true" className="size-4" /> },
+        { id: 'archive', label: archiveView === 'archive' ? 'Вернуть из архива' : 'В архив', icon: <IconArchive aria-hidden="true" className="size-4" /> },
+        { id: 'delete', label: 'Удалить', tone: 'danger' as const, icon: <IconTrash aria-hidden="true" className="size-4" /> },
+    ], [archiveView]);
+
+    const handleRowMenuSelect = (id: string) => {
+        if (!rowMenuTarget) return;
+        const { estimate, selectedEstimate } = rowMenuTarget;
+        if (id === 'open') editAction?.(selectedEstimate);
+        else if (id === 'share') handleShareEstimate(selectedEstimate);
+        else if (id === 'pdf') generatePdfAction?.(selectedEstimate);
+        else if (id === 'archive') setArchivedAction?.(selectedEstimate, archiveView !== 'archive');
+        else if (id === 'delete') deleteAction?.(estimate);
+    };
+
+    const openImportModal = () => {
+        importResultsRef.current.clear();
+        setShowImportModal(true);
+    };
     const labelFilterActive = archiveView === 'current' && (selectedLabelIds.length > 0 || withoutLabels);
     const hasActiveFilters = labelFilterActive || filterClient !== '' || filterStatus !== 'all' || filterBuildingType !== '' || filterAreaMin !== '' || filterAreaMax !== '' || filterDateFrom !== '' || filterDateTo !== '';
     const activeFilterCount = [filterClient, filterBuildingType, filterAreaMin, filterAreaMax, filterDateFrom, filterDateTo].filter(Boolean).length + (filterStatus === 'all' ? 0 : 1) + (labelFilterActive ? 1 : 0);
@@ -348,77 +401,28 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
         }
     };
 
-    const handleImportData = () => {
-        const input = document.createElement('input');
-        input.type = 'file';
-        input.accept = '.json';
-        input.onchange = async (e) => {
-            const file = (e.target as HTMLInputElement).files?.[0];
-            if (!file) return;
+    const handleImportFiles = async (files: File[]) => {
+        for (const file of files) {
             try {
                 const text = await file.text();
                 const validation = validateImportData(text);
                 if (validation.ok === false) {
-                    alert(validation.error);
-                    return;
+                    // Без throw: describeResult покажет текст валидации в карточке с «Повторить».
+                    importResultsRef.current.set(file, { status: 'error', message: validation.error });
+                    continue;
                 }
                 const result = await importData(text);
-
-                const lines: string[] = [];
-
-                if (result.estimates.added > 0 || result.estimates.updated > 0 || result.estimates.unchanged > 0) {
-                    const parts: string[] = [];
-                    if (result.estimates.added > 0) parts.push(`${result.estimates.added} новых`);
-                    if (result.estimates.updated > 0) parts.push(`${result.estimates.updated} изменено`);
-                    if (result.estimates.unchanged > 0) parts.push(`${result.estimates.unchanged} без изменений`);
-                    if (result.estimates.inFileDuplicates > 0) parts.push(`${result.estimates.inFileDuplicates} дублей в файле`);
-                    lines.push(`Сметы: ${parts.join(', ')}`);
-                }
-
-                if (result.templates.added > 0 || result.templates.updated > 0 || result.templates.unchanged > 0) {
-                    const parts: string[] = [];
-                    if (result.templates.added > 0) parts.push(`${result.templates.added} новых`);
-                    if (result.templates.updated > 0) parts.push(`${result.templates.updated} изменено`);
-                    if (result.templates.unchanged > 0) parts.push(`${result.templates.unchanged} без изменений`);
-                    lines.push(`Шаблоны: ${parts.join(', ')}`);
-                }
-
-                if (result.materials.added > 0 || result.materials.updated > 0 || result.materials.unchanged > 0) {
-                    const parts: string[] = [];
-                    if (result.materials.added > 0) parts.push(`${result.materials.added} новых`);
-                    if (result.materials.updated > 0) parts.push(`${result.materials.updated} изменено`);
-                    if (result.materials.unchanged > 0) parts.push(`${result.materials.unchanged} без изменений`);
-                    if (result.materials.inFileDuplicates > 0) parts.push(`${result.materials.inFileDuplicates} дублей в файле`);
-                    lines.push(`Материалы: ${parts.join(', ')}`);
-                }
-
-                if (result.works.added > 0 || result.works.updated > 0 || result.works.unchanged > 0) {
-                    const parts: string[] = [];
-                    if (result.works.added > 0) parts.push(`${result.works.added} новых`);
-                    if (result.works.updated > 0) parts.push(`${result.works.updated} изменено`);
-                    if (result.works.unchanged > 0) parts.push(`${result.works.unchanged} без изменений`);
-                    if (result.works.inFileDuplicates > 0) parts.push(`${result.works.inFileDuplicates} дублей в файле`);
-                    lines.push(`Работы: ${parts.join(', ')}`);
-                }
-
-                if (result.bundles.added > 0 || result.bundles.updated > 0 || result.bundles.unchanged > 0) {
-                    const parts: string[] = [];
-                    if (result.bundles.added > 0) parts.push(`${result.bundles.added} новых`);
-                    if (result.bundles.updated > 0) parts.push(`${result.bundles.updated} изменено`);
-                    if (result.bundles.unchanged > 0) parts.push(`${result.bundles.unchanged} без изменений`);
-                    lines.push(`Комплекты: ${parts.join(', ')}`);
-                }
-
-                alert(lines.length > 0
-                    ? `Импорт завершён:\n\n${lines.join('\n')}`
-                    : 'Данные импортированы, новых записей нет.');
                 window.dispatchEvent(new CustomEvent('kmobn:data-imported'));
+                importResultsRef.current.set(file, { status: 'ok', message: buildImportSummary(result) });
             } catch (error) {
                 console.error('Import failed:', error);
-                alert(error instanceof Error ? error.message : 'Ошибка при импорте данных. Проверьте файл.');
+                importResultsRef.current.set(file, { status: 'error', message: 'Ошибка при импорте данных. Проверьте файл.' });
             }
-        };
-        input.click();
+        }
+    };
+
+    const describeImportResult = (file: File): FileUploadResult => {
+        return importResultsRef.current.get(file) ?? { status: 'error', message: 'Ошибка при импорте данных. Проверьте файл.' };
     };
 
     const filteredEstimates = useMemo(() => {
@@ -539,10 +543,15 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             </div>
 
             <div className="mb-4 flex flex-wrap items-end gap-3">
-            <div className="inline-flex min-h-11 rounded-lg border border-border bg-background/40 p-1" role="tablist" aria-label="Состояние смет">
-                <button type="button" role="tab" aria-selected={archiveView === 'current'} onClick={() => setArchiveView('current')} className={`min-h-9 rounded-md px-4 text-sm font-medium transition ${archiveView === 'current' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'}`}>Текущие {archiveCounts.current}</button>
-                <button type="button" role="tab" aria-selected={archiveView === 'archive'} onClick={() => setArchiveView('archive')} className={`min-h-9 rounded-md px-4 text-sm font-medium transition ${archiveView === 'archive' ? 'bg-primary text-white' : 'text-text-secondary hover:text-text-primary'}`}>Архив {archiveCounts.archive}</button>
-            </div>
+            <Tabs<'current' | 'archive'>
+                tabs={[
+                    { id: 'current', label: 'Текущие', count: archiveCounts.current },
+                    { id: 'archive', label: 'Архив', count: archiveCounts.archive },
+                ]}
+                active={archiveView}
+                onChange={setArchiveView}
+                ariaLabel="Состояние смет"
+            />
             {archiveView === 'current' && <div className="w-full max-w-xs"><EstimateLabelsPicker selectedIds={selectedLabelIds} onChange={setSelectedLabelIds} withoutLabels={withoutLabels} onWithoutLabelsChange={setWithoutLabels} /></div>}
             </div>
 
@@ -558,7 +567,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">{activeFilterCount}</span>
                     )}
                 </button>
-                <HistoryActionsMenu onExport={handleExportData} onImport={handleImportData} onImportSharedEstimate={() => setTransferModal('import')} onCheckDuplicates={handleCheckDuplicates} />
+                <HistoryActionsMenu onExport={handleExportData} onImport={openImportModal} onImportSharedEstimate={() => setTransferModal('import')} onCheckDuplicates={handleCheckDuplicates} />
             </div>
 
             <div className="mb-4 hidden items-center gap-2 xl:flex">
@@ -594,7 +603,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     <button type="button" onClick={resetFilters} className="h-9 rounded-lg px-2.5 text-sm text-text-secondary transition hover:bg-white/5 hover:text-text-primary">Сбросить</button>
                 )}
                 <div className="ml-auto">
-                    <HistoryActionsMenu desktop onExport={handleExportData} onImport={handleImportData} onImportSharedEstimate={() => setTransferModal('import')} onCheckDuplicates={handleCheckDuplicates} />
+                    <HistoryActionsMenu desktop onExport={handleExportData} onImport={openImportModal} onImportSharedEstimate={() => setTransferModal('import')} onCheckDuplicates={handleCheckDuplicates} />
                 </div>
             </div>
 
@@ -660,7 +669,14 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                             const versionHistory = getVersionHistory(estimate);
                             
                             return (
-                                <tr key={estimate.id} className="border-b border-border/70 transition-colors hover:bg-white/[0.03]">
+                                <tr
+                                    key={estimate.id}
+                                    onContextMenu={(event) => {
+                                        setRowMenuTarget({ estimate, selectedEstimate });
+                                        rowMenu.openFromEvent(event);
+                                    }}
+                                    className="border-b border-border/70 transition-colors hover:bg-white/[0.03]"
+                                >
                                     <td className="px-3 py-2.5 text-left">
                                         <div className="max-w-[240px] truncate text-sm font-medium xl:max-w-none">{selectedEstimate.client || 'Без клиента'}</div>
                                         {renderLabels(selectedEstimate)}
@@ -785,6 +801,39 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 duplicateGroups={duplicateGroups}
                 onDelete={handleDeleteDuplicates}
             />
+            <ContextMenu handle={rowMenu} items={rowMenuItems} onSelect={handleRowMenuSelect} />
+            {showImportModal && (
+                <div
+                    className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-4 sm:items-center"
+                    onClick={() => setShowImportModal(false)}
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="import-data-title"
+                >
+                    <FocusLock returnFocus>
+                        <div
+                            className="w-full max-w-lg rounded-2xl border border-border bg-surface p-5 shadow-2xl sm:p-6"
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            <div className="mb-5">
+                                <div className="mb-2 h-1 w-14 rounded-full bg-primary" />
+                                <h2 id="import-data-title" className="text-xl font-bold text-text-primary sm:text-2xl">Импорт данных</h2>
+                                <p className="mt-2 text-sm leading-relaxed text-text-secondary">
+                                    Перетащите JSON-файл резервной копии или выберите его вручную. Данные будут добавлены к существующим сметам, шаблонам и каталогу.
+                                </p>
+                            </div>
+                            <FileDropzone accept=".json" onFiles={handleImportFiles} describeResult={describeImportResult} />
+                            <button
+                                type="button"
+                                onClick={() => setShowImportModal(false)}
+                                className="mt-5 min-h-11 w-full rounded-lg border border-border bg-background px-4 py-2 font-semibold text-text-primary transition hover:bg-white/5"
+                            >
+                                Закрыть
+                            </button>
+                        </div>
+                    </FocusLock>
+                </div>
+            )}
             {transferModal === 'share' && estimateToShare && (
                 <EstimateTransferModal
                     mode="share"

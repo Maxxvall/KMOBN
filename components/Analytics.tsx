@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { animate, motion } from 'motion/react';
 import { Estimate, type SectionId } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
 import { buildActualComparisons, calculateActualSummary, orderActualComparisonsForExport } from '../services/estimateActuals';
 import { getSectionLabel } from '../services/estimateSections';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
+import { IconDocument, IconDocumentText, IconGraphUp, IconRuble, IconRuler, IconStar } from '@devigner-ui/icons';
+import { DateRangePicker } from './ui/date-range-picker';
 
 import {
     Bar,
@@ -61,7 +64,7 @@ interface AnalyticsProps {
     isLoading?: boolean;
 }
 
-type PeriodPreset = 'month' | 'quarter' | 'year' | 'all';
+type PeriodPreset = 'month' | 'quarter' | 'year' | 'all' | 'custom';
 type AnalyticsMode = 'overview' | 'compare' | 'details' | 'actual';
 type DetailFilterPreset = 'all' | 'growth' | 'decrease' | 'added' | 'removed' | 'price' | 'quantity' | 'significant' | 'same';
 
@@ -153,6 +156,85 @@ const Icon: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <span className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-white/10 border border-white/10">{children}</span>
 );
 
+// «Прокатывающиеся» цифры: числовой токен в строке значения твинится от предыдущего
+// к новому (animate из motion), нечисловые значения («—») показываются как есть.
+const ROLLING_NUMERIC_TOKEN = /-?\d[\d\s\u00A0]*/;
+
+const RollingValue: React.FC<{ value: string }> = ({ value }) => {
+    const [display, setDisplay] = React.useState(value);
+    const fromRef = React.useRef<number | null>(null);
+    const controlsRef = React.useRef<{ stop: () => void } | null>(null);
+
+    React.useEffect(() => {
+        const match = ROLLING_NUMERIC_TOKEN.exec(value);
+        if (!match) {
+            fromRef.current = null;
+            setDisplay(value);
+            return undefined;
+        }
+        const to = Number(match[0].replace(/[\s\u00A0]/g, ''));
+        if (!Number.isFinite(to)) {
+            fromRef.current = null;
+            setDisplay(value);
+            return undefined;
+        }
+        const from = fromRef.current ?? 0;
+        fromRef.current = to;
+        controlsRef.current?.stop();
+        const controls = animate(from, to, {
+            duration: 0.6,
+            ease: 'easeOut',
+            onUpdate: (latest) => {
+                const token = Math.round(latest).toLocaleString('ru-RU');
+                setDisplay(value.replace(match[0], token));
+            },
+        });
+        controlsRef.current = controls;
+        return () => controls.stop();
+    }, [value]);
+
+    return <>{display}</>;
+};
+
+// Самонарисовавшаяся кривая карточки: polyline по сериям метрики, pathLength-анимация
+// перезапускается при смене данных (key по содержимому серии).
+const KpiCurve: React.FC<{ values: number[] }> = ({ values }) => {
+    const w = 160;
+    const h = 44;
+    const safe = values.filter(v => Number.isFinite(v));
+    if (safe.length < 2) return null;
+    const min = Math.min(...safe);
+    const max = Math.max(...safe);
+    const range = max - min || 1;
+    const stepX = (w - 2) / (safe.length - 1);
+    const d = safe
+        .map((v, i) => `${i === 0 ? 'M' : 'L'}${(1 + i * stepX).toFixed(1)},${(h - 2 - ((v - min) / range) * (h - 4)).toFixed(1)}`)
+        .join(' ');
+
+    return (
+        <svg
+            viewBox={`0 0 ${w} ${h}`}
+            preserveAspectRatio="none"
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-1 left-3 right-3 h-10 text-white/35"
+        >
+            <motion.path
+                key={safe.join('|')}
+                d={d}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 1 }}
+                transition={{ duration: 0.9, ease: 'easeOut' }}
+            />
+        </svg>
+    );
+};
+
 const KpiCard: React.FC<{
     title: string;
     value: string;
@@ -160,7 +242,8 @@ const KpiCard: React.FC<{
     accentClassName: string;
     icon: React.ReactNode;
     badge?: { label: string; tone: 'up' | 'down' | 'flat' };
-}> = ({ title, value, subtitle, accentClassName, icon, badge }) => {
+    series?: number[];
+}> = ({ title, value, subtitle, accentClassName, icon, badge, series }) => {
     const badgeClass =
         badge?.tone === 'up'
             ? 'bg-green-500/15 text-green-200 border-green-500/20'
@@ -179,11 +262,12 @@ const KpiCard: React.FC<{
                 'absolute inset-0 opacity-60 pointer-events-none ' +
                 accentClassName
             } />
+            {series && series.length > 1 && <KpiCurve values={series} />}
             <div className="relative flex items-start gap-3">
                 <Icon>{icon}</Icon>
                 <div className="flex-1 min-w-0">
                     <div className="text-sm text-text-secondary">{title}</div>
-                    <div className="text-2xl font-bold text-text-primary mt-0.5 truncate">{value}</div>
+                    <div className="text-2xl font-bold text-text-primary mt-0.5 truncate"><RollingValue value={value} /></div>
                     {subtitle && <div className="text-xs text-text-secondary mt-1">{subtitle}</div>}
                 </div>
                 {badge && (
@@ -201,11 +285,7 @@ const SkeletonBlock: React.FC<{ className?: string }> = ({ className }) => (
 const EmptyState: React.FC<{ title: string; description: string }> = ({ title, description }) => (
     <div className="bg-surface border border-border rounded-xl p-10 text-center">
         <div className="mx-auto w-16 h-16 rounded-2xl bg-background border border-border flex items-center justify-center mb-4">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className="text-text-secondary">
-                <path d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.5" />
-                <path d="M9 8h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M9 12h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
+            <IconDocument aria-hidden="true" className="size-7 text-text-secondary" />
         </div>
         <div className="text-xl font-semibold text-text-primary">{title}</div>
         <div className="text-sm text-text-secondary mt-2 max-w-xl mx-auto">{description}</div>
@@ -343,6 +423,9 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
     const [selectedCategory, setSelectedCategory] = useState<string>('');
     const [activeMode, setActiveMode] = useState<AnalyticsMode>('compare');
     const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('quarter');
+    // «Произвольный период»: те же ISO-строки, что и в DateRangePicker ('' — не задано).
+    const [customPeriodFrom, setCustomPeriodFrom] = useState('');
+    const [customPeriodTo, setCustomPeriodTo] = useState('');
     const [detailPreset, setDetailPreset] = useState<DetailFilterPreset>('all');
     const [significantThreshold, setSignificantThreshold] = useState<number>(10);
     const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({});
@@ -362,7 +445,24 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
             if (typeof saved.selectedEstimate2 === 'string') setSelectedEstimate2(saved.selectedEstimate2);
             if (typeof saved.selectedCategory === 'string') setSelectedCategory(saved.selectedCategory);
             if (saved.activeMode === 'overview' || saved.activeMode === 'compare' || saved.activeMode === 'details' || saved.activeMode === 'actual') setActiveMode(saved.activeMode);
-            if (saved.periodPreset === 'month' || saved.periodPreset === 'quarter' || saved.periodPreset === 'year' || saved.periodPreset === 'all') setPeriodPreset(saved.periodPreset);
+            // Пресеты month/quarter/year/all — как раньше; 'custom' читается только
+            // вместе с сохранёнными датами. Старые записи без custom-полей остаются
+            // на дефолте 'quarter' (хранилище kmobn:analytics:filters:v1 совместимо вперёд).
+            if (typeof saved.customPeriodFrom === 'string') setCustomPeriodFrom(saved.customPeriodFrom);
+            if (typeof saved.customPeriodTo === 'string') setCustomPeriodTo(saved.customPeriodTo);
+            if (
+                saved.periodPreset === 'month' ||
+                saved.periodPreset === 'quarter' ||
+                saved.periodPreset === 'year' ||
+                saved.periodPreset === 'all'
+            ) {
+                setPeriodPreset(saved.periodPreset);
+            } else if (
+                saved.periodPreset === 'custom' &&
+                (saved.customPeriodFrom !== '' || saved.customPeriodTo !== '')
+            ) {
+                setPeriodPreset('custom');
+            }
             if (
                 saved.detailPreset === 'all' ||
                 saved.detailPreset === 'growth' ||
@@ -398,6 +498,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                 selectedCategory,
                 activeMode,
                 periodPreset,
+                customPeriodFrom,
+                customPeriodTo,
                 detailPreset,
                 significantThreshold,
             };
@@ -405,7 +507,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         } catch {
             // ignore
         }
-    }, [activeMode, detailPreset, periodPreset, selectedCategory, selectedEstimate1, selectedEstimate2, significantThreshold]);
+    }, [activeMode, customPeriodFrom, customPeriodTo, detailPreset, periodPreset, selectedCategory, selectedEstimate1, selectedEstimate2, significantThreshold]);
 
     // Берем только актуальные версии смет
     const activeEstimates = useMemo(() => filterToLatestEstimateVersions(estimates), [estimates]);
@@ -422,16 +524,21 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
     const periodRange = useMemo(() => {
         if (!activeEstimates.length) return { start: null as Date | null, end: null as Date | null };
         const end = new Date(now);
-        if (periodPreset === 'all') {
+        if (periodPreset === 'all' || periodPreset === 'custom') {
             const min = activeEstimates
                 .map(e => new Date(e.date))
                 .filter(d => !Number.isNaN(d.getTime()))
                 .sort((a, b) => a.getTime() - b.getTime())[0] ?? new Date(now);
-            return { start: min, end };
+            if (periodPreset === 'all') return { start: min, end };
+            // custom: границы из календаря (ISO); незаданная сторона — как у пресета «Всё».
+            const parsedFrom = customPeriodFrom ? new Date(`${customPeriodFrom}T00:00:00`) : null;
+            const parsedTo = customPeriodTo ? new Date(`${customPeriodTo}T23:59:59.999`) : null;
+            const start = parsedFrom && !Number.isNaN(parsedFrom.getTime()) ? parsedFrom : min;
+            return { start, end: parsedTo && !Number.isNaN(parsedTo.getTime()) ? parsedTo : end };
         }
         const monthsBack = periodPreset === 'month' ? 1 : periodPreset === 'quarter' ? 3 : 12;
         return { start: shiftMonths(end, -monthsBack), end };
-    }, [activeEstimates, now, periodPreset]);
+    }, [activeEstimates, customPeriodFrom, customPeriodTo, now, periodPreset]);
 
     const estimatesInPeriod = useMemo(() => {
         const start = periodRange.start;
@@ -525,8 +632,12 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         const monthsBack = periodPreset === 'month' ? 1 : periodPreset === 'quarter' ? 3 : 12;
         const end = periodRange.end ?? new Date(now);
         const start = periodRange.start ?? shiftMonths(end, -monthsBack);
-        const prevEnd = new Date(start);
-        const prevStart = shiftMonths(prevEnd, -monthsBack);
+        // custom сравнивается с окном той же длины непосредственно перед периодом.
+        const prevEnd = periodPreset === 'custom' ? new Date(start.getTime()) : new Date(start);
+        const prevStart = periodPreset === 'custom'
+            ? new Date(start.getTime() - Math.max(0, end.getTime() - start.getTime()))
+            : shiftMonths(prevEnd, -monthsBack);
+        const label = periodPreset === 'custom' ? 'за предыдущий период' : `к предыдущим ${monthsBack} мес.`;
 
         const sumInRange = (from: Date, to: Date) => {
             const a = from.getTime();
@@ -549,11 +660,11 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         const cur = sumInRange(start, end);
         const prev = sumInRange(prevStart, prevEnd);
         if (prev === 0) {
-            return { pct: cur === 0 ? 0 : 100, tone: cur === 0 ? ('flat' as const) : ('up' as const), label: `к предыдущим ${monthsBack} мес.` };
+            return { pct: cur === 0 ? 0 : 100, tone: cur === 0 ? ('flat' as const) : ('up' as const), label };
         }
         const pct = Math.round(((cur - prev) / prev) * 100);
         const tone = pct > 0 ? ('up' as const) : pct < 0 ? ('down' as const) : ('flat' as const);
-        return { pct, tone, label: `к предыдущим ${monthsBack} мес.` };
+        return { pct, tone, label };
     }, [activeEstimates, now, periodPreset, periodRange.end, periodRange.start, selectedCategory]);
 
     // Сравнение выбранных смет (с учетом фильтра категории)
@@ -708,8 +819,48 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
 
     const kpiSubtitlePeriod = useMemo(() => {
         if (periodPreset === 'all') return 'весь период';
+        if (periodPreset === 'custom') {
+            if (customPeriodFrom && customPeriodTo) return `${formatDateRu(customPeriodFrom)} – ${formatDateRu(customPeriodTo)}`;
+            if (customPeriodFrom) return `с ${formatDateRu(customPeriodFrom)}`;
+            if (customPeriodTo) return `по ${formatDateRu(customPeriodTo)}`;
+            return 'произвольный период';
+        }
         return periodPreset === 'month' ? 'последний месяц' : periodPreset === 'quarter' ? 'последний квартал' : 'последний год';
-    }, [periodPreset]);
+    }, [customPeriodFrom, customPeriodTo, periodPreset]);
+
+    // Серии для самонарисовавшихся кривых KPI-карточек (только отображение —
+    // значения и метрики карточек не меняются).
+    const estimateCountsByDay = useMemo(() => {
+        const counts = new Map<string, number>();
+        estimatesInPeriod.forEach(e => {
+            const dk = dateKey(e.date);
+            if (!dk) return;
+            counts.set(dk, (counts.get(dk) || 0) + 1);
+        });
+        return counts;
+    }, [estimatesInPeriod]);
+
+    const turnoverByDay = useMemo(() => new Map(expenseTrends.map(t => [t.day, t.total])), [expenseTrends]);
+
+    const estimatesCountSeries = useMemo(() => trendDays.map(day => estimateCountsByDay.get(day) || 0), [estimateCountsByDay, trendDays]);
+
+    const turnoverSeries = useMemo(() => {
+        let acc = 0;
+        return expenseTrends.map(t => (acc += t.total));
+    }, [expenseTrends]);
+
+    const averageEstimateSeries = useMemo(() => {
+        let accTotal = 0;
+        let accCount = 0;
+        return trendDays.map(day => {
+            accTotal += turnoverByDay.get(day) || 0;
+            accCount += estimateCountsByDay.get(day) || 0;
+            return accCount > 0 ? Math.round(accTotal / accCount) : 0;
+        });
+    }, [estimateCountsByDay, turnoverByDay, trendDays]);
+
+    const costPerSqmSeries = useMemo(() => costPerSqmData.map(d => d.costPerSqm), [costPerSqmData]);
+    const marginSeries = useMemo(() => marginData.map(d => d.margin), [marginData]);
 
     const overviewCategoryBars = useMemo(() => {
         const total = categoryCosts.reduce((s, c) => s + c.value, 0) || 1;
@@ -1030,6 +1181,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
         { key: 'quarter', label: 'Квартал' },
         { key: 'year', label: 'Год' },
         { key: 'all', label: 'Всё' },
+        { key: 'custom', label: 'Произвольный период' },
     ];
 
     const modeButtons: Array<{ key: AnalyticsMode; label: string; description: string }> = [
@@ -1106,7 +1258,7 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                 <div className="flex flex-col lg:flex-row lg:items-end gap-4 lg:gap-6 flex-wrap">
                     <div className="flex items-center gap-2 flex-wrap">
                         <div className="text-xs text-text-secondary w-full">Период</div>
-                        <div className="inline-flex rounded-lg border border-border bg-background overflow-hidden">
+                        <div className="inline-flex flex-wrap rounded-lg border border-border bg-background overflow-hidden">
                             {periodButtons.map(b => (
                                 <button
                                     key={b.key}
@@ -1117,6 +1269,16 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                                 </button>
                             ))}
                         </div>
+                        {periodPreset === 'custom' && (
+                            <DateRangePicker
+                                from={customPeriodFrom}
+                                to={customPeriodTo}
+                                onFromChange={setCustomPeriodFrom}
+                                onToChange={setCustomPeriodTo}
+                                fromLabel="Произвольный период с"
+                                toLabel="Произвольный период по"
+                            />
+                        )}
                         {selectedCategory && (
                             <button
                                 onClick={() => {
@@ -1146,6 +1308,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                             setSelectedCategory('');
                             setActiveMode('compare');
                             setPeriodPreset('quarter');
+                            setCustomPeriodFrom('');
+                            setCustomPeriodTo('');
                             setDetailPreset('all');
                             setSignificantThreshold(10);
                             setCategoryTableQuery('');
@@ -1167,11 +1331,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     value={String(totalEstimates)}
                     subtitle={kpiSubtitlePeriod}
                     accentClassName="bg-gradient-to-br from-slate-400/10 to-transparent"
-                    icon={
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
-                            <path d="M7 3h10a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.5" />
-                        </svg>
-                    }
+                    icon={<IconDocumentText aria-hidden="true" className="size-5 text-white" />}
+                    series={estimatesCountSeries}
                 />
                 <KpiCard
                     title="Оборот по сметам"
@@ -1179,37 +1340,24 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     subtitle={kpiSubtitlePeriod}
                     badge={{ label: dynamicsLabel, tone: trendTone }}
                     accentClassName="bg-gradient-to-br from-cyan-500/15 to-transparent"
-                    icon={
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
-                            <path d="M12 2v20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                            <path d="M17 6H9a2 2 0 0 0 0 4h6a2 2 0 0 1 0 4H7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                        </svg>
-                    }
+                    icon={<IconRuble aria-hidden="true" className="size-5 text-white" />}
+                    series={turnoverSeries}
                 />
                 <KpiCard
                     title="Средняя смета"
                     value={formatRub(averageEstimate)}
                     subtitle={totalEstimates ? `${totalEstimates} расчётов в выборке` : 'нет данных'}
                     accentClassName="bg-gradient-to-br from-indigo-500/12 to-transparent"
-                    icon={
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
-                            <path d="M5 19V5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                            <path d="M5 19h14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                            <path d="M8 16l3-4 3 2 4-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                    }
+                    icon={<IconGraphUp aria-hidden="true" className="size-5 text-white" />}
+                    series={averageEstimateSeries}
                 />
                 <KpiCard
                     title="Средняя стоимость за м²"
                     value={costPerSqmData.length ? formatRub(averageCostPerSqm) : '—'}
                     subtitle={costPerSqmData.length ? `${costPerSqmData.length} смет с площадью` : 'нет данных'}
                     accentClassName="bg-gradient-to-br from-red-500/12 to-transparent"
-                    icon={
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
-                            <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                            <path d="M3 9h18M9 3v18" stroke="currentColor" strokeWidth="1.5" />
-                        </svg>
-                    }
+                    icon={<IconRuler aria-hidden="true" className="size-5 text-white" />}
+                    series={costPerSqmSeries}
                 />
                 <KpiCard
                     title="Средняя маржа"
@@ -1217,11 +1365,8 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     subtitle={marginData.length ? `работы / (работы + материалы)` : 'нет данных'}
                     badge={marginData.length ? { label: marginTone === 'up' ? 'Хорошо' : marginTone === 'flat' ? 'Норма' : 'Низкая', tone: marginTone } : undefined}
                     accentClassName="bg-gradient-to-br from-emerald-500/12 to-transparent"
-                    icon={
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" className="text-white">
-                            <path d="M12 3l3 6 6 .5-4.5 4 1.5 6-6-3.5-6 3.5 1.5-6L3 9.5 9 9l3-6Z" stroke="currentColor" strokeWidth="1.5" />
-                        </svg>
-                    }
+                    icon={<IconStar aria-hidden="true" className="size-5 text-white" />}
+                    series={marginSeries}
                 />
             </div>
             )}
