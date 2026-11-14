@@ -131,6 +131,28 @@ export const premiumEstimateFileName = (estimate: Estimate, title?: string): str
     return `${title?.trim() ? '' : 'Смета_'}${number}_${client}_премиум.pdf`;
 };
 
+// Полный premium-пайплайн: загрузка шрифтов, проверка кириллицы и save — в
+// одном месте; documentExport.exportEstimatePdfColored только делегирует сюда.
+export const generatePremiumEstimatePdf = async (
+    estimate: Estimate,
+    materials: readonly Material[] = [],
+    title?: string,
+): Promise<void> => {
+    const { loadPremiumPdfResources } = await import('./pdfUtils');
+    const { fontBase64, boldFontBase64 } = await loadPremiumPdfResources();
+
+    if (!fontBase64) {
+        throw new Error('Не удалось загрузить кириллический шрифт для премиального PDF.');
+    }
+
+    const doc = createPremiumEstimatePdf(
+        estimate,
+        { fontBase64, boldFontBase64 },
+        { materials, title },
+    );
+    doc.save(premiumEstimateFileName(estimate, title));
+};
+
 const formatNumber = (value: number): string => value.toLocaleString('ru-RU', {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,

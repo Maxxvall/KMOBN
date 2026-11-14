@@ -298,14 +298,15 @@ export const useEstimateCrud = ({
   }, [setTemplates]);
 
   const handleDeleteTemplate = useCallback(async (templateId: string) => {
-    if (window.confirm('Вы уверены, что хотите удалить этот шаблон?')) {
-      try {
-        await deleteTemplateFromDb(templateId);
-        setTemplates(prev => prev.filter(t => t.id !== templateId));
-      } catch (error) {
-        console.error('Failed to delete template:', error);
-        alert('Не удалось удалить шаблон.');
-      }
+    // Отмена confirm — отклонение промиса: DeleteButton видит reject и
+    // возвращает кнопку в покой; галочка «done» только на реальном удалении.
+    if (!window.confirm('Вы уверены, что хотите удалить этот шаблон?')) throw new Error('cancelled');
+    try {
+      await deleteTemplateFromDb(templateId);
+      setTemplates(prev => prev.filter(t => t.id !== templateId));
+    } catch (error) {
+      console.error('Failed to delete template:', error);
+      alert('Не удалось удалить шаблон.');
     }
   }, [setTemplates]);
 

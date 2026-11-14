@@ -29,6 +29,7 @@ export const EstimateExplanation: React.FC<EstimateExplanationProps> = ({ value,
                     onClick={() => setOpen(true)}
                     title="Пояснение для расчёта дома"
                     aria-expanded={false}
+                    aria-controls="estimate-explanation-field"
                     className="flex min-h-[44px] min-w-0 flex-1 basis-64 items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5 text-left transition-colors hover:border-primary focus:outline-none focus:ring-2 focus:ring-primary/50 md:min-h-9"
                 >
                     <span className="shrink-0 text-[11px] font-semibold text-text-secondary">Пояснение</span>
@@ -47,11 +48,20 @@ export const EstimateExplanation: React.FC<EstimateExplanationProps> = ({ value,
     return (
         <div className="mb-2.5 min-w-0">
             <div className="mb-1 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[11px] font-medium text-text-secondary">
-                <span>Пояснение для расчёта дома</span>
+                <button
+                    type="button"
+                    onClick={() => setOpen(false)}
+                    aria-expanded={true}
+                    aria-controls="estimate-explanation-field"
+                    className="rounded text-left focus:outline-none focus:ring-2 focus:ring-primary/50"
+                >
+                    Пояснение для расчёта дома
+                </button>
                 <span className="font-normal">Внутреннее поле — не выводится в документах</span>
             </div>
             <textarea
                 ref={textareaRef}
+                id="estimate-explanation-field"
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
                 maxLength={ESTIMATE_EXPLANATION_MAX_LENGTH}

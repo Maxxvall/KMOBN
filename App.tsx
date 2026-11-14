@@ -1894,7 +1894,13 @@ const App: React.FC = () => {
             await saveEstimateSections(next);
             // Перечитываем из кэша: во время сохранения синк мог смёржить удалённый
             // документ — стейт не должен откатиться к устаревшему next.
-            const stored = (await loadEstimateSections())[0];
+            let stored = next;
+            try {
+                stored = (await loadEstimateSections())[0];
+            } catch {
+                // Кэш недоступен после успешного сохранения — оставляем next;
+                // это не сбой сохранения и не должно грозить «Не удалось сохранить».
+            }
             if (sectionsOwnerRef.current === next.id) {
                 setSectionsDocument(stored && stored.id === next.id
                     ? normalizeEstimateSectionsDocument(stored, next.id)

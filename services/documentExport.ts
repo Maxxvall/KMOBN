@@ -10,20 +10,8 @@ export const exportEstimatePdfPlain = async (estimate: Estimate, title?: string)
 };
 
 export const exportEstimatePdfColored = async (estimate: Estimate, materials: readonly Material[], title?: string): Promise<void> => {
-    const { createPremiumEstimatePdf, premiumEstimateFileName } = await import('./premiumPdf');
-    const { loadPremiumPdfResources } = await import('./pdfUtils');
-    const { fontBase64, boldFontBase64 } = await loadPremiumPdfResources();
-
-    if (!fontBase64) {
-        throw new Error('Не удалось загрузить кириллический шрифт для премиального PDF.');
-    }
-
-    const doc = createPremiumEstimatePdf(
-        estimate,
-        { fontBase64, boldFontBase64 },
-        { materials, title },
-    );
-    doc.save(premiumEstimateFileName(estimate, title));
+    const { generatePremiumEstimatePdf } = await import('./premiumPdf');
+    await generatePremiumEstimatePdf(estimate, materials, title);
 };
 
 export const exportContractPdf = async (estimate: Estimate, contractName: string): Promise<void> => {

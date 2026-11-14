@@ -89,6 +89,10 @@ const DRAWER_NAV_ITEMS = [
 
 const MORE_TABS = DRAWER_NAV_ITEMS.filter(({ view }) => view !== View.HOUSE_CALCULATOR);
 
+// Единый рецепт кнопки «Выйти» (шапка xl+ и drawer): нейтральный текст,
+// красный hover — удаление красным. Layout-специфика остаётся на месте.
+const LOGOUT_HOVER = 'text-text-secondary hover:bg-red-500/10 hover:text-red-300 focus:ring-2 focus:ring-primary';
+
 const Header: React.FC<HeaderProps> = ({
     currentView,
     onViewChange,
@@ -233,8 +237,7 @@ const Header: React.FC<HeaderProps> = ({
                             <button
                                 type="button"
                                 onClick={handleLogout}
-                                className="hidden xl:flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold text-text-primary transition hover:bg-white/5 focus:outline-none focus:ring-2 focus:ring-primary"
-                                aria-label="Выйти"
+                                className={`hidden xl:flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-semibold transition focus:outline-none ${LOGOUT_HOVER}`}
                             >
                                 <Icon name="log-out" size={16} />
                                 Выйти
@@ -380,7 +383,7 @@ const Header: React.FC<HeaderProps> = ({
                             <button
                                 type="button"
                                 onClick={handleLogout}
-                                className="flex min-h-12 w-full items-center gap-3 rounded-xl px-4 text-left font-semibold text-text-secondary transition hover:bg-red-500/10 hover:text-red-300 focus:outline-none focus:ring-2 focus:ring-primary"
+                                className={`flex min-h-12 w-full items-center gap-3 rounded-xl px-4 text-left font-semibold transition focus:outline-none ${LOGOUT_HOVER}`}
                             >
                                 <span className="flex h-7 w-7 items-center justify-center rounded-md bg-white/5" aria-hidden="true">↪</span>
                                 Выйти

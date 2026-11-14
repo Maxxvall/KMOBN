@@ -442,7 +442,7 @@ const EstimateEditor: React.FC = () => {
         setEstimate(nextEstimate);
         setBoardSwitchTarget(null);
         setBoardSwitchNotice(`Заменено позиций: ${selectedIds.size}. Смета пересчитана.`);
-    }, [boardSwitchPlan, estimate, materialsValue]);
+    }, [boardSwitchPlan, estimate, materialsValue, setEstimate]);
 
     const scheduleSuggestions = (itemId: string, query: string, pool: (Material | Work)[]) => {
         clearDebounce(itemId);
@@ -871,7 +871,7 @@ const EstimateEditor: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [genParams, templatesValue]);
+    }, [genParams, templatesValue, setEstimate]);
 
     const handleGenerateWithAI = useCallback(async (opts?: {
         scopeDescription?: string;
@@ -1063,7 +1063,7 @@ const EstimateEditor: React.FC = () => {
             setAiBusyMessage(null);
             setIsLoading(false);
         }
-    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, estimate.items, aiGenDescription, aiAccessValue, subscriptionContext?.subscription?.user_id]);
+    }, [genParams, templatesValue, visibleEstimatesValue, materialsValue, worksValue, estimate.buildingType, estimate.area, estimate.items, aiGenDescription, aiAccessValue, subscriptionContext?.subscription?.user_id, setEstimate]);
 
     const handleAnalyzeEstimate = useCallback(async () => {
 
@@ -1168,7 +1168,7 @@ const EstimateEditor: React.FC = () => {
             const updatedItems = [...prev.items, ...newItems];
             return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
         });
-    }, [estimate.items]);
+    }, [estimate.items, setEstimate]);
 
     const handleOpenPasteModal = useCallback((cat: SectionId) => {
         setPasteTargetCategory(cat);
@@ -1181,7 +1181,7 @@ const EstimateEditor: React.FC = () => {
             return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
         });
         setPasteModalOpen(false);
-    }, []);
+    }, [setEstimate]);
 
     const handleApplyBundles = useCallback((order: string[], scaleFactor: number) => {
         const rawItems: EstimateItem[] = [];
@@ -1205,7 +1205,7 @@ const EstimateEditor: React.FC = () => {
             return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
         });
         setBundlePickerOpen(false);
-    }, [bundlesValue]);
+    }, [bundlesValue, setEstimate]);
 
     const quickBundleWork = useMemo(
         () => estimate.items.find(item => item.id === quickBundleWorkId && (item.subgroup || EstimateSubgroup.WORKS) === EstimateSubgroup.WORKS) ?? null,
@@ -1350,6 +1350,9 @@ const EstimateEditor: React.FC = () => {
     };
 
     const inputStyles = "p-2 bg-background border border-border rounded-md text-text-primary focus:ring-primary focus:border-primary w-full";
+    // Мобильная таблица — тот же рецепт, но исторически без focus-цветов: не
+    // добавляем их там, где их не было (notes §4.3), плюс тач-таргет 44px.
+    const mobileFieldStyles = "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9";
 
     // Проверки перед открытием AI-генерации (перенесены как есть из ряда шаблона).
     const handleAiGenerateClick = () => {
@@ -1380,7 +1383,7 @@ const EstimateEditor: React.FC = () => {
     };
 
     return (
-        <div className="mx-auto max-w-[1600px] space-y-4">
+        <div className="mx-auto space-y-4">
             <div className="rounded-xl border border-border/70 bg-surface p-2 shadow-2xl sm:p-4 md:p-5">
                 <EstimateEditorHeader
                     estimateNumber={initialEstimateValue ? estimate.estimateNumber : undefined}
@@ -1950,12 +1953,12 @@ const EstimateEditor: React.FC = () => {
                                                                                 onFocus={e => { scheduleSuggestions(item.id, (e.currentTarget as HTMLInputElement).value, filteredMaterials); }}
                                                                                 onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); tryApplyMaterialByName(item.id, (e.currentTarget as HTMLInputElement).value); } }}
                                                                                 placeholder="Поиск материала"
-                                                                                className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}
+                                                                                className={getFieldClass(item.id, 'name', mobileFieldStyles)}
                                                                             />
                                                                             {renderSuggestionsPortal(item.id, suggestions[item.id] as Material[] | undefined, (it) => selectMaterialSuggestion(item.id, it as Material))}
                                                                         </div>
                                                                     ) : (
-                                                                        <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}>
+                                                                        <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', mobileFieldStyles)}>
                                                                             <option value="">— Выберите материал —</option>
                                                                             {filteredMaterials.map(mat => <option key={mat.id} value={mat.name}>{mat.name}</option>)}
                                                                         </select>
@@ -1981,18 +1984,18 @@ const EstimateEditor: React.FC = () => {
                                                                                 onFocus={e => { scheduleSuggestions(item.id, (e.currentTarget as HTMLInputElement).value, filteredWorks); }}
                                                                                 onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); tryApplyWorkByName(item.id, (e.currentTarget as HTMLInputElement).value); } }}
                                                                                 placeholder="Поиск работы"
-                                                                                className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}
+                                                                                className={getFieldClass(item.id, 'name', mobileFieldStyles)}
                                                                             />
                                                                             {renderSuggestionsPortal(item.id, suggestions[item.id] as Work[] | undefined, (it) => selectWorkSuggestion(item.id, it as Work))}
                                                                         </div>
                                                                     ) : (
-                                                                        <select value={item.name} onChange={e => handleWorkSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}>
+                                                                        <select value={item.name} onChange={e => handleWorkSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', mobileFieldStyles)}>
                                                                             <option value="">— Выберите работу —</option>
                                                                             {filteredWorks.map(wrk => <option key={wrk.id} value={wrk.name}>{wrk.name}</option>)}
                                                                         </select>
                                                                     )
                                                                 ) : (
-                                                                    <input type="text" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Новая позиция" className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")} />
+                                                                    <input type="text" value={item.name} onChange={e => updateItem(item.id, 'name', e.target.value)} placeholder="Новая позиция" className={getFieldClass(item.id, 'name', mobileFieldStyles)} />
                                                                 )}
                                                                 {validationResultValue?.invalidItemIds?.has(item.id) && getItemIssueMessages(item.id).length > 0 && (
                                                                     <div className="text-xs text-red-400">{getItemIssueMessages(item.id).join(' • ')}</div>
@@ -2000,7 +2003,7 @@ const EstimateEditor: React.FC = () => {
                                                                 <div className="grid grid-cols-3 gap-2">
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Кол-во</label>
-                                                                        <input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right md:min-h-9")} />
+                                                                        <input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', mobileFieldStyles + " text-right")} />
                                                                     </div>
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Цена</label>
