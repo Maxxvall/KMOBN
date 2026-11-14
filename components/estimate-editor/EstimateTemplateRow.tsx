@@ -47,6 +47,7 @@ export const EstimateTemplateRow: React.FC<EstimateTemplateRowProps> = ({
                 </select>
                 <DeleteButton
                     label="Удалить выбранный шаблон"
+                    confirmLabel="Удалить шаблон?"
                     onConfirm={() => onDeleteTemplateAction?.(projectTemplateId)}
                 />
             </span>

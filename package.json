@@ -22,7 +22,7 @@
     "check": "npm run typecheck && npm run lint && npm run test"
   },
   "dependencies": {
-    "@devigner-ui/icons": "3.5.0",
+    "@devigner-ui/icons": "3.6.0",
     "@supabase/supabase-js": "^2.110.3",
     "docx": "9.7.1",
     "electron-store": "^8.2.0",
@@ -30,6 +30,7 @@
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.8",
     "lodash.debounce": "^4.0.8",
+    "motion": "^12.0.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-focus-lock": "^2.13.7",
