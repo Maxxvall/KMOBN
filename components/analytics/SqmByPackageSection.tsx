@@ -4,6 +4,7 @@ import {
   buildSqmAnalytics,
   createSqmFieldPatch,
   formatSqmProjectCount,
+  NEEDS_CHECK_REASON_LABELS,
   SQM_AREA_BASE_LABELS,
   SQM_PACKAGE_LABELS,
   SQM_PACKAGE_ORDER,
@@ -38,14 +39,8 @@ const OBJECT_TYPE_OPTIONS: Array<{ value: SqmObjectType; label: string }> = [
   { value: 'other', label: 'Прочее' },
 ];
 
-const NEEDS_CHECK_REASON_LABELS: Record<string, string> = {
-  'no-area': 'нет площади',
-  'no-total': 'нет итога',
-  'needs-area-base': 'площадь без дополнений или с дополнениями?',
-  ambiguous: 'неоднозначная комплектация',
-  hint: 'предложено по фразе — подтвердите',
-  none: 'комплектация не определена',
-};
+// Подписи причин панели «Требуют проверки» — импорт из services/sqmAnalytics.ts
+// (константа живёт в сервисе, как записано в interfaces.md).
 
 const formatSqmRub = (value: number) => `${Math.round(value).toLocaleString('ru-RU')} ₽/м²`;
 

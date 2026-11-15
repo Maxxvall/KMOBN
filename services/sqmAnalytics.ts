@@ -111,6 +111,16 @@ export const SQM_AREA_BASE_LABELS: Record<EstimateSqmAreaBase, string> = {
   'house-with-additions': 'с дополнениями',
 };
 
+/** Подписи причин панели «Требуют проверки» — единый источник для UI (R01, R03). */
+export const NEEDS_CHECK_REASON_LABELS: Record<SqmNeedsCheckReason, string> = {
+  'no-area': 'нет площади',
+  'no-total': 'нет итога',
+  'needs-area-base': 'площадь без дополнений или с дополнениями?',
+  ambiguous: 'неоднозначная комплектация',
+  hint: 'предложено по фразе — подтвердите',
+  none: 'комплектация не определена',
+};
+
 const normalizeSqmText = (value: string): string => normalizeRussianLower(value)
   .replace(/[_\-]+/g, ' ')
   .replace(/\s+/g, ' ')
@@ -215,8 +225,10 @@ const statsOf = (values: number[]): SqmMetricStats | null => {
   const sum = values.reduce((acc, value) => acc + value, 0);
   return {
     median: medianOf(values),
-    min: values[0],
-    max: values[values.length - 1],
+    // min/max — по всем значениям, не по концам неотсортированного массива:
+    // диапазон карточки не должен зависеть от порядка входных смет (R17)
+    min: Math.min(...values),
+    max: Math.max(...values),
     average: sum / values.length,
     count: values.length,
   };
@@ -252,7 +264,10 @@ export function buildSqmAnalytics(estimates: Estimate[], filters: SqmFilters): S
     return regionValue(estimate) === filters.region;
   };
   const matchesArea = (estimate: Estimate): boolean => {
-    if (!Number.isFinite(estimate.area)) return false;
+    // NaN/∞/0/отрицательная — не «вне диапазона», а «нет площади»: не отсекаем
+    // здесь, смета дойдёт до hasArea=false и панели «Требуют проверки» (R03).
+    // Границы диапазона применяются только к конечной положительной площади.
+    if (!Number.isFinite(estimate.area) || estimate.area <= 0) return true;
     if (filters.areaMin != null && estimate.area < filters.areaMin) return false;
     if (filters.areaMax != null && estimate.area > filters.areaMax) return false;
     return true;

@@ -5,9 +5,11 @@ import {
   createSqmFieldPatch,
   detectSqmObjectType,
   formatSqmProjectCount,
+  NEEDS_CHECK_REASON_LABELS,
   resolveSqmAreaBase,
   SQM_PACKAGE_LABELS,
   type SqmFilters,
+  type SqmNeedsCheckReason,
   type SqmObjectType,
 } from './sqmAnalytics';
 import { HOUSE_PACKAGE_MATCHERS, parseHouseDescription } from './houseCalculator';
@@ -151,6 +153,17 @@ describe('HOUSE_PACKAGE_MATCHERS согласован с parseHouseDescription',
   });
 });
 
+describe('NEEDS_CHECK_REASON_LABELS', () => {
+  it('экспорт из сервиса покрывает все причины панели непустыми подписями (R01)', () => {
+    const reasons: SqmNeedsCheckReason[] = ['no-area', 'no-total', 'needs-area-base', 'ambiguous', 'hint', 'none'];
+    for (const reason of reasons) {
+      expect(NEEDS_CHECK_REASON_LABELS[reason], reason).toBeTruthy();
+    }
+    expect(NEEDS_CHECK_REASON_LABELS['no-area']).toBe('нет площади');
+    expect(NEEDS_CHECK_REASON_LABELS['no-total']).toBe('нет итога');
+  });
+});
+
 describe('classifySqmCompletion', () => {
   it('сохранённое подтверждение побеждает автораспознавание (R11)', () => {
     const est = estimate({ sqmPackage: 'box', explanation: 'дом под ключ' });
@@ -262,6 +275,26 @@ describe('buildSqmAnalytics — базовые кейсы брифа', () => {
     expect(result.needsCheck[0].id).toBe('est-1');
   });
 
+  it('NaN-площадь не исчезает: доходит до «Требуют проверки» как «нет площади» (R03)', () => {
+    const est = estimate({ sqmPackage: 'turnkey', area: Number.NaN });
+    const result = buildSqmAnalytics([est], filters());
+    expect(result.groups.turnkey.count).toBe(0);
+    expect(result.needsCheck).toHaveLength(1);
+    expect(result.needsCheck[0].reason).toBe('no-area');
+    expect(result.needsCheck[0].id).toBe('est-1');
+  });
+
+  it('площадь 0 и NaN ведут себя одинаково при включённых границах площади (R03)', () => {
+    const zero = estimate({ id: 'est-zero', estimateNumber: 'КМ-31', sqmPackage: 'turnkey', area: 0 });
+    const nan = estimate({ id: 'est-nan', estimateNumber: 'КМ-32', sqmPackage: 'turnkey', area: Number.NaN });
+    const result = buildSqmAnalytics([zero, nan], filters({ areaMin: 50, areaMax: 100 }));
+    expect(result.groups.turnkey.count).toBe(0);
+    // границы применяются только к конечным значениям площади — «нет площади»
+    // границы не прячут, обе сметы доходят до панели проверки
+    expect(result.needsCheck.map(entry => entry.reason)).toEqual(['no-area', 'no-area']);
+    expect(result.needsCheck.map(entry => entry.id).sort()).toEqual(['est-nan', 'est-zero']);
+  });
+
   it('смета без итога — причина «нет итога» (R03)', () => {
     const est = estimate({ sqmPackage: 'turnkey', total: 0 });
     const result = buildSqmAnalytics([est], filters());
@@ -332,6 +365,19 @@ describe('buildSqmAnalytics — медиана, диапазон, среднее
     expect(result.groups.box.house?.client?.min).toBe(1_000);
     expect(result.groups.box.house?.client?.max).toBe(3_000);
     expect(result.groups.box.house?.client?.average).toBe(2_000);
+  });
+
+  it('min/max по всем значениям: диапазон не зависит от порядка смет (R17)', () => {
+    const result = buildSqmAnalytics([
+      confirmed('a', 300_000, 100),
+      confirmed('b', 100_000, 100),
+      confirmed('c', 200_000, 100),
+    ], filters());
+    // цены за м² приходят в statsOf в порядке входа: 3000, 1000, 2000 —
+    // концы неотсортированного массива не являются мин/максом
+    expect(result.groups.box.house?.client?.min).toBe(1_000);
+    expect(result.groups.box.house?.client?.max).toBe(3_000);
+    expect(result.groups.box.house?.client?.median).toBe(2_000);
   });
 
   it('чётный список — среднее двух средних', () => {
