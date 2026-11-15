@@ -15,7 +15,7 @@
 | Команда | Что делает |
 |---------|------------|
 | `npm install` | Установить зависимости |
-| `npm run check` | Основная приёмка: typecheck + lint + vitest (408/408 тестов, 58 файлов) |
+| `npm run check` | Основная приёмка: typecheck + lint + vitest (472/472 теста, 61 файл) |
 | `npm run typecheck` / `npm run lint` / `npm run test` | По отдельности; линт 0 ошибок / 0 предупреждений |
 | `npx vitest run services/dataTransfer.test.ts` | Один тест-файл (подставить нужный путь) |
 | `npm run test:e2e:electron` | Electron E2E (сборка build:electron:e2e + playwright -c playwright.electron.config.ts; спеки в `e2e/`) |
@@ -28,6 +28,8 @@
 - `components/estimate-editor/` — подкомпоненты редактора смет + `sectionReorderGesture` (удержание ~400 мс переносит раздел).
 - `supabase/migrations/` + `supabase/tests/*.sql` — SQL-регрессии RPC (bootstrap/fixtures рядом).
 - `docs/*.md` — планы и гайды по подсистемам.
+- `services/sqmAnalytics.ts` — домен «стоимость м² по комплектациям»: classifySqmCompletion (ступени: сохранённый sqmPackage → снапшот → фраза в типе строения/«Пояснении»), buildSqmAnalytics (медиана/диапазон/количество), панель «Требуют проверки»; тесты рядом.
+- `components/analytics/SqmByPackageSection.tsx` — UI блока «Стоимость м² по комплектациям» в Аналитике (режим «Обзор»); подтверждения пишутся ТОЛЬКО в поля сметы sqmPackage/sqmAreaBase/sqmConfirmedAt через колбэк App, цены/площади не меняются.
 
 ## Подводные камни
 
@@ -37,6 +39,8 @@
 - Офлайн-ядро outbox-first: `services/offlineSync.ts`, `offlineQueue.ts`, `indexedDbCache.ts` — не трогать без нужды; `runtimeCaching: []` в vite.config.ts пуст намеренно (SW не должен переигрывать устаревшие строки Supabase).
 - `xlsx` pinned на CDN-тарбол в package.json — не заменять на npm-версию.
 - Кровельная математика: `roofFactor` (карта по форме крыши) и `ROOF_AREA_PITCH_FACTOR = 1.15` (площадь кровли) в `services/houseCalculator.ts` — две разные величины, не смешивать.
+- Распознавание комплектации из текста: «тёплый контур без отделки» — это определение warm-shell, НЕ отрицание; конфликтные отрицания («под ключ без инженерии») и несколько разных пакетов → «требует проверки», не угадывать; «каркас» — технология, не комплектация, подсказки не даёт. Матчеры — общий справочник HOUSE_PACKAGE_MATCHERS в services/houseCalculator.ts, не дублировать ключевые слова.
+- Подтверждённая комплектация/база площади хранятся в самой смете (schemaless payload jsonb — SQL-миграция не нужна), но новые поля Estimate обязаны попадать в components/estimateEditorSignature.ts (dirty-детект) и в InternalEstimateField services/clientEstimate.ts (не уезжают в клиентские экспорты).
 
 ## Окружение (только имена, значений не логируем)
 

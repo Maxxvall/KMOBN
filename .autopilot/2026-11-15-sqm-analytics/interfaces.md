@@ -47,6 +47,16 @@
 ### Тест-швы
 - `services/sqmAnalytics.test.ts` — чистые функции (фабрики-фикстуры по образцу `houseCalculator.test.ts`); тесты согласованности матчеров с `parseHouseDescription`. Компонентных тестов нет (нет инфраструктуры — PROGRESS «Не доделано»).
 
+## Построенное тасками (фактические интерфейсы)
+
+### T01 (коммит после приёмки 468/468)
+- `types.ts`: `HousePackageId`, `EstimateSqmAreaBase`, `Estimate.sqmPackage?/sqmAreaBase?/sqmConfirmedAt?`.
+- `services/houseCalculator.ts`: экспорт `HOUSE_PACKAGE_MATCHERS: readonly HousePackageMatcher[]` (`{ package: HousePackageId; test(text): boolean }`); `parseHouseDescription` работает через матчеры, поведение прежнее (43 старых теста зелёные).
+- `services/sqmAnalytics.ts` (новый, экспортирует): `detectSqmObjectType(buildingType): 'houses'|'baths'|'utility'|'other'`; `classifySqmCompletion(estimate): { state: 'confirmed'|'explicit'|'hint'|'ambiguous'|'none'; package?; candidates?; reason? }`; `resolveSqmAreaBase(estimate): EstimateSqmAreaBase | undefined`; `buildSqmAnalytics(estimates, filters): { groups: Record<HousePackageId, SqmGroupStats>; needsCheck: SqmNeedsCheckEntry[]; regions: string[] }`; `createSqmFieldPatch({package?, areaBase?, confirmedAt?}): SqmFieldPatch`; `formatSqmProjectCount(count): string`; константы `SQM_PACKAGE_ORDER`, `SQM_PACKAGE_LABELS`, `SQM_AREA_BASE_LABELS`, `NEEDS_CHECK_REASON_LABELS`; типы `SqmFilters`, `SqmObjectType`, `SqmCompletionState`, `SqmGroupStats`, `SqmBaseGroupStats`, `SqmProjectEntry`, `SqmNeedsCheckEntry`, `SqmFieldPatch`, `SqmMetricStats`.
+- `components/analytics/SqmByPackageSection.tsx`: `SqmByPackageSectionProps { estimates; onUpdateSqmFields(id, patch); onOpenEstimate?; periodLabel? }`.
+- `components/Analytics.tsx`: `AnalyticsProps += onUpdateSqmFields (обязательный), onOpenEstimate?` (после финальной приёмки необходимость обязательности пересмотрена: см. «Построенное» — prop сделан обязательным, App его передаёт).
+- Семантика фильтров: `region: undefined` = все регионы, `region: null` = «Без региона»; себестоимость требует `houseActualBasis='cost'` И `houseExecutionStatus='actual-verified'` И `actual.source='verified'` на позициях; любой ручной выбор комплектации («подтвердить» или «исправить») пишет `sqmConfirmedAt`.
+
 ## Проектные правила (перенос из PROGRESS.md «Договорились», слово в слово)
 
 - Пользовательский AGENTS.md — главный источник проверок; платежи не возвращаем; «Типовые проекты» постоянна; офлайн-ядро (outbox-first, tombstones) обязательное.
