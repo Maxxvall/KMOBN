@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { animate, motion } from 'motion/react';
 import { Estimate, type SectionId } from '../types';
 import { filterToLatestEstimateVersions } from '../services/estimateIntelligence';
+import { type SqmFieldPatch } from '../services/sqmAnalytics';
+import { SqmByPackageSection } from './analytics/SqmByPackageSection';
 import { buildActualComparisons, calculateActualSummary, orderActualComparisonsForExport } from '../services/estimateActuals';
 import { getSectionLabel } from '../services/estimateSections';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
@@ -62,6 +64,10 @@ import * as XLSX from 'xlsx';
 interface AnalyticsProps {
     estimates: Estimate[];
     isLoading?: boolean;
+    /** Сохранение подтверждений блока «Стоимость м² по комплектациям» — только sqm-поля сметы. */
+    onUpdateSqmFields: (id: string, patch: SqmFieldPatch) => void;
+    /** Необязательный переход «Открыть смету» из панели «Требуют проверки». */
+    onOpenEstimate?: (id: string) => void;
 }
 
 type PeriodPreset = 'month' | 'quarter' | 'year' | 'all' | 'custom';
@@ -399,7 +405,7 @@ const EstimateDropdown: React.FC<{
     );
 };
 
-const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
+const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading, onUpdateSqmFields, onOpenEstimate }) => {
     const sectionsContext = useOptionalEstimateSections();
     // Графики растут с широкими экранами (matchMedia-паттерн, как useIsDesktopViewport в редакторе).
     const [isWideScreen, setIsWideScreen] = useState<boolean>(() =>
@@ -1369,6 +1375,17 @@ const Analytics: React.FC<AnalyticsProps> = ({ estimates, isLoading }) => {
                     series={marginSeries}
                 />
             </div>
+            )}
+
+            {/* Блок «Стоимость м² по комплектациям» — сразу после KPI-строки.
+                Период общий со страницей: сметы уже отфильтрованы estimatesInPeriod. */}
+            {activeMode === 'overview' && (
+            <SqmByPackageSection
+                estimates={estimatesInPeriod}
+                onUpdateSqmFields={onUpdateSqmFields}
+                onOpenEstimate={onOpenEstimate}
+                periodLabel={kpiSubtitlePeriod}
+            />
             )}
 
             {activeMode === 'actual' && (

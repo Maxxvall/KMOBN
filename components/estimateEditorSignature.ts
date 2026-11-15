@@ -35,6 +35,9 @@ export const buildEstimateDirtySignature = (value: Estimate, document?: Estimate
     hash = hashText(hash, value.houseExecutionStatus || '');
     hash = hashText(hash, value.houseActualBasis || '');
     hash = hashText(hash, value.houseActualVerifiedAt || '');
+    hash = hashText(hash, value.sqmPackage || '');
+    hash = hashText(hash, value.sqmAreaBase || '');
+    hash = hashText(hash, value.sqmConfirmedAt || '');
     for (const category of value.selectedSections ?? []) {
         hash = hashText(hash, category);
     }

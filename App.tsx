@@ -48,6 +48,7 @@ import type { PaletteCommand } from './components/CommandPalette';
 import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './services/offlineIdentity';
 import { buildCatalogDuplicateDeletePlan, type CatalogDuplicateDecision } from './services/duplicateManagement';
 import { recalculateEstimateWorkPrices } from './services/estimatePricing';
+import type { SqmFieldPatch } from './services/sqmAnalytics';
 
 const EstimateHistory = lazy(() => import('./components/EstimateHistory'));
 const EstimateEditor = lazy(() => import('./components/EstimateEditor'));
@@ -1327,6 +1328,24 @@ const App: React.FC = () => {
         setIsOfflineChangesOpen(false);
     }, [estimates, handleEdit]);
 
+    // Шов блока «Стоимость м² по комплектациям»: подтверждения пишутся патчем
+    // ТОЛЬКО новых sqm-полей (sqmPackage/sqmAreaBase/sqmConfirmedAt) обычным путём
+    // сохранения смет (outbox-first). Цены, площади и позиции не меняются.
+    const handleUpdateSqmFields = useCallback((estimateId: string, patch: SqmFieldPatch) => {
+        const updatedEstimates = estimates.map(item => (item.id === estimateId ? { ...item, ...patch } : item));
+        void saveEstimates(updatedEstimates)
+            .then(() => {
+                setEstimates(updatedEstimates);
+                setSync({ visible: true, message: 'Комплектация сохранена', type: 'success' });
+                setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
+            })
+            .catch((error) => {
+                console.error('Failed to save sqm fields:', error);
+                setSync({ visible: true, message: 'Не удалось сохранить комплектацию', type: 'error' });
+                setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            });
+    }, [estimates, setEstimates, setSync]);
+
     const handleOpenPendingTable = useCallback((table: CacheTableKey) => {
         const viewByTable: Partial<Record<CacheTableKey, View>> = {
             materials: View.PRICES,
@@ -2252,6 +2271,8 @@ const App: React.FC = () => {
                             <Analytics
                                 estimates={estimates}
                                 isLoading={isLoading}
+                                onUpdateSqmFields={handleUpdateSqmFields}
+                                onOpenEstimate={handleEditPendingEstimate}
                             />
                         )}
                         {view === View.CUTTING && (

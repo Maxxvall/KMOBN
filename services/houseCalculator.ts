@@ -5,6 +5,7 @@ import {
     EstimateItem,
     EstimateStatus,
     EstimateSubgroup,
+    HousePackageId,
     SectionId,
     normalizeRussianLower,
 } from '../types';
@@ -193,19 +194,35 @@ export function selectEligibleHouseHistory(estimates: Estimate[], _now?: Date): 
     return selectHouseHistoryForAi(estimates).filter(isFrameHouse);
 }
 
+/**
+ * Единый справочник ключевых слов комплектации: массив матчеров «пакет → проверка
+ * нормализованного текста» в порядке приоритета (первый совпавший решает). Источник
+ * и для parseHouseDescription, и для аналитики за м² (services/sqmAnalytics.ts) —
+ * второй копии словаря быть не должно.
+ */
+export interface HousePackageMatcher {
+    package: HousePackageId;
+    /** Проверка нормализованного текста (lowercase, ё→е, дефисы/подчёркивания → пробелы). */
+    test: (text: string) => boolean;
+}
+
+export const HOUSE_PACKAGE_MATCHERS: readonly HousePackageMatcher[] = [
+    { package: 'turnkey-engineering', test: text => text.includes('премиум') },
+    { package: 'turnkey-engineering', test: text => text.includes('под ключ') && (text.includes('инженер') || text.includes('коммуникац')) },
+    { package: 'turnkey', test: text => text.includes('под ключ') },
+    { package: 'rough-finish', test: text => text.includes('оптималь') },
+    { package: 'rough-finish', test: text => text.includes('чернов') || text.includes('предчистов') },
+    { package: 'warm-shell', test: text => text.includes('тепл') && text.includes('контур') },
+    { package: 'box', test: text => text.includes('коробк') },
+];
+
 export function parseHouseDescription(description: string): ParsedHouseDescription {
     const text = normalize(description || '');
     const areaMatch = text.match(/(\d+(?:[.,]\d+)?)\s*(?:м2|м²|кв\.?\s*м)/i);
     const parsedArea = areaMatch ? Number(areaMatch[1].replace(',', '.')) : undefined;
     const area = parsedArea && parsedArea >= 20 && parsedArea <= 500 ? parsedArea : undefined;
-    let packageValue: HousePackage | undefined;
-    if (text.includes('премиум')) packageValue = 'turnkey-engineering';
-    else if (text.includes('под ключ') && (text.includes('инженер') || text.includes('коммуникац'))) packageValue = 'turnkey-engineering';
-    else if (text.includes('под ключ')) packageValue = 'turnkey';
-    else if (text.includes('оптималь')) packageValue = 'rough-finish';
-    else if (text.includes('чернов') || text.includes('предчистов')) packageValue = 'rough-finish';
-    else if (text.includes('тепл') && text.includes('контур')) packageValue = 'warm-shell';
-    else if (text.includes('коробк')) packageValue = 'box';
+    const packageValue: HousePackage | undefined = HOUSE_PACKAGE_MATCHERS
+        .find(matcher => matcher.test(text))?.package;
     return { area, package: packageValue };
 }
 

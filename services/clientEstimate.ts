@@ -5,7 +5,10 @@ type InternalEstimateField = 'labelIds' | 'labelSnapshots' | 'crewToolPlan'
     | 'houseCalculationSnapshots'
     | 'houseExecutionStatus'
     | 'houseActualVerifiedAt'
-    | 'houseActualBasis';
+    | 'houseActualBasis'
+    | 'sqmPackage'
+    | 'sqmAreaBase'
+    | 'sqmConfirmedAt';
 
 export type ClientEstimate = Omit<Estimate, InternalEstimateField>;
 
@@ -20,6 +23,9 @@ export const toClientEstimate = (estimate: Estimate): ClientEstimate => {
         houseExecutionStatus: _houseExecutionStatus,
         houseActualVerifiedAt: _houseActualVerifiedAt,
         houseActualBasis: _houseActualBasis,
+        sqmPackage: _sqmPackage,
+        sqmAreaBase: _sqmAreaBase,
+        sqmConfirmedAt: _sqmConfirmedAt,
         ...clientEstimate
     } = estimate;
     return clientEstimate;

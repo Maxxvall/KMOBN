@@ -103,6 +103,16 @@ export interface EstimateItemActual {
     source?: 'manual' | 'copied-plan' | 'verified';
 }
 
+/**
+ * Комплектация дома (уровень готовности). Инлайн-юнион — как в
+ * HouseCalculationSnapshot.input.package — чтобы не плодить цикл импортов
+ * между types.ts и services/houseCalculator.ts (там структурно тот же HousePackage).
+ */
+export type HousePackageId = 'box' | 'warm-shell' | 'rough-finish' | 'turnkey' | 'turnkey-engineering';
+
+/** База площади для аналитики за м²: как указано (без дополнений) или подтверждённая «с дополнениями». */
+export type EstimateSqmAreaBase = 'house' | 'house-with-additions';
+
 export interface HouseCalculationSnapshot {
     schemaVersion: 1;
     id: string;
@@ -115,7 +125,7 @@ export interface HouseCalculationSnapshot {
         glazingArea: number;
         doors: number;
         roofShape: 'single-slope' | 'gable' | 'hip' | 'flat' | 'mansard';
-        package: 'box' | 'warm-shell' | 'rough-finish' | 'turnkey' | 'turnkey-engineering';
+        package: HousePackageId;
         additions: string[];
         geometry?: Record<string, unknown>;
         rates: {
@@ -176,6 +186,12 @@ export interface Estimate {
     houseExecutionStatus?: 'in-progress' | 'completed' | 'actual-verified';
     houseActualVerifiedAt?: string;
     houseActualBasis?: 'client-price' | 'cost';
+    /** Комплектация, подтверждённая пользователем в аналитике (побеждает автораспознавание). */
+    sqmPackage?: HousePackageId;
+    /** Подтверждённая база площади: «дом» или «дом с дополнениями». */
+    sqmAreaBase?: EstimateSqmAreaBase;
+    /** Момент последнего подтверждения комплектации/базы площади (ISO). */
+    sqmConfirmedAt?: string;
 }
 
 export enum EstimateStatus {
