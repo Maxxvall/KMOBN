@@ -73,3 +73,32 @@ Placeholder нет: все 8 требований разрешены решен�
 ## Открытые места (сборка 2)
 
 Placeholder нет. Все решения — ASSUMPTION в манифесте.
+
+---
+
+# Сборка 3: 🟢 мусор и дубли
+
+## Задача
+
+Третья сборка того же прогона по директиве пользователя («дальше возьи чистку мусора» после внесения memory-proposal в AGENTS.md — выполнено до старта). Удалить мёртвый код и дубли без изменения поведения. Красные и жёлтые фиксы сборок 1–2 не пересматриваются.
+
+## Решение
+
+- **R18 — мёртвый слой записи.** В supabase.ts удалить `upsertTable`, `deleteTableRecords` и 6 upsert-обёрток (предпроверено grep 2026-11-22: вызовов вне supabase.ts и vi.fn-мока offlineReliability.test.ts нет). fetch*-обёртки остаются. Моки в тесте чистятся от удалённых ключей.
+- **R19 — остатки авто-ретрая.** Поле `nextRetryAt` и вычисление бэкоффа в markFailed удалить (их никто не читает в проде — ручной повтор читает failureKind/lastError/lastAttemptAt/retryCount); rebaseAfterReview перестаёт упоминать nextRetryAt. Класс `OfflineSyncError` удалить, в месте броска — plain Error с тем же сообщением (isRetryableSyncError и порядок обработки не меняются; совпадение имени в App.tsx — `formatOfflineSyncError`, другой символ). Тесты, утверждавшие nextRetryAt, переписываются на живую семантику.
+- **R20 — salary_calculations.** Убрать литерал из CacheTableKey, STORE_NAMES (indexedDbCache), SUPPORTED_TABLES (offlineSync), списка workspace-таблиц и фильтра isWorkspacePendingChange (offlineQueue). Существующие IDB-хранилища не удалять (не-деструктивно). Тестовые фикстуры с этой таблицей — переименовать на реальную таблицу (например 'bundles').
+- **R21 — дубли.** (а) Дубль stableStringify уже исчез в сборке 2 — убедиться grep-ом. (б) Сортировку/нормализацию строк (supabase.ts inferSortOrder/compareByStableOrder/normalizeFetchedRows ≈ database.ts normalizeStableOrder) вынести в один новый модуль `services/recordOrder.ts`, импортируемый обоими без циклов;executor сверяет фактическое перекрытие и переносит только совпадающее. (в) `createOperationId` — один экспорт (новый `services/ids.ts`), потребители offlineQueue/supabase/третий, если найдётся. (г) Модалки AddEstimateMaterialModal/AddEstimateWorkModal слить в одну `AddEstimateItemModal` с пропом kind: тексты, единицы, поведение 1:1; использование в EstimateEditor обновить. (д) Блок «normalize → save» в App (handleCacheUpdate и loadHistoryData) — один хелпер. (е) 13 мест ручного setSync+setTimeout — один хелпер показа статуса (в App, передаётся в useEstimateCrud); тексты и длительности идентичны сегодняшним; sync-banner и toast не смешивать.
+- **R22 — мелочи редактора.** Удалить мёртвое состояние loadingPrices вместе с always-false использованиями; удалить мёртвое условие (категория всегда из visibleCategories — проверить после текущих рефакторов); colSpan строки примечаний — `showActuals ? 12 : 8` (сверить с пустой строкой); id новых строк — `item-new-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`.
+- **R23 — инлайновые суммы.** estimatePricing.ts (2 места), boardMaterialSwitch.ts, houseCalibration.ts — вызывать `calculateEstimateTotal`; числа идентичны.
+
+## Вне рамок (сборка 3)
+
+| Требование | Почему не сейчас |
+|---|---|
+| Юнит-тест сериализации save/archive | не чистка; остаётся в PROGRESS.md |
+| Латентные tsc-ошибки (serverRevision в типе Estimate) | отдельная задача (typecheck), не чистка |
+| Удаление осиротевших IDB-хранилищ salary_calculations | не-деструктивная политика: данные пользователя не удалять без явной задачи |
+
+## Открытые места (сборка 3)
+
+Placeholder нет. Все решения — ASSUMPTION в манифесте.

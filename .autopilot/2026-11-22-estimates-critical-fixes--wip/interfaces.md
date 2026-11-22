@@ -125,3 +125,45 @@
 - Карантин legacy в offlineQueue — однократно за сессию при первом openQueueDb (guard сбрасывается в close()); getForTable — index('by_table').getAll(table) + фильтр userId в JS.
 - `useMediaQuery(query): boolean` (hooks/useMediaQuery.ts); в EstimateHistory и EstimateEditor смонтирован только активный DOM-вариант.
 - worksIndex редактора ключуется normalizeKey (матч работ в редакторе стал регистронезависимым — запрошенный переход).
+
+## Границы сборки 3 (🟢 чистка мусора)
+
+### services/supabase.ts
+
+- Удаляются: `upsertTable`, `deleteTableRecords`, 6 upsert-обёрток (upsertEstimates/Templates/Materials/Works/Bundles/EstimateSections). Остаются fetch*/saveOfflineRecord/deleteOfflineRecord/fetchOfflineRecord/saveEstimateSectionsRemote. Экспорт `default supabase` и все RPC-контракты не меняются.
+
+### services/offlineQueue.ts + services/offlineSync.ts
+
+- Поле `nextRetryAt` удаляется из PendingChange и всех мест записи/сброса; markFailed сохраняет retryCount/lastError/lastAttemptAt/failureKind. Класс OfflineSyncError удаляется — бросается plain Error с тем же сообщением; обработчик в useOfflineSync не меняется (уже ловит generic).
+- Литерал `salary_calculations` удаляется из SUPPORTED_TABLES, списка workspace-таблиц, фильтра isWorkspacePendingChange, CacheTableKey (indexedDbCache) и STORE_NAMES. IDB-хранилища не удаляются.
+
+### services/recordOrder.ts (новый, при подтверждении перекрытия)
+
+- **Открывает:** единые inferSortOrder/compareByStableOrder/normalizeFetchedRows/normalizeStableOrder (то, что реально совпадает в database.ts и supabase.ts; несовпадающее остаётся на месте). Оба импортируют оттуда; циклов нет (recordOrder не импортирует database/supabase).
+
+### services/ids.ts (новый)
+
+- **Открывает:** `createOperationId(): string` — единственная реализация (crypto.randomUUID с фолбэком). Потребители: offlineQueue, supabase, третий при наличии.
+
+### components/AddEstimateItemModal.tsx (новый; два старых файла удаляются)
+
+- **Открывает:** один компонент с пропом `kind: 'material' | 'work'` — тексты, единицы, валидация и поведение 1:1 как в удаляемых модалках. Использование в EstimateEditor обновляется.
+
+### App.tsx
+
+- Один хелпер normalize→save (используется handleCacheUpdate и loadHistoryData); один хелпер показа sync-статуса (обёртка setSync+setTimeout), все 13 мест через него; тексты/длительности идентичны.
+
+### services/estimatePricing.ts · boardMaterialSwitch.ts · houseCalibration.ts
+
+- Все точки Σ item.total — через `calculateEstimateTotal`.
+
+### components/EstimateEditor.tsx (мелочи)
+
+- loadingPrices удаляется (с состояния и always-false использований); мёртвое условие удаляется; colSpan примечаний — `showActuals ? 12 : 8`; id строк — суффикс Math.random.
+
+### Тесты (сборка 3)
+
+- offlineReliability.test.ts: моки supabase чистятся от удалённых ключей.
+- offlineQueue.test.ts / offlineSync.test.ts / offlineReliability.test.ts: assertions на nextRetryAt переписываются на failureKind/lastAttemptAt; фикстуры salary_calculations → 'bundles'.
+- Остальные тесты не меняются; `npm run test` (313) остаётся зелёным; lint без новых ошибок.
+- Компоненты не покрываются юнит-тестами — критерии кодом по контракту + ревью ветки.
