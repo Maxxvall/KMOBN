@@ -17,7 +17,7 @@ const resetQueue = async () => {
 const enqueueMaterial = (id: string, price: number) =>
   offlineQueue.enqueueUpserts(TEST_USER, 'materials', [{ id, name: id, price }]);
 
-type CacheUpdateDetail = { key: CacheTableKey; data: unknown[] };
+type CacheUpdateDetail = { key: CacheTableKey; data: unknown[]; partial?: boolean };
 
 const collectCacheUpdates = () => {
   const updates: CacheUpdateDetail[] = [];
@@ -89,7 +89,7 @@ describe('processOfflineQueue', () => {
       lastError: 'network dropped',
       failureKind: 'transient',
     });
-    expect(remaining[0].nextRetryAt).toBeDefined();
+    expect(remaining[0].lastAttemptAt).toBeDefined();
 
     // Manual retry after the network recovers drains the remaining change.
     const retryResult = await processOfflineQueue(TEST_USER, async () => undefined);
@@ -107,7 +107,7 @@ describe('processOfflineQueue', () => {
 
     const [failed] = await offlineQueue.getAll(TEST_USER);
     expect(failed).toMatchObject({ failureKind: 'permanent', retryCount: 1 });
-    expect(failed.nextRetryAt).toBeUndefined();
+    expect(failed.lastAttemptAt).toBeDefined();
   });
 
   it('continues with independent changes after a permanent rejection', async () => {
@@ -191,14 +191,13 @@ describe('processOfflineQueue', () => {
     expect(await offlineQueue.getAll(TEST_USER)).toEqual([]);
   });
 
-  it('processes workspace tables in FIFO order and retains local salary calculations', async () => {
+  it('processes every workspace table in FIFO order and drains the queue', async () => {
     const tables: CacheTableKey[] = [
       'estimates',
       'templates',
       'materials',
       'works',
       'bundles',
-      'salary_calculations',
       'estimate_sections',
     ];
     for (const table of tables) {
@@ -211,12 +210,10 @@ describe('processOfflineQueue', () => {
     expect(executeChange.mock.calls.map(([change]) => change.table)).toEqual([
       'estimates', 'templates', 'materials', 'works', 'bundles', 'estimate_sections',
     ]);
-    expect(await offlineQueue.getAll(TEST_USER)).toEqual([
-      expect.objectContaining({ table: 'salary_calculations', retryCount: 0 }),
-    ]);
+    expect(await offlineQueue.getAll(TEST_USER)).toEqual([]);
   });
 
-  it('dispatches a full table snapshot after confirming one pending record', async () => {
+  it('dispatches only the confirmed record and preserves unrelated cached records', async () => {
     const cacheUser = getCacheUserId(TEST_USER);
     await upsertCachedRecords('materials', cacheUser, [
       { id: 'material-1', name: 'material-1', price: 100 },
@@ -236,17 +233,21 @@ describe('processOfflineQueue', () => {
     const materialUpdates = listener.updates.filter(update => update.key === 'materials');
     expect(materialUpdates).toHaveLength(1);
     const dispatched = materialUpdates[0].data as Array<{ id: string; price: number }>;
-    expect(dispatched.map(record => record.id).sort()).toEqual(['material-1', 'material-2']);
+    expect(materialUpdates[0].partial).toBe(true);
+    expect(dispatched.map(record => record.id)).toEqual(['material-1']);
     expect(dispatched.find(record => record.id === 'material-1')).toMatchObject({
       price: 150,
       serverRevision: 1,
     });
     expect(await getCachedRecords('materials', cacheUser)).toEqual(
-      expect.arrayContaining([expect.objectContaining({ id: 'material-1', price: 150 })]),
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'material-1', price: 150 }),
+        expect.objectContaining({ id: 'material-2', price: 200 }),
+      ]),
     );
   });
 
-  it('keeps a newer local edit in the dispatched snapshot when the server confirms an older one', async () => {
+  it('dispatches the newer local edit after rebasing the older confirmation', async () => {
     const cacheUser = getCacheUserId(TEST_USER);
     await upsertCachedRecords('materials', cacheUser, [
       { id: 'material-1', name: 'material-1', price: 100 },
@@ -271,7 +272,8 @@ describe('processOfflineQueue', () => {
     const materialUpdates = listener.updates.filter(update => update.key === 'materials');
     expect(materialUpdates).toHaveLength(1);
     const dispatched = materialUpdates[0].data as Array<{ id: string; price: number }>;
-    expect(dispatched.map(record => record.id).sort()).toEqual(['material-1', 'material-2']);
+    expect(materialUpdates[0].partial).toBe(true);
+    expect(dispatched.map(record => record.id)).toEqual(['material-1']);
     expect(dispatched.find(record => record.id === 'material-1')).toMatchObject({
       price: 250,
       serverRevision: 1,
@@ -296,6 +298,7 @@ describe('processOfflineQueue', () => {
 
     const sectionUpdates = listener.updates.filter(update => update.key === 'estimate_sections');
     expect(sectionUpdates).toHaveLength(1);
+    expect(sectionUpdates[0].partial).toBeUndefined();
     expect(sectionUpdates[0].data).toHaveLength(1);
     expect((sectionUpdates[0].data as Array<{ id: string }>)[0]).toMatchObject({ id: 'sections-1' });
   });

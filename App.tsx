@@ -20,7 +20,7 @@ import WikiSkeleton from './components/Wiki/WikiSkeleton';
 import AppLoadingSkeleton from './components/AppLoadingSkeleton';
 import { useOfflineSync } from './hooks/useOfflineSync';
 import { validateEstimate, type EstimateValidationResult } from './services/estimateValidation';
-import { hashData } from './services/hashing';
+import { memoizedFingerprint } from './services/hashing';
 import { EstimateProvider } from './contexts/EstimateContext';
 import { CatalogProvider } from './contexts/CatalogContext';
 import { SubscriptionProvider } from './contexts/SubscriptionContext';
@@ -49,6 +49,30 @@ import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './service
 import { buildCatalogDuplicateDeletePlan, type CatalogDuplicateDecision } from './services/duplicateManagement';
 import { recalculateEstimateWorkPrices } from './services/estimatePricing';
 import type { SqmFieldPatch } from './services/sqmAnalytics';
+
+// Merges a partial cache-update snapshot into the current list by record id.
+// Partial events carry only the changed records — they must never replace
+// the whole list, otherwise a confirmed sync collapses it to one row.
+const mergePartialRecordsById = <T extends { id: string }>(current: T[], incoming: T[]): T[] => {
+    const merged = new Map(current.map(record => [record.id, record]));
+    for (const record of incoming) {
+        merged.set(record.id, record);
+    }
+    return [...merged.values()];
+};
+
+// Cache events can arrive in the same React batch. Read each pending update
+// immediately while keeping storage writes outside React state updaters.
+function useTrackedState<T>(initial: T) {
+    const [value, setValue] = useState(initial);
+    const latest = useRef(value);
+    const set = useCallback((action: React.SetStateAction<T>) => {
+        const next = typeof action === 'function' ? (action as (previous: T) => T)(latest.current) : action;
+        latest.current = next;
+        setValue(next);
+    }, []);
+    return [value, set, latest] as const;
+}
 
 const EstimateHistory = lazy(() => import('./components/EstimateHistory'));
 const EstimateEditor = lazy(() => import('./components/EstimateEditor'));
@@ -237,6 +261,13 @@ const App: React.FC = () => {
     const setRecoverySubmitting = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, recoverySubmitting: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.recoverySubmitting) : v })), []);
     const setView = useCallback((v: React.SetStateAction<View>) => setUiState(p => ({ ...p, view: typeof v === 'function' ? (v as (prev: View) => View)(p.view) : v })), []);
     const setSync = useCallback((v: React.SetStateAction<SyncState>) => setUiState(p => ({ ...p, sync: typeof v === 'function' ? (v as (prev: SyncState) => SyncState)(p.sync) : v })), []);
+    // One wrapper for every auto-hiding sync-banner message: same surface
+    // (sync state, not toast) and per-call duration as before. Returns the
+    // hide timer so effect call sites can still clear it on teardown.
+    const showSyncStatus = useCallback((message: string, type: SyncState['type'], durationMs: number): ReturnType<typeof setTimeout> => {
+        setSync({ visible: true, message, type });
+        return setTimeout(() => setSync(s => ({ ...s, visible: false })), durationMs);
+    }, [setSync]);
     const setShowPasswordRecoveryModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showPasswordRecoveryModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showPasswordRecoveryModal) : v })), []);
     const setShowLoginModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showLoginModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showLoginModal) : v })), []);
     const setShowPdfStyleModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showPdfStyleModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showPdfStyleModal) : v })), []);
@@ -292,7 +323,7 @@ const App: React.FC = () => {
         }
         return null;
     }, [supabaseUser]);
-    const [estimates, setEstimates] = useState<Estimate[]>([]);
+    const [estimates, setEstimates, estimatesRef] = useTrackedState<Estimate[]>([]);
     const isEditorDraftLatestVersion = useMemo(() => {
         if (!editorDraft) return true;
         const chain = estimates.filter(item => String(item.estimateNumber) === String(editorDraft.estimateNumber));
@@ -300,12 +331,10 @@ const App: React.FC = () => {
         const latest = chain.reduce((current, item) => item.version > current.version ? item : current);
         return latest.id === editorDraft.id;
     }, [editorDraft, estimates]);
-    const [templates, setTemplates] = useState<ProjectTemplate[]>([]);
-    const [materials, setMaterials] = useState<Material[]>([]);
-    const materialsRef = useRef<Material[]>(materials);
-    materialsRef.current = materials;
-    const [works, setWorks] = useState<Work[]>([]);
-    const [bundles, setBundles] = useState<WorkBundle[]>([]);
+    const [templates, setTemplates, templatesRef] = useTrackedState<ProjectTemplate[]>([]);
+    const [materials, setMaterials, materialsRef] = useTrackedState<Material[]>([]);
+    const [works, setWorks, worksRef] = useTrackedState<Work[]>([]);
+    const [bundles, setBundles, bundlesRef] = useTrackedState<WorkBundle[]>([]);
     const [sectionsDocument, setSectionsDocument] = useState<EstimateSectionsDocument>(() => createEstimateSectionsDocument('local'));
     const [sectionsLoading, setSectionsLoading] = useState(true);
     const [sectionsError, setSectionsError] = useState<string | null>(null);
@@ -318,7 +347,7 @@ const App: React.FC = () => {
         bundles: false,
     });
     const [wikiLoaded, setWikiLoaded] = useState(false);
-    const [dataHashes, setDataHashes] = useState<Record<string, string>>({});
+    const [dataHashes, setDataHashes, dataHashesRef] = useTrackedState<Record<string, string>>({});
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
     const [isOfflineChangesOpen, setIsOfflineChangesOpen] = useState(false);
     const [appUpdateInfo, setAppUpdateInfo] = useState<{ version: string } | null>(null);
@@ -343,48 +372,66 @@ const App: React.FC = () => {
     });
 
     const needsReload = useCallback((key: string, data: unknown): boolean => {
-        const currentHash = hashData(data);
+        const currentHash = memoizedFingerprint(data);
         const savedHash = dataHashes[key];
         return savedHash !== currentHash;
     }, [dataHashes]);
 
-    const handleCacheUpdate = useCallback((detail: { key: CacheTableKey; data: unknown[] }) => {
-        const nextHash = hashData(detail.data);
-        if (dataHashes[detail.key] === nextHash) return;
+    // Shared tail for estimate list updates (cache events and history load):
+    // normalize version chains, then persist only when normalization changed
+    // something.
+    const applyNormalizedEstimates = useCallback((incoming: Estimate[]): Promise<void> => {
+        const { normalized, changed } = normalizeEstimateChains(incoming);
+        setEstimates(normalized);
+        return changed ? saveEstimates(normalized) : Promise.resolve();
+    }, [setEstimates]);
 
-        if (detail.key === 'estimates') {
-            if (saveInFlightRef.current) return;
-            const loaded = detail.data as Estimate[];
-            const { normalized, changed } = normalizeEstimateChains(loaded);
-            setEstimates(normalized);
-            setLoadedFlags(prev => ({ ...prev, estimates: true }));
-            setDataHashes(prev => ({ ...prev, estimates: hashData(loaded) }));
-            if (changed) {
-                void saveEstimates(normalized);
-            }
-            return;
-        }
-
+    const handleCacheUpdate = useCallback((detail: { key: CacheTableKey; data: unknown[]; partial?: boolean }) => {
         if (detail.key === 'estimate_sections') {
             const loaded = detail.data[0] as EstimateSectionsDocument | undefined;
             if (supabaseUser && loaded?.id === supabaseUser.id) setSectionsDocument(normalizeEstimateSectionsDocument(loaded, supabaseUser.id));
             return;
         }
 
-        const setterMap: Record<string, [React.Dispatch<React.SetStateAction<unknown>>, string]> = {
-            templates: [setTemplates as React.Dispatch<React.SetStateAction<unknown>>, 'templates'],
-            materials: [setMaterials as React.Dispatch<React.SetStateAction<unknown>>, 'materials'],
-            works: [setWorks as React.Dispatch<React.SetStateAction<unknown>>, 'works'],
-            bundles: [setBundles as React.Dispatch<React.SetStateAction<unknown>>, 'bundles'],
+        const previousHash = dataHashesRef.current[detail.key];
+        // The initial load reads the whole table including confirmations.
+        if (detail.partial && previousHash === undefined) return;
+
+        const resolveUpdate = <T extends { id: string },>(current: T[]): T[] =>
+            detail.partial ? mergePartialRecordsById(current, detail.data as T[]) : detail.data as T[];
+        const acceptUpdate = (next: unknown[]): boolean => {
+            const nextHash = memoizedFingerprint(next);
+            if (previousHash === nextHash) return false;
+            setLoadedFlags(prev => ({ ...prev, [detail.key]: true }));
+            setDataHashes(prev => ({ ...prev, [detail.key]: nextHash }));
+            return true;
         };
-        const entry = setterMap[detail.key];
-        if (entry) {
-            const [setter, flag] = entry;
-            setter(detail.data);
-            setLoadedFlags(prev => ({ ...prev, [flag]: true }));
-            setDataHashes(prev => ({ ...prev, [flag]: hashData(detail.data) }));
+        const updateCatalog = <T extends { id: string },>(current: T[], set: (next: T[]) => void) => {
+            const next = resolveUpdate(current);
+            if (acceptUpdate(next)) set(next);
+        };
+
+        switch (detail.key) {
+            case 'estimates': {
+                if (saveInFlightRef.current) return;
+                const next = resolveUpdate(estimatesRef.current);
+                if (acceptUpdate(next)) void applyNormalizedEstimates(next);
+                return;
+            }
+            case 'templates':
+                updateCatalog(templatesRef.current, setTemplates);
+                return;
+            case 'materials':
+                updateCatalog(materialsRef.current, setMaterials);
+                return;
+            case 'works':
+                updateCatalog(worksRef.current, setWorks);
+                return;
+            case 'bundles':
+                updateCatalog(bundlesRef.current, setBundles);
+                return;
         }
-    }, [dataHashes, supabaseUser]);
+    }, [applyNormalizedEstimates, bundlesRef, dataHashesRef, estimatesRef, materialsRef, setBundles, setDataHashes, setMaterials, setTemplates, setWorks, supabaseUser, templatesRef, worksRef]);
 
     useEffect(() => {
         let active = true;
@@ -416,7 +463,7 @@ const App: React.FC = () => {
         if (typeof window === 'undefined') return;
         const handler = (event: Event) => {
             const custom = event as CustomEvent;
-            const detail = custom.detail as { key: CacheTableKey; data: unknown[] } | undefined;
+            const detail = custom.detail as { key: CacheTableKey; data: unknown[]; partial?: boolean } | undefined;
             if (!detail || !detail.key || !Array.isArray(detail.data)) return;
             handleCacheUpdate(detail);
         };
@@ -606,7 +653,7 @@ const App: React.FC = () => {
             localStorage.removeItem(RECOVERY_STORAGE_KEY);
         } catch {
         }
-    }, [setOfflineMode, setRecoveryRequired, setSupabaseUser]);
+    }, [setOfflineMode, setRecoveryRequired, setSupabaseUser, setBundles, setDataHashes, setEstimates, setMaterials, setTemplates, setWorks]);
 
     useEffect(() => {
         const sb = supabase;
@@ -843,8 +890,7 @@ const App: React.FC = () => {
     const handleUpdatePassword = useCallback(async () => {
         if (!supabase) return;
         if (!recoveryPassword) {
-            setSync({ visible: true, message: 'Введите новый пароль', type: 'error' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
+            showSyncStatus('Введите новый пароль', 'error', 3000);
             return;
         }
         setRecoverySubmitting(true);
@@ -861,37 +907,29 @@ const App: React.FC = () => {
                 // ignore
             }
             setRecoveryPassword('');
-            setSync({ visible: true, message: 'Пароль обновлен. Войдите заново.', type: 'success' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            showSyncStatus('Пароль обновлен. Войдите заново.', 'success', 4000);
             await supabase.auth.signOut();
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Ошибка обновления пароля';
-            setSync({ visible: true, message, type: 'error' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            showSyncStatus(message, 'error', 4000);
         } finally {
             setRecoverySubmitting(false);
         }
-    }, [recoveryPassword, setRecoveryPassword, setRecoveryRequired, setRecoverySubmitting, setShowPasswordRecoveryModal, setSync]);
+    }, [recoveryPassword, setRecoveryPassword, setRecoveryRequired, setRecoverySubmitting, setShowPasswordRecoveryModal, showSyncStatus]);
 
     // Show toast after successful offline sync
     useEffect(() => {
         if (offlineSync.syncedCount > 0) {
-            setSync({ visible: true, message: `Данные синхронизированы (${offlineSync.syncedCount})`, type: 'success' });
-            const timer = setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            const timer = showSyncStatus(`Данные синхронизированы (${offlineSync.syncedCount})`, 'success', 4000);
             return () => clearTimeout(timer);
         }
-    }, [offlineSync.syncedCount, setSync]);
+    }, [offlineSync.syncedCount, showSyncStatus]);
 
     useEffect(() => {
         if (offlineSync.syncStatus !== 'error') return;
-        setSync({
-            visible: true,
-            message: 'Синхронизация не завершена. Изменения сохранены локально — повторите после восстановления связи.',
-            type: 'error',
-        });
-        const timer = setTimeout(() => setSync(current => ({ ...current, visible: false })), 5000);
+        const timer = showSyncStatus('Синхронизация не завершена. Изменения сохранены локально — повторите после восстановления связи.', 'error', 5000);
         return () => clearTimeout(timer);
-    }, [offlineSync.syncStatus, setSync]);
+    }, [offlineSync.syncStatus, showSyncStatus]);
 
     useEffect(() => {
         if (!supabaseUser || offlineSync.legacyPendingCount === 0) {
@@ -945,44 +983,38 @@ const App: React.FC = () => {
             if (loadedEstimates.length === 0) {
                 setEstimates([]);
             } else {
-                const { normalized, changed } = normalizeEstimateChains(loadedEstimates);
-                setEstimates(normalized);
-                if (changed) {
-                    await saveEstimates(normalized);
-                }
+                await applyNormalizedEstimates(loadedEstimates);
             }
             setTemplates(loadedTemplates || []);
             setLoadedFlags(prev => ({ ...prev, estimates: true, templates: true }));
             setDataHashes(prev => ({
                 ...prev,
-                estimates: hashData(loadedEstimates),
-                templates: hashData(loadedTemplates || []),
+                estimates: memoizedFingerprint(loadedEstimates),
+                templates: memoizedFingerprint(loadedTemplates || []),
             }));
             if (showToast) {
-                setSync({ visible: true, message: 'Данные загружены', type: 'success' });
-                setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
+                showSyncStatus('Данные загружены', 'success', 3000);
             }
         } catch (error) {
             console.error('Failed to load history data:', error);
             setEstimates([]);
             setTemplates([]);
             if (showToast) {
-                setSync({ visible: true, message: 'Ошибка загрузки данных', type: 'error' });
-                setTimeout(() => setSync(s => ({ ...s, visible: false })), 5000);
+                showSyncStatus('Ошибка загрузки данных', 'error', 5000);
             }
         } finally {
             setIsLoading(false);
         }
-    }, [estimates, loadedFlags.estimates, loadedFlags.templates, setSync, templates]);
+    }, [applyNormalizedEstimates, estimates, loadedFlags.estimates, loadedFlags.templates, showSyncStatus, templates, setDataHashes, setEstimates, setTemplates]);
 
     const refreshHouseEstimates = useCallback(async (): Promise<Estimate[]> => {
         const loadedEstimates = await refreshEstimatesFromRemote();
         const { normalized } = normalizeEstimateChains(loadedEstimates);
         setEstimates(normalized);
         setLoadedFlags(previous => ({ ...previous, estimates: true }));
-        setDataHashes(previous => ({ ...previous, estimates: hashData(loadedEstimates) }));
+        setDataHashes(previous => ({ ...previous, estimates: memoizedFingerprint(loadedEstimates) }));
         return normalized;
-    }, []);
+    }, [setDataHashes, setEstimates]);
 
     const loadMaterialsData = useCallback(async () => {
         if (loadedFlags.materials) return;
@@ -990,12 +1022,12 @@ const App: React.FC = () => {
             const loaded = await loadMaterials();
             setMaterials(loaded || []);
             setLoadedFlags(prev => ({ ...prev, materials: true }));
-            setDataHashes(prev => ({ ...prev, materials: hashData(loaded || []) }));
+            setDataHashes(prev => ({ ...prev, materials: memoizedFingerprint(loaded || []) }));
         } catch (error) {
             console.error('Failed to load materials:', error);
             setMaterials([]);
         }
-    }, [loadedFlags.materials]);
+    }, [loadedFlags.materials, setDataHashes, setMaterials]);
 
     const loadWorksData = useCallback(async () => {
         if (loadedFlags.works) return;
@@ -1003,12 +1035,12 @@ const App: React.FC = () => {
             const loaded = await loadWorks();
             setWorks(loaded || []);
             setLoadedFlags(prev => ({ ...prev, works: true }));
-            setDataHashes(prev => ({ ...prev, works: hashData(loaded || []) }));
+            setDataHashes(prev => ({ ...prev, works: memoizedFingerprint(loaded || []) }));
         } catch (error) {
             console.error('Failed to load works:', error);
             setWorks([]);
         }
-    }, [loadedFlags.works]);
+    }, [loadedFlags.works, setDataHashes, setWorks]);
 
     const loadBundlesData = useCallback(async () => {
         if (loadedFlags.bundles) return;
@@ -1016,12 +1048,12 @@ const App: React.FC = () => {
             const loaded = await loadBundles();
             setBundles(loaded || []);
             setLoadedFlags(prev => ({ ...prev, bundles: true }));
-            setDataHashes(prev => ({ ...prev, bundles: hashData(loaded || []) }));
+            setDataHashes(prev => ({ ...prev, bundles: memoizedFingerprint(loaded || []) }));
         } catch (error) {
             console.error('Failed to load bundles:', error);
             setBundles([]);
         }
-    }, [loadedFlags.bundles]);
+    }, [loadedFlags.bundles, setBundles, setDataHashes]);
 
     useEffect(() => {
         if (!isAuthenticated) return;
@@ -1319,6 +1351,7 @@ const App: React.FC = () => {
         setPendingView,
         setViewAfterSave,
         setSync,
+        showSyncStatus,
     });
 
     const handleEditPendingEstimate = useCallback((estimateId: string) => {
@@ -1484,7 +1517,7 @@ const App: React.FC = () => {
             setShowPdfStyleModal(false);
             setPendingExportEstimate(null);
         }
-    }, [pendingExportEstimate, setPendingExportEstimate, setShowContractNameModal, setShowPdfStyleModal]);
+    }, [pendingExportEstimate, setPendingExportEstimate, setShowContractNameModal, setShowPdfStyleModal, materialsRef]);
 
     const handleContractNameConfirm = useCallback(async (contractName: string) => {
         if (!pendingExportEstimate) return;
@@ -1568,15 +1601,21 @@ const App: React.FC = () => {
         const { materialName, workName } = params;
         if (!materialName && !workName) return;
 
+        // Match the way pricing matches: normalize both sides (case,
+        // whitespace) so every draft with the same catalog name gets flagged.
+        const normalizedMaterial = materialName ? normalizeKey(materialName) : '';
+        const normalizedWork = workName ? normalizeKey(workName) : '';
+        if (!normalizedMaterial && !normalizedWork) return;
+
         setEstimates(prevEstimates => {
             let changed = false;
             const nextEstimates = prevEstimates.map(estimate => {
                 if (estimate.status !== EstimateStatus.DRAFT) return estimate;
                 const hasMatch = estimate.items.some(item => {
-                    if (materialName && item.subgroup === EstimateSubgroup.MATERIALS && item.name === materialName) {
+                    if (normalizedMaterial && item.subgroup === EstimateSubgroup.MATERIALS && normalizeKey(item.name) === normalizedMaterial) {
                         return true;
                     }
-                    if (workName && item.subgroup === EstimateSubgroup.WORKS && item.name === workName) {
+                    if (normalizedWork && item.subgroup === EstimateSubgroup.WORKS && normalizeKey(item.name) === normalizedWork) {
                         return true;
                     }
                     return false;
@@ -1590,7 +1629,7 @@ const App: React.FC = () => {
             }
             return nextEstimates;
         });
-    }, []);
+    }, [setEstimates]);
 
     // Allow services to upsert materials and notify UI without prop plumbing
     useEffect(() => {
@@ -1621,7 +1660,7 @@ const App: React.FC = () => {
 
         window.addEventListener('kmobn:materials-upsert', handler as any);
         return () => window.removeEventListener('kmobn:materials-upsert', handler as any);
-    }, [markDraftEstimatesWithPriceChange]);
+    }, [markDraftEstimatesWithPriceChange, setMaterials]);
 
     const handleAddMaterial = useCallback(async (
         name: string,
@@ -1641,7 +1680,6 @@ const App: React.FC = () => {
                 const updated = { ...existing, price: price ?? existing.price, link: link ?? existing.link, boardSpec: boardSpec ?? existing.boardSpec, lastUpdated: new Date().toISOString() };
                 try {
                     await updateMaterial(updated);
-                    materialsRef.current = materialsRef.current.map(m => m.id === existing.id ? updated : m);
                     setMaterials(prev => prev.map(m => m.id === existing.id ? updated : m));
                     markDraftEstimatesWithPriceChange({ materialName: existing.name });
                     return updated;
@@ -1667,7 +1705,6 @@ const App: React.FC = () => {
         };
         try {
             await addMaterial(newMaterial);
-            materialsRef.current = [...materialsRef.current, newMaterial];
             setMaterials(prev => [...prev, newMaterial]);
             return newMaterial;
         } catch (error) {
@@ -1675,7 +1712,7 @@ const App: React.FC = () => {
             alert('Не удалось добавить материал.');
             return null;
         }
-    }, [markDraftEstimatesWithPriceChange]);
+    }, [markDraftEstimatesWithPriceChange, materialsRef, setMaterials]);
 
     const handleForceAddMaterial = useCallback(async (material: Material) => {
         try {
@@ -1684,7 +1721,7 @@ const App: React.FC = () => {
         } catch (error) {
             console.error('Failed to force add material:', error);
         }
-    }, []);
+    }, [setMaterials]);
 
     const handleEditMaterialPrice = useCallback(async (materialId: string, newPrice: number) => {
         const material = materials.find(m => m.id === materialId);
@@ -1705,7 +1742,7 @@ const App: React.FC = () => {
             console.error('Failed to update material price:', error);
             alert('Не удалось обновить цену материала.');
         }
-    }, [materials, markDraftEstimatesWithPriceChange]);
+    }, [materials, markDraftEstimatesWithPriceChange, setMaterials]);
 
     const handleEditMaterialLink = useCallback(async (materialId: string, link?: string) => {
         const material = materials.find(m => m.id === materialId);
@@ -1720,7 +1757,7 @@ const App: React.FC = () => {
             console.error('Failed to update material link:', error);
             alert('Не удалось обновить ссылку материала.');
         }
-    }, [materials]);
+    }, [materials, setMaterials]);
 
     const handleDeleteMaterial = useCallback(async (materialId: string) => {
         if (window.confirm('Вы уверены, что хотите удалить этот материал?')) {
@@ -1732,7 +1769,7 @@ const App: React.FC = () => {
                 alert('Не удалось удалить материал.');
             }
         }
-    }, []);
+    }, [setMaterials]);
 
     const handleAddWork = useCallback(async (name: string, category: SectionId, price: number): Promise<Work | null> => {
         const normalizedInput = normalizeKey(name);
@@ -1774,7 +1811,7 @@ const App: React.FC = () => {
             alert('Не удалось добавить работу.');
             return null;
         }
-    }, [works, markDraftEstimatesWithPriceChange]);
+    }, [works, markDraftEstimatesWithPriceChange, setWorks]);
 
     const handleForceAddWork = useCallback(async (work: Work) => {
         try {
@@ -1783,7 +1820,7 @@ const App: React.FC = () => {
         } catch (error) {
             console.error('Failed to force add work:', error);
         }
-    }, []);
+    }, [setWorks]);
 
     const handleUpdateWork = useCallback(async (work: Work) => {
         try {
@@ -1794,7 +1831,7 @@ const App: React.FC = () => {
             console.error('Failed to update work:', error);
             alert('Не удалось обновить работу.');
         }
-    }, [markDraftEstimatesWithPriceChange]);
+    }, [markDraftEstimatesWithPriceChange, setWorks]);
 
     const handleDeleteWork = useCallback(async (workId: string) => {
         if (window.confirm('Вы уверены, что хотите удалить эту работу?')) {
@@ -1806,7 +1843,7 @@ const App: React.FC = () => {
                 alert('Не удалось удалить работу.');
             }
         }
-    }, []);
+    }, [setWorks]);
 
     const findMaterialDuplicates = useCallback(async () => {
         return findDuplicates(await loadMaterials());
@@ -1831,7 +1868,7 @@ const App: React.FC = () => {
             alert('Не удалось обновить материал.');
             return null;
         }
-    }, [materials, markDraftEstimatesWithPriceChange]);
+    }, [materials, markDraftEstimatesWithPriceChange, setMaterials]);
 
     const findWorkDuplicates = useCallback(async () => {
         return findDuplicates(await loadWorks());
@@ -1863,7 +1900,7 @@ const App: React.FC = () => {
             console.error('Failed to merge duplicates:', error);
             throw error;
         }
-    }, []);
+    }, [setMaterials, setWorks]);
 
     const handleAddBundle = useCallback(async (bundle: WorkBundle) => {
         const nextBundle: WorkBundle = {
@@ -1877,7 +1914,7 @@ const App: React.FC = () => {
             console.error('Failed to add bundle:', error);
             alert('Не удалось добавить комплект.');
         }
-    }, []);
+    }, [setBundles]);
 
     const handleUpdateBundle = useCallback(async (bundle: WorkBundle) => {
         try {
@@ -1887,7 +1924,7 @@ const App: React.FC = () => {
             console.error('Failed to update bundle:', error);
             alert('Не удалось обновить комплект.');
         }
-    }, []);
+    }, [setBundles]);
 
     const handleDeleteBundle = useCallback(async (bundleId: string) => {
         if (window.confirm('Вы уверены, что хотите удалить этот комплект?')) {
@@ -1899,7 +1936,7 @@ const App: React.FC = () => {
                 alert('Не удалось удалить комплект.');
             }
         }
-    }, []);
+    }, [setBundles]);
 
 
     const estimateContextValue = useMemo(() => ({
@@ -1935,6 +1972,8 @@ const App: React.FC = () => {
         view,
         estimates,
         templates,
+        setEstimates,
+        setTemplates,
         currentEstimate,
         setView,
         setCurrentEstimate,

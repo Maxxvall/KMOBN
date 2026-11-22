@@ -26,8 +26,6 @@ import {
 } from './database';
 
 // ─── Обмен сметами и данными: импорт/экспорт ────────────────────────────────
-// Выделено из database.ts (этап 8): чистый домен переноса данных поверх
-// локальных операций записи; поведение сохранено 1:1.
 
 export const SCHEMA_VERSION = 3;
 
@@ -43,7 +41,7 @@ type EstimateTransferPayload = {
 };
 
 export type ImportedSharedEstimate = {
-  estimate: Estimate;
+  estimate: Estimate & { serverRevision: number };
   numberChanged: boolean;
 };
 
@@ -104,6 +102,25 @@ export const parseEstimateTransfer = (payloadText: string): Estimate => {
   return estimate;
 };
 
+type ImportedSyncFields = {
+  serverRevision?: unknown;
+  baseDocument?: unknown;
+  operationId?: unknown;
+  syncConflict?: unknown;
+};
+
+// Imported rows start with the destination account's revision and fresh sync metadata.
+export const stripImportedServiceFields = <T extends object>(record: T, serverRevision = 0) => {
+  const {
+    serverRevision: _serverRevision,
+    baseDocument: _baseDocument,
+    operationId: _operationId,
+    syncConflict: _syncConflict,
+    ...rest
+  } = record as T & ImportedSyncFields;
+  return { ...rest, serverRevision };
+};
+
 export const prepareSharedEstimateImport = (
   source: Estimate,
   existingEstimateNumbers: string[],
@@ -119,7 +136,7 @@ export const prepareSharedEstimateImport = (
 
   return {
     numberChanged,
-    estimate: {
+    estimate: stripImportedServiceFields({
       ...source,
       labelIds: [],
       labelSnapshots: undefined,
@@ -136,7 +153,7 @@ export const prepareSharedEstimateImport = (
         ...item,
         id: `${newId}-item-${index + 1}`,
       })),
-    },
+    }),
   };
 };
 
@@ -388,12 +405,12 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
         };
       }
       templatesAdded++;
-      return {
+      return stripImportedServiceFields({
         ...t,
         id: generateId('template'),
         items: Array.isArray(t.items) ? t.items : [],
         sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : makeSortOrder(index),
-      };
+      });
     });
 
     const estimates = rawEstimates.map((e, index) => {
@@ -401,8 +418,9 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
       const key = `${e.estimateNumber}::v${e.version ?? 0}`;
       const existing = existingEstimateByNumberVersion.get(key);
       const merged = mergeImportedEstimate(e, existing);
+      const revision = (existing as ImportedSyncFields | undefined)?.serverRevision;
       return {
-        ...merged,
+        ...stripImportedServiceFields(merged, typeof revision === 'number' ? revision : 0),
         // Входящая запись без поля labelIds (легаси-бэкап) сохраняет метки существующей
         // записи; явный [] по-прежнему снимает метки («incoming wins»).
         labelIds: Array.isArray(e.labelIds) ? getEffectiveEstimateLabelIds(e, labelsDocument) : (existing?.labelIds ?? []),
@@ -433,11 +451,11 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
         };
       }
       materialsAdded++;
-      return {
+      return stripImportedServiceFields({
         ...m,
         id: generateId('material'),
         sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : makeSortOrder(index),
-      };
+      });
     });
 
     const dedupMaterialsResult = dedupById(materials);
@@ -459,11 +477,11 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
         };
       }
       worksAdded++;
-      return {
+      return stripImportedServiceFields({
         ...w,
         id: generateId('work'),
         sortOrder: typeof w.sortOrder === 'number' ? w.sortOrder : makeSortOrder(index),
-      };
+      });
     });
 
     const dedupWorksResult = dedupById(works);
@@ -485,12 +503,12 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
         };
       }
       bundlesAdded++;
-      return {
+      return stripImportedServiceFields({
         ...b,
         id: generateId('bundle'),
         items: Array.isArray(b.items) ? b.items : [],
         sortOrder: typeof b.sortOrder === 'number' ? b.sortOrder : makeSortOrder(index),
-      };
+      });
     });
 
     const dedupBundlesResult = dedupById(bundles);

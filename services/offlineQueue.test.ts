@@ -160,10 +160,11 @@ describe('offlineQueue', () => {
       lastError: 'network unavailable',
       failureKind: 'transient',
     });
-    expect(Date.parse(changes[0].nextRetryAt ?? '')).toBeGreaterThan(Date.parse(changes[0].lastAttemptAt ?? ''));
+    expect(changes[0].lastAttemptAt).toBeDefined();
+    expect(Number.isNaN(Date.parse(changes[0].lastAttemptAt ?? ''))).toBe(false);
   });
 
-  it('records permanent failures without an automatic retry time', async () => {
+  it('records permanent failures with attempt metadata only', async () => {
     await offlineQueue.enqueueUpserts(TEST_USERS[0], 'materials', [material('material-1', 100)]);
     const pending = (await offlineQueue.getAll(TEST_USERS[0]))[0];
 
@@ -171,7 +172,8 @@ describe('offlineQueue', () => {
 
     const [failed] = await offlineQueue.getAll(TEST_USERS[0]);
     expect(failed.failureKind).toBe('permanent');
-    expect(failed.nextRetryAt).toBeUndefined();
+    expect(failed.lastAttemptAt).toBeDefined();
+    expect(failed.lastError).toBe('RLS denied');
   });
 
   it('accepts every CacheTableKey', async () => {
@@ -181,7 +183,7 @@ describe('offlineQueue', () => {
       'materials',
       'works',
       'bundles',
-      'salary_calculations',
+      'estimate_sections',
     ];
 
     for (const table of tables) {

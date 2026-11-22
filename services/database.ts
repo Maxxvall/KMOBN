@@ -10,7 +10,8 @@ import {
   upsertCachedRecords,
 } from './indexedDbCache';
 import { offlineQueue, type PendingChange } from './offlineQueue';
-import { hashData } from './hashing';
+import { fingerprintData } from './hashing';
+import { normalizeStableOrder } from './recordOrder';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
 import { prepareEstimateSectionsDocumentForSave } from './estimateSections';
@@ -31,53 +32,6 @@ const ensureSupabase = () => {
     throw new Error('Supabase is not configured');
   }
   return supabase;
-};
-
-const parseTimestamp = (value?: string | null): number | null => {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const inferStableSortOrder = (record: Record<string, unknown>, fallbackIndex: number): number => {
-  if (typeof record.sortOrder === 'number' && Number.isFinite(record.sortOrder)) {
-    return record.sortOrder;
-  }
-
-  const createdAtTs = parseTimestamp(typeof record.created_at === 'string' ? record.created_at : null);
-  if (createdAtTs != null) return createdAtTs;
-
-  const updatedAtTs = parseTimestamp(typeof record.updated_at === 'string' ? record.updated_at : null);
-  if (updatedAtTs != null) return updatedAtTs;
-
-  const lastUpdatedTs = parseTimestamp(typeof record.lastUpdated === 'string' ? record.lastUpdated : null);
-  if (lastUpdatedTs != null) return lastUpdatedTs;
-
-  const dateTs = parseTimestamp(typeof record.date === 'string' ? record.date : null);
-  if (dateTs != null) return dateTs;
-
-  const idText = typeof record.id === 'string' ? record.id : '';
-  const numericIdPart = Number((idText.match(/(\d{8,})/) || [])[1]);
-  if (Number.isFinite(numericIdPart)) return numericIdPart;
-
-  return fallbackIndex;
-};
-
-const compareByStableOrder = <T extends { id: string }>(left: T, right: T): number => {
-  const leftSortOrder = inferStableSortOrder(left as unknown as Record<string, unknown>, 0);
-  const rightSortOrder = inferStableSortOrder(right as unknown as Record<string, unknown>, 0);
-  if (leftSortOrder !== rightSortOrder) return leftSortOrder - rightSortOrder;
-
-  const leftCreatedAt = parseTimestamp((left as unknown as { created_at?: string | null }).created_at ?? null) ?? 0;
-  const rightCreatedAt = parseTimestamp((right as unknown as { created_at?: string | null }).created_at ?? null) ?? 0;
-  if (leftCreatedAt !== rightCreatedAt) return leftCreatedAt - rightCreatedAt;
-
-  return String(left.id).localeCompare(String(right.id));
-};
-
-export const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
-  if (records.length <= 1) return records;
-  return [...records].sort(compareByStableOrder);
 };
 
 const findCachedUserId = (): string | null => {
@@ -514,9 +468,10 @@ const applyPendingChanges = <T extends { id: string }>(
   return [...merged.values()];
 };
 
+// Comparison-only use: a fingerprint is enough to tell "changed" from "same".
 const getChangedRecords = <T extends { id: string }>(cached: T[], records: T[]): T[] => {
-  const cachedHashes = new Map(cached.map(record => [record.id, hashData(record)]));
-  return records.filter(record => cachedHashes.get(record.id) !== hashData(record));
+  const cachedHashes = new Map(cached.map(record => [record.id, fingerprintData(record)]));
+  return records.filter(record => cachedHashes.get(record.id) !== fingerprintData(record));
 };
 
 export const saveLocalRecords = async <T extends { id: string }>(table: CacheTableKey, records: T[]): Promise<void> => {

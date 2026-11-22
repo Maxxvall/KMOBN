@@ -15,8 +15,8 @@
 | Команда | Что делает |
 |---------|------------|
 | `npm install` | Установить зависимости |
-| `npm run check` | Основная приёмка: typecheck + lint + vitest (472/472 теста, 61 файл) |
-| `npm run typecheck` / `npm run lint` / `npm run test` | По отдельности; линт 0 ошибок / 0 предупреждений |
+| `npm run check` | Основная приёмка и CI: typecheck + lint + vitest |
+| `npm run typecheck` / `npm run lint` / `npm run test` | Отдельные проверки |
 | `npx vitest run services/dataTransfer.test.ts` | Один тест-файл (подставить нужный путь) |
 | `npm run test:e2e:electron` | Electron E2E (сборка build:electron:e2e + playwright -c playwright.electron.config.ts; спеки в `e2e/`) |
 
@@ -27,7 +27,7 @@
 - `electron/`: `main.ts` — лог рендерера в `userData/app.log` (fire-and-forget) и автоапдейт electron-updater (`autoDownload=false`); `types.ts` — контракт `ElectronAPI` (`window.electronAPI`); `preload.ts` — contextIsolation.
 - `components/estimate-editor/` — подкомпоненты редактора смет + `sectionReorderGesture` (удержание ~400 мс переносит раздел).
 - `supabase/migrations/` + `supabase/tests/*.sql` — SQL-регрессии RPC (bootstrap/fixtures рядом).
-- `docs/*.md` — планы и гайды по подсистемам.
+- Архитектура и поток данных — `docs/architecture.md`, термины — `CONTEXT.md`, решения — `docs/adr/`.
 - `services/sqmAnalytics.ts` — домен «стоимость м² по комплектациям»: classifySqmCompletion (ступени: сохранённый sqmPackage → снапшот → фраза в типе строения/«Пояснении»), buildSqmAnalytics (медиана/диапазон/количество), панель «Требуют проверки»; тесты рядом.
 - `components/analytics/SqmByPackageSection.tsx` — UI блока «Стоимость м² по комплектациям» в Аналитике (режим «Обзор»); подтверждения пишутся ТОЛЬКО в поля сметы sqmPackage/sqmAreaBase/sqmConfirmedAt через колбэк App, цены/площади не меняются.
 
@@ -37,6 +37,10 @@
 - Компоненты пишутся как `React.FC` — соблюдать локальный стиль.
 - Tailwind-кастомы `max-w-8xl` (1500px) и экран `3xl` (1920px) объявлены в `tailwind.config.js` — в дефолтном Tailwind их нет.
 - Офлайн-ядро outbox-first: `services/offlineSync.ts`, `offlineQueue.ts`, `indexedDbCache.ts` — не трогать без нужды; `runtimeCaching: []` в vite.config.ts пуст намеренно (SW не должен переигрывать устаревшие строки Supabase).
+- Общий итог сметы считает `calculateEstimateTotal` (`services/estimatePricing.ts`) по сохранённым итогам строк. При изменении количества итог строки рассчитывается после округления количества.
+- Редактор хранит дробный ввод количества и цены как текст до подтверждения. Черновик передаётся в App с задержкой 300 мс и сбросом при потере фокуса или размонтировании. При ширине 768 px и выше список и редактор монтируют десктопный вариант, на меньшей ширине — мобильный.
+- Сохранение и архивация смет идут через одну очередь в `hooks/useEstimateCrud.ts`. Импорт очищает метаданные синхронизации в `services/dataTransfer.ts`.
+- `kmobn:cache-update` передаёт полный снимок или частичное обновление по id (`detail.partial`). Хэши сравнения и поле кэша `hash` используют `fingerprintData`, проверка дублей — полный `hashData`.
 - `xlsx` pinned на CDN-тарбол в package.json — не заменять на npm-версию.
 - Кровельная математика: `roofFactor` (карта по форме крыши) и `ROOF_AREA_PITCH_FACTOR = 1.15` (площадь кровли) в `services/houseCalculator.ts` — две разные величины, не смешивать.
 - Распознавание комплектации из текста: «тёплый контур без отделки» — это определение warm-shell, НЕ отрицание; конфликтные отрицания («под ключ без инженерии») и несколько разных пакетов → «требует проверки», не угадывать; «каркас» — технология, не комплектация, подсказки не даёт. Матчеры — общий справочник HOUSE_PACKAGE_MATCHERS в services/houseCalculator.ts, не дублировать ключевые слова.
@@ -51,7 +55,7 @@
 ## Как здесь работает Autopilot
 
 Сборка ведётся навыком `/autopilot`. Требования, спецификация и таски — в `.autopilot/`.
-Прогресс — `.autopilot/dashboard.html`. Требование из `manifest.md` может снять
+Текущие договорённости и открытые пункты — `.autopilot/PROGRESS.md`, обзор сборок — `.autopilot/dashboard.html`. Требование из `manifest.md` может снять
 только пользователь. Прерванную сборку продолжает «продолжи автопилот».
 
 ### Правка без автопилота
@@ -60,7 +64,7 @@
 
 Сначала прочитай:
 1. `.autopilot/PROGRESS.md` — что не доделано, известные баги, о чём договорились с пользователем.
-2. Что правили после последней сборки: `git log --oneline "$(git log -1 --format=%h --grep='^Autopilot: сборка сдана')"..HEAD -- . ':(exclude).autopilot'`
+2. Что правили после последней сборки — первая строка таблицы в разделе «История git».
 3. Только если правка их касается: почему сделано так — `docs/adr/`; что именно просили — `manifest.md` в папке сборки (указана в начале `PROGRESS.md`).
 
 После правки:

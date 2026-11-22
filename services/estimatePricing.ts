@@ -1,5 +1,10 @@
 import { Estimate, EstimateItem, EstimateSubgroup, Material, Work, normalizeKey } from '../types';
 
+// Single owner of the estimate total: the estimate total is always the sum
+// of item totals, never a second quantity × price pass over the rows.
+export const calculateEstimateTotal = (items: EstimateItem[]): number =>
+  items.reduce((sum, item) => sum + item.total, 0);
+
 export type MaterialPriceCheck =
   | { status: 'missing' }
   | { status: 'ambiguous' }
@@ -11,27 +16,36 @@ export type MaterialPriceCheck =
     };
 
 /**
- * Prebuilt normalized-name index for checkMaterialPrice. Buckets keep every
+ * Prebuilt ID and normalized-name index for checkMaterialPrice. Buckets keep every
  * duplicate so the ambiguous case stays identical to the linear scan.
  */
-export const buildMaterialPriceIndex = (materials: Material[]): ReadonlyMap<string, Material[]> => {
-  const index = new Map<string, Material[]>();
+export type MaterialPriceIndex = {
+  byId: ReadonlyMap<string, Material>;
+  byName: ReadonlyMap<string, Material[]>;
+};
+
+export const buildMaterialPriceIndex = (materials: Material[]): MaterialPriceIndex => {
+  const byId = new Map<string, Material>();
+  const byName = new Map<string, Material[]>();
   for (const material of materials) {
+    if (!byId.has(material.id)) byId.set(material.id, material);
     const key = normalizeKey(material.name);
     if (!key) continue;
-    const bucket = index.get(key);
-    if (bucket) bucket.push(material); else index.set(key, [material]);
+    const bucket = byName.get(key);
+    if (bucket) bucket.push(material); else byName.set(key, [material]);
   }
-  return index;
+  return { byId, byName };
 };
 
 export const checkMaterialPrice = (
   item: Pick<EstimateItem, 'name' | 'price' | 'catalogMaterialId'>,
   materials: Material[],
-  nameIndex?: ReadonlyMap<string, Material[]>,
+  index?: MaterialPriceIndex,
 ): MaterialPriceCheck => {
   if (item.catalogMaterialId) {
-    const linkedMaterial = materials.find(material => material.id === item.catalogMaterialId);
+    const linkedMaterial = index
+      ? index.byId.get(item.catalogMaterialId)
+      : materials.find(material => material.id === item.catalogMaterialId);
     if (linkedMaterial) {
       return {
         status: item.price === linkedMaterial.price ? 'current' : 'outdated',
@@ -45,8 +59,8 @@ export const checkMaterialPrice = (
   const normalizedName = normalizeKey(item.name);
   if (!normalizedName) return { status: 'missing' };
 
-  const matches = nameIndex
-    ? nameIndex.get(normalizedName) ?? []
+  const matches = index
+    ? index.byName.get(normalizedName) ?? []
     : materials.filter(material => normalizeKey(material.name) === normalizedName);
   if (matches.length === 0) return { status: 'missing' };
   if (matches.length > 1) return { status: 'ambiguous' };
@@ -100,7 +114,7 @@ export const applyCatalogMaterialPrice = (
     estimate: {
       ...estimate,
       items,
-      total: items.reduce((sum, item) => sum + item.total, 0),
+      total: calculateEstimateTotal(items),
     },
     check,
     changed: true,
@@ -134,7 +148,7 @@ export const recalculateEstimateWorkPrices = (estimate: Estimate, works: Work[])
   return {
     ...estimate,
     items,
-    total: items.reduce((sum, item) => sum + item.total, 0),
+    total: calculateEstimateTotal(items),
     needsPriceUpdate: false,
   };
 };

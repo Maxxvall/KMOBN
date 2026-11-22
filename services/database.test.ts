@@ -8,6 +8,7 @@ import {
   parseEstimateTransfer,
   prepareEstimatesForExport,
   prepareSharedEstimateImport,
+  stripImportedServiceFields,
 } from './dataTransfer';
 
 const createEstimate = (id: string): Estimate => ({
@@ -48,6 +49,59 @@ describe('prepareEstimatesForExport', () => {
 
     expect(exported.houseProjectId).toBe('project-1');
     expect(exported.houseCalculationSnapshots).toEqual([]);
+  });
+});
+
+describe('stripImportedServiceFields', () => {
+  it('removes foreign sync service fields and resets the server revision', () => {
+    const imported = {
+      ...createEstimate('foreign'),
+      serverRevision: 42,
+      baseDocument: { definitions: [], order: [], serverRevision: 42 },
+      operationId: 'op-foreign',
+      syncConflict: { detectedAt: '2026-01-01T00:00:00.000Z' },
+    };
+
+    const cleaned = stripImportedServiceFields(imported);
+
+    expect(cleaned.serverRevision).toBe(0);
+    expect(cleaned).not.toHaveProperty('baseDocument');
+    expect(cleaned).not.toHaveProperty('operationId');
+    expect(cleaned).not.toHaveProperty('syncConflict');
+    expect(cleaned.estimateNumber).toBe(imported.estimateNumber);
+  });
+
+  it('returns a copy without mutating the source record', () => {
+    const imported = {
+      ...createEstimate('foreign'),
+      serverRevision: 7,
+      operationId: 'op-keep',
+    };
+
+    const cleaned = stripImportedServiceFields(imported);
+
+    expect(cleaned).not.toBe(imported);
+    expect(imported.serverRevision).toBe(7);
+    expect(imported.operationId).toBe('op-keep');
+    expect(cleaned.serverRevision).toBe(0);
+    expect(cleaned).not.toHaveProperty('operationId');
+  });
+
+  it('strips service fields from a shared-estimate import result', () => {
+    const source = {
+      ...createEstimate('shared-src'),
+      serverRevision: 11,
+      operationId: 'op-shared',
+      syncConflict: { detectedAt: '2026-02-01T00:00:00.000Z' },
+    };
+
+    const result = prepareSharedEstimateImport(source, [], new Date('2026-08-16T10:00:00.000Z'), 'imported-id');
+
+    expect(result.estimate.serverRevision).toBe(0);
+    expect(result.estimate).not.toHaveProperty('operationId');
+    expect(result.estimate).not.toHaveProperty('syncConflict');
+    expect(result.estimate).not.toHaveProperty('baseDocument');
+    expect(result.estimate.id).toBe('imported-id');
   });
 });
 

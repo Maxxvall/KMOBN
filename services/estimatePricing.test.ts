@@ -7,7 +7,7 @@ import {
   type EstimateItem,
   type Material,
 } from '../types';
-import { applyCatalogMaterialPrice, buildMaterialPriceIndex, checkMaterialPrice, recalculateEstimateWorkPrices } from './estimatePricing';
+import { applyCatalogMaterialPrice, buildMaterialPriceIndex, calculateEstimateTotal, checkMaterialPrice, recalculateEstimateWorkPrices } from './estimatePricing';
 
 const makeMaterial = (id: string, patch: Partial<Material> = {}): Material => ({
   id,
@@ -41,6 +41,30 @@ const makeEstimate = (items: EstimateItem[]): Estimate => ({
   total: items.reduce((sum, item) => sum + item.total, 0),
   buildingType: 'House',
   area: 100,
+});
+
+describe('calculateEstimateTotal', () => {
+  it('is the single total formula: the estimate total equals the sum of item totals', () => {
+    const items = [
+      makeItem({ quantity: 2, price: 700, total: 1400 }),
+      makeItem({ id: 'item-2', name: 'Плинтус', quantity: 0.5, price: 300, total: 150 }),
+      makeItem({ id: 'item-3', name: 'Доставка', quantity: 3, price: 0, total: 0 }),
+    ];
+
+    expect(calculateEstimateTotal(items)).toBe(1550);
+  });
+
+  it('returns 0 for an empty estimate', () => {
+    expect(calculateEstimateTotal([])).toBe(0);
+  });
+
+  it('does not recompute quantity × price, so a stale total still wins over a product', () => {
+    // The invariant "estimate total = Σ item.total" is the ownership boundary:
+    // callers keep item.total = quantity × price, the total function sums totals.
+    const inconsistent = makeItem({ quantity: 4, price: 100, total: 123 });
+
+    expect(calculateEstimateTotal([inconsistent])).toBe(123);
+  });
 });
 
 describe('checkMaterialPrice', () => {
@@ -143,6 +167,51 @@ describe('checkMaterialPrice with a prebuilt name index', () => {
       status: 'current',
       matchedBy: 'name',
     });
+  });
+});
+
+describe('checkMaterialPrice with a prebuilt ID index', () => {
+  it('reproduces every checkMaterialPrice verdict through the index', () => {
+    const materials = [
+      makeMaterial('material-1', { name: 'OSB 9 mm', price: 800 }),
+      makeMaterial('material-2', { name: '  osb   9 MM ', price: 700 }),
+      makeMaterial('material-3', { name: 'Plywood', price: 500 }),
+    ];
+    const index = buildMaterialPriceIndex(materials);
+
+    const cases: Array<Parameters<typeof checkMaterialPrice>[0]> = [
+      makeItem({ name: 'OSB 9 mm', price: 800 }), // current by name
+      makeItem({ name: 'OSB 9 mm', price: 600 }), // outdated by name
+      makeItem({ name: ' plywood ', price: 500 }), // normalized whitespace/case match
+      makeItem({ name: 'Missing panel', price: 100 }), // missing
+      makeItem(), // ambiguous: two materials normalize to "osb 9 mm"
+      makeItem({ name: 'Edited name', catalogMaterialId: 'material-3', price: 500 }), // current by id
+      makeItem({ name: 'Edited name', catalogMaterialId: 'material-3', price: 499 }), // outdated by id
+      makeItem({ name: 'Edited name', catalogMaterialId: 'gone-id' }), // id misses, name misses
+      makeItem({ name: 'Edited name', catalogMaterialId: 'gone-id' }),
+    ];
+
+    for (const item of cases) {
+      expect(checkMaterialPrice(item, materials, index)).toEqual(checkMaterialPrice(item, materials));
+    }
+
+    expect(checkMaterialPrice(makeItem(), materials, index).status).toBe('ambiguous');
+    expect(checkMaterialPrice(makeItem({ name: 'Missing panel' }), materials, index).status).toBe('missing');
+    expect(checkMaterialPrice(makeItem({ name: ' plywood ', price: 500 }), materials, index)).toMatchObject({
+      status: 'current',
+      matchedBy: 'name',
+    });
+    expect(checkMaterialPrice(makeItem({ name: 'Edited name', catalogMaterialId: 'material-3', price: 500 }), materials, index))
+      .toMatchObject({ status: 'current', matchedBy: 'id', material: materials[2] });
+  });
+
+  it('matches by normalizeKey the same way the list scan does', () => {
+    const materials = [makeMaterial('material-1', { name: '  Доска   ОБРЕЗНАЯ ', price: 800 })];
+    const index = buildMaterialPriceIndex(materials);
+
+    expect(checkMaterialPrice(makeItem({ name: 'доска обрезная', price: 800 }), materials, index).status).toBe('current');
+    expect(checkMaterialPrice(makeItem({ name: 'Доска  обрезная ' }), materials, index).status).toBe('outdated');
+    expect(checkMaterialPrice(makeItem({ name: '' }), materials, index).status).toBe('missing');
   });
 });
 

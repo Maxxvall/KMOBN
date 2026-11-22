@@ -1,6 +1,7 @@
 import { Estimate, SectionId } from '../types';
 import { roundMoney } from './estimateActuals';
 import { calculateActualItemTotal } from './estimateActuals';
+import { calculateEstimateTotal } from './estimatePricing';
 
 export interface HouseAccuracySection {
     category: SectionId;
@@ -90,7 +91,7 @@ export function buildHouseAccuracyReport(estimates: Estimate[]): HouseAccuracyRe
         let complete = true;
         for (const category of categories) {
             const plannedItems = snapshot.result.items.filter(item => item.category === category);
-            const plan = plannedItems.reduce((sum, item) => sum + item.total, 0);
+            const plan = calculateEstimateTotal(plannedItems);
             if (!(plan > 0)) continue;
             let actual = 0;
             for (const plannedItem of plannedItems) {

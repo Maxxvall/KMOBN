@@ -12,6 +12,7 @@ import { exportData, importData, importSharedEstimate, validateImportData, type 
 
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import SmartEstimateWizard from './SmartEstimateWizard';
 import EstimateDuplicateDialog from './EstimateDuplicateDialog';
 import EstimateTransferModal from './EstimateTransferModal';
@@ -307,6 +308,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [filterDateFrom, setFilterDateFrom] = useState('');
     const [filterDateTo, setFilterDateTo] = useState('');
     const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
+    // Only the active layout variant (desktop table OR mobile cards) mounts.
+    const isDesktop = useMediaQuery('(min-width: 768px)');
     const catalogContext = useOptionalCatalogContext();
     const materialsList = catalogContext?.materials ?? [];
     const worksList = catalogContext?.works ?? [];
@@ -446,7 +449,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             })
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [estimateList, allEstimatesList, archiveView, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax, filterDateFrom, filterDateTo, selectedLabelIds, labelsDocument, withoutLabels]);
-    
+
     // Single grouping pass instead of a full-list filter per rendered row.
     const estimatesByNumber = useMemo(() => {
         const groups = new Map<string, Estimate[]>();
@@ -454,14 +457,13 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             const bucket = groups.get(estimate.estimateNumber);
             if (bucket) bucket.push(estimate); else groups.set(estimate.estimateNumber, [estimate]);
         }
+        groups.forEach(versions => versions.sort((a, b) => b.version - a.version));
         return groups;
     }, [allEstimatesList]);
     const estimatesById = useMemo(() => new Map(allEstimatesList.map(estimate => [estimate.id, estimate])), [allEstimatesList]);
 
     const getVersionHistory = (estimate: Estimate) => {
-        return (estimatesByNumber.get(estimate.estimateNumber) ?? [])
-            .slice()
-            .sort((a, b) => b.version - a.version);
+        return estimatesByNumber.get(estimate.estimateNumber) ?? [];
     };
 
     const getSelectedVersionEstimate = (estimate: Estimate): Estimate => {
@@ -649,8 +651,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 </div>
             )}
 
-            {/* Desktop table */}
-            <div className="overflow-x-auto hidden md:block lg:overflow-x-clip">
+            {/* Only the active variant mounts: desktop table or mobile cards */}
+            {isDesktop ? (
+            <div className="overflow-x-auto lg:overflow-x-clip">
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
@@ -667,7 +670,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                             const groupKey = estimate.estimateNumber;
                             const selectedEstimate: Estimate = getSelectedVersionEstimate(estimate);
                             const versionHistory = getVersionHistory(estimate);
-                            
+
                             return (
                                 <tr
                                     key={estimate.id}
@@ -721,9 +724,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     </div>
                 )}
             </div>
-
-            {/* Mobile card list */}
-            <div className="md:hidden space-y-3">
+            ) : (
+            /* Mobile card list */
+            <div className="space-y-3">
                 {filteredEstimates.map(estimate => {
                     const groupKey = estimate.estimateNumber;
                     const selectedEstimate: Estimate = getSelectedVersionEstimate(estimate);
@@ -733,14 +736,14 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         <article key={estimate.id} className="rounded-lg border border-border bg-background/35 p-3">
                             <div className="flex items-start justify-between gap-2 mb-2">
                                 <div className="min-w-0 flex-1">
-                                    <div className="font-semibold text-text-primary truncate">{estimate.client || 'Без клиента'}</div>
+                                    <div className="font-semibold text-text-primary truncate">{selectedEstimate.client || 'Без клиента'}</div>
                                     {renderLabels(selectedEstimate)}
-                                    <div className="text-xs text-text-secondary">{estimate.estimateNumber} &middot; {estimate.area} м² &middot; {estimate.buildingType}</div>
+                                    <div className="text-xs text-text-secondary">{selectedEstimate.estimateNumber} &middot; {selectedEstimate.area} м² &middot; {selectedEstimate.buildingType}</div>
                                 </div>
                                 <StatusBadge status={selectedEstimate.status} className="shrink-0" />
                             </div>
                             <div className="text-xs text-text-secondary mb-2">
-                                {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                {new Date(selectedEstimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </div>
                             <div className="mb-3 flex min-w-0 flex-col items-stretch gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                                 <VersionDropdown
@@ -778,6 +781,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     </div>
                 )}
             </div>
+            )}
 
             {showQuickStart && (
                 <SmartEstimateWizard

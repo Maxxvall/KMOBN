@@ -19,12 +19,8 @@ export interface PendingChange {
   retryCount: number;
   lastError?: string;
   lastAttemptAt?: string;
-  nextRetryAt?: string;
   failureKind?: 'transient' | 'permanent';
 }
-
-export const isWorkspacePendingChange = (change: PendingChange): boolean =>
-  change.table !== 'salary_calculations';
 
 const QUEUE_DB_NAME = 'kmobn_offline_queue';
 const QUEUE_DB_VERSION = 4;
@@ -41,7 +37,6 @@ const SUPPORTED_TABLES = new Set<CacheTableKey>([
   'materials',
   'works',
   'bundles',
-  'salary_calculations',
   'estimate_sections',
 ]);
 
@@ -74,6 +69,9 @@ const nextSequence = (): number => {
   return lastSequence;
 };
 
+// Workspace tables are exactly the supported offline tables.
+export const isWorkspacePendingChange = (change: PendingChange): boolean =>
+  SUPPORTED_TABLES.has(change.table);
 
 const isSameSnapshot = (
   current: PendingChange | undefined,
@@ -101,7 +99,7 @@ const ensureIndexes = (store: IDBObjectStore): void => {
   }
 };
 
-const openQueueDb = (): Promise<IDBDatabase> => {
+const openQueueDbConnection = (): Promise<IDBDatabase> => {
   if (cachedDb) return Promise.resolve(cachedDb);
   if (cachedDbPromise) return cachedDbPromise;
 
@@ -252,6 +250,23 @@ const getQuarantined = async (db: IDBDatabase): Promise<QuarantinedChange[]> => 
   return (result ?? []) as QuarantinedChange[];
 };
 
+// Share the legacy sweep across first reads on the same database connection.
+const quarantineByConnection = new WeakMap<IDBDatabase, Promise<void>>();
+
+const openQueueDb = async (): Promise<IDBDatabase> => {
+  const db = await openQueueDbConnection();
+  let quarantine = quarantineByConnection.get(db);
+  if (!quarantine) {
+    quarantine = quarantineLegacyChanges(db).catch((error: unknown) => {
+      quarantineByConnection.delete(db);
+      throw error;
+    });
+    quarantineByConnection.set(db, quarantine);
+  }
+  await quarantine;
+  return db;
+};
+
 const enqueue = async (
   userId: string,
   table: CacheTableKey,
@@ -309,7 +324,6 @@ export const offlineQueue = {
   async getAll(userId: string): Promise<PendingChange[]> {
     if (!userId) return [];
     const db = await openQueueDb();
-    await quarantineLegacyChanges(db);
     const tx = db.transaction(STORE_NAME, 'readonly');
     const result = await requestToPromise(tx.objectStore(STORE_NAME).getAll());
     await waitForTransaction(tx);
@@ -320,8 +334,17 @@ export const offlineQueue = {
   },
 
   async getForTable(userId: string, table: CacheTableKey): Promise<PendingChange[]> {
-    const changes = await offlineQueue.getAll(userId);
-    return changes.filter(change => change.table === table);
+    if (!userId) return [];
+    const db = await openQueueDb();
+    // Read through the by_table index instead of scanning the whole store;
+    // the compound (table, userId) index is not worth a schema bump.
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const result = await requestToPromise(tx.objectStore(STORE_NAME).index('by_table').getAll(table));
+    await waitForTransaction(tx);
+    return (result ?? [])
+      .filter(isScopedChange)
+      .filter(change => change.userId === userId)
+      .sort((left, right) => left.sequence - right.sequence);
   },
 
   async acknowledge(id: string, sequence: number, operationId?: string): Promise<boolean> {
@@ -385,7 +408,6 @@ export const offlineQueue = {
       retryCount: 0,
       lastError: undefined,
       lastAttemptAt: undefined,
-      nextRetryAt: undefined,
       failureKind: undefined,
     };
     store.put(rebased);
@@ -407,15 +429,11 @@ export const offlineQueue = {
     const current = await requestToPromise(store.get(id)) as PendingChange | undefined;
     const shouldUpdate = isSameSnapshot(current, sequence, operationId);
     if (shouldUpdate) {
-      const retryCount = current.retryCount + 1;
-      const now = new Date();
-      const retryDelayMs = Math.min(5 * 60_000, 1000 * (2 ** Math.max(0, retryCount - 1)));
       store.put({
         ...current,
-        retryCount,
+        retryCount: current.retryCount + 1,
         lastError: formatErrorMessage(error),
-        lastAttemptAt: now.toISOString(),
-        nextRetryAt: retryable ? new Date(now.getTime() + retryDelayMs).toISOString() : undefined,
+        lastAttemptAt: new Date().toISOString(),
         failureKind: retryable ? 'transient' : 'permanent',
       });
     }
@@ -477,13 +495,11 @@ export const offlineQueue = {
 
   async getQuarantinedCount(): Promise<number> {
     const db = await openQueueDb();
-    await quarantineLegacyChanges(db);
     return (await getQuarantined(db)).length;
   },
 
   async getClaimableQuarantinedCount(): Promise<number> {
     const db = await openQueueDb();
-    await quarantineLegacyChanges(db);
     return (await getQuarantined(db)).filter(entry => entry.reason === 'legacy-v1' && isLegacyChange(entry.raw)).length;
   },
 
@@ -492,7 +508,6 @@ export const offlineQueue = {
       throw new Error('The active user must explicitly claim legacy offline changes');
     }
     const db = await openQueueDb();
-    await quarantineLegacyChanges(db);
     const entries = await getQuarantined(db);
     const claimable = entries
       .filter(entry => entry.reason === 'legacy-v1' && isLegacyChange(entry.raw))

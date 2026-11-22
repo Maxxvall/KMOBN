@@ -37,3 +37,19 @@ export const fingerprintData = (value: unknown): string => {
   }
   return `${source.length}:${(first >>> 0).toString(36)}:${(second >>> 0).toString(36)}`;
 };
+
+// Memoized fingerprint keyed by object reference: immutable updates produce a
+// new reference, so only the changed table pays for the recompute; unchanged
+// references are O(1). Primitives have no identity to memoize on.
+const fingerprintMemo = new WeakMap<object, string>();
+
+export const memoizedFingerprint = (value: unknown): string => {
+  if (value === null || (typeof value !== 'object' && typeof value !== 'function')) {
+    return fingerprintData(value);
+  }
+  const cached = fingerprintMemo.get(value as object);
+  if (cached !== undefined) return cached;
+  const computed = fingerprintData(value);
+  fingerprintMemo.set(value as object, computed);
+  return computed;
+};

@@ -3,6 +3,7 @@ import { EditorActionButton } from './estimate-editor/EditorActionButton';
 import React, { useState, useMemo } from 'react';
 import { Estimate, EstimateItem, SectionId } from '../types';
 import { getEstimateCategories, getSectionLabel } from '../services/estimateSections';
+import { calculateEstimateTotal } from '../services/estimatePricing';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 interface PasteFromEstimateModalProps {
@@ -49,12 +50,17 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
 
     const handleConfirm = () => {
         if (previewItems.length === 0) return;
-        const scaledItems = previewItems.map(item => ({
-            ...item,
-            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            quantity: +(item.quantity * scaleFactor).toFixed(2),
-            total: +(item.quantity * scaleFactor * item.price).toFixed(2),
-        }));
+        const scaledItems = previewItems.map(item => {
+            // Keep the row invariant: total = rounded quantity × price,
+            // the product itself is not rounded a second time.
+            const scaledQuantity = +(item.quantity * scaleFactor).toFixed(2);
+            return {
+                ...item,
+                id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                quantity: scaledQuantity,
+                total: scaledQuantity * item.price,
+            };
+        });
         onConfirm(scaledItems, targetCategory);
         resetAndClose();
     };
@@ -68,7 +74,7 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
 
     if (!isOpen) return null;
 
-    const previewTotal = previewItems.reduce((sum, item) => sum + item.quantity * item.price, 0);
+    const previewTotal = calculateEstimateTotal(previewItems);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">

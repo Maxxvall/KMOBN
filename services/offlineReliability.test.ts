@@ -209,7 +209,6 @@ describe('offline reliability regressions', () => {
     await expect(processOfflineQueue(USER_ID)).resolves.toMatchObject({ pendingCount: 1 });
     const [pending] = await offlineQueue.getAll(USER_ID);
     expect(pending).toMatchObject({ operation: 'delete', failureKind: 'permanent' });
-    expect(pending.nextRetryAt).toBeUndefined();
 
     await processOfflineQueue(USER_ID);
     expect(remote.deleteRecord).toHaveBeenCalledTimes(1);

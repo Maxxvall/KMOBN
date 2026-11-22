@@ -12,6 +12,7 @@ import {
 } from '../types';
 import { generateEstimateNumber } from '../services/estimateNumber';
 import { buildSmartEstimate, WIZARD_OPTIONS } from '../services/smartEstimateBuilder';
+import { calculateEstimateTotal } from '../services/estimatePricing';
 import { getSectionLabel } from '../services/estimateSections';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
@@ -218,7 +219,7 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
     }, [params, estimates, materials, works]);
 
     const handleConfirm = useCallback(() => {
-        const total = result.items.reduce((sum, item) => sum + item.quantity * item.price, 0);
+        const total = calculateEstimateTotal(result.items);
         const estimate: Estimate = {
             id: `sm-id-${Date.now()}`,
             estimateNumber: generateEstimateNumber(existingEstimateNumbers, new Date()),
@@ -406,7 +407,7 @@ const SmartEstimateWizard: React.FC<SmartEstimateWizardProps> = ({
                 </div>
 
                 <div className="mt-3 text-right text-sm font-semibold text-text-primary">
-                    Итого: {result.items.reduce((sum, item) => sum + item.quantity * item.price, 0).toLocaleString('ru-RU')} ₽
+                    Итого: {calculateEstimateTotal(result.items).toLocaleString('ru-RU')} ₽
                 </div>
             </div>
         );

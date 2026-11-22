@@ -22,6 +22,7 @@ type UseEstimateCrudParams = {
   setPendingView: React.Dispatch<React.SetStateAction<View | null>>;
   setViewAfterSave: React.Dispatch<React.SetStateAction<View>>;
   setSync: React.Dispatch<React.SetStateAction<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>>;
+  showSyncStatus: (message: string, type: 'success' | 'error' | 'info', durationMs: number) => void;
 };
 
 export const useEstimateCrud = ({
@@ -39,10 +40,13 @@ export const useEstimateCrud = ({
   setPendingView,
   setViewAfterSave,
   setSync,
+  showSyncStatus,
 }: UseEstimateCrudParams) => {
   const estimatesRef = useRef(estimates);
   estimatesRef.current = estimates;
-  const archiveMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  // Single serialization chain for whole-table estimates writes: saves and
+  // archive flips must never interleave, or two versions can share a number.
+  const mutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const handleCreateNew = useCallback(() => {
     setCurrentEstimate(null);
     setEditorValidationResult(null);
@@ -109,32 +113,38 @@ export const useEstimateCrud = ({
       return;
     }
 
-    const updatedEstimates = applyEstimateSave({
-      estimates,
-      draft,
-      saveMode,
-      now: new Date().toISOString(),
-      newId: `sm-id-${Date.now()}`,
-      restoreFromArchive,
-    });
+    // Serialize the whole-table write with archiving on the shared queue and
+    // read the freshest list at execution time — a save landing mid-archive
+    // (or a double click) must not mint two versions with the same number.
+    mutationQueueRef.current = mutationQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const updatedEstimates = applyEstimateSave({
+          estimates: estimatesRef.current,
+          draft,
+          saveMode,
+          now: new Date().toISOString(),
+          newId: `sm-id-${Date.now()}`,
+          restoreFromArchive,
+        });
 
-    // Save directly to DB first, then update state — prevents cache event from overwriting stale data
-    void saveEstimates(updatedEstimates).then(() => {
-      setEstimates(updatedEstimates);
-      setEditorDirty(false);
-      resetEditorDraft();
-      setShowSaveOptions(false);
-      setPendingView(null);
-      setShowUnsavedModal(false);
-      setViewAfterSave(View.HISTORY);
-      goToView(afterSaveView);
-    }).catch((error) => {
-      console.error('Failed to save estimate to DB:', error);
-      setSync({ visible: true, message: 'Ошибка сохранения сметы в БД', type: 'error' });
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
-    });
+        // Save directly to DB first, then update state — prevents cache event from overwriting stale data
+        await saveEstimates(updatedEstimates);
+        estimatesRef.current = updatedEstimates;
+        setEstimates(updatedEstimates);
+        setEditorDirty(false);
+        resetEditorDraft();
+        setShowSaveOptions(false);
+        setPendingView(null);
+        setShowUnsavedModal(false);
+        setViewAfterSave(View.HISTORY);
+        goToView(afterSaveView);
+      })
+      .catch((error) => {
+        console.error('Failed to save estimate to DB:', error);
+        showSyncStatus('Ошибка сохранения сметы в БД', 'error', 4000);
+      });
   }, [
-    estimates,
     goToView,
     setEstimates,
     setEditorValidationResult,
@@ -144,29 +154,28 @@ export const useEstimateCrud = ({
     setEditorDirty,
     resetEditorDraft,
     setViewAfterSave,
-    setSync,
+    showSyncStatus,
   ]);
 
   const handleSetArchived = useCallback((estimate: Estimate, archived: boolean) => {
-    archiveMutationQueueRef.current = archiveMutationQueueRef.current
+    mutationQueueRef.current = mutationQueueRef.current
       .catch(() => undefined)
       .then(async () => {
         const updatedEstimates = setEstimateChainArchived(estimatesRef.current, estimate.estimateNumber, archived);
         await saveEstimates(updatedEstimates);
         estimatesRef.current = updatedEstimates;
         setEstimates(updatedEstimates);
-        setSync({
-          visible: true,
-          message: archived ? 'Смета перемещена в архив и исключена из расчёта дома' : 'Смета возвращена в текущие',
-          type: 'success',
-        });
-        setTimeout(() => setSync(state => ({ ...state, visible: false })), 3000);
+        showSyncStatus(
+          archived ? 'Смета перемещена в архив и исключена из расчёта дома' : 'Смета возвращена в текущие',
+          'success',
+          3000,
+        );
       })
       .catch(error => {
         console.error('Failed to update estimate archive state:', error);
         setSync({ visible: true, message: 'Не удалось изменить архив', type: 'error' });
       });
-  }, [setEstimates, setSync]);
+  }, [setEstimates, setSync, showSyncStatus]);
 
   const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
     if (!window.confirm(`Вы уверены, что хотите удалить смету №${estimateToDelete.estimateNumber} и все ее версии? Это действие необратимо.`)) return;
@@ -174,14 +183,12 @@ export const useEstimateCrud = ({
     try {
       await deleteEstimatesByNumber(estimateNumberToDelete);
       setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateNumberToDelete));
-      setSync({ visible: true, message: 'Сметы удалены из БД', type: 'success' });
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
+      showSyncStatus('Сметы удалены из БД', 'success', 2000);
     } catch (error) {
       console.error('Failed to delete estimates from DB:', error);
-      setSync({ visible: true, message: 'Ошибка удаления смет в БД', type: 'error' });
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+      showSyncStatus('Ошибка удаления смет в БД', 'error', 4000);
     }
-  }, [setEstimates, setSync]);
+  }, [setEstimates, showSyncStatus]);
 
   const handleDeleteEstimateVersion = useCallback(async (estimateToDelete: Estimate) => {
     const estimateNumber = estimateToDelete.estimateNumber;
@@ -215,7 +222,7 @@ export const useEstimateCrud = ({
         const updatedEstimates = estimates.filter(e => e.id !== estimateToDelete.id);
         await saveEstimates(updatedEstimates);
         setEstimates(updatedEstimates);
-        setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
+        showSyncStatus('Смета полностью удалена', 'success', 2000);
       } else {
         const deletedId = estimateToDelete.id;
         const remainingVersions = versionHistory.filter(e => e.id !== deletedId);
@@ -250,16 +257,13 @@ export const useEstimateCrud = ({
           });
         await saveEstimates(updatedEstimates);
         setEstimates(updatedEstimates);
-        const msg = isLatest ? 'Версия удалена, главная обновлена' : 'Версия сметы удалена';
-        setSync({ visible: true, message: msg, type: 'success' });
+        showSyncStatus(isLatest ? 'Версия удалена, главная обновлена' : 'Версия сметы удалена', 'success', 2000);
       }
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
     } catch (error) {
       console.error('Failed to delete estimate version from DB:', error);
-      setSync({ visible: true, message: 'Ошибка удаления версии в БД', type: 'error' });
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+      showSyncStatus('Ошибка удаления версии в БД', 'error', 4000);
     }
-  }, [estimates, setEstimates, setSync]);
+  }, [estimates, setEstimates, showSyncStatus]);
 
   const handleDeleteVersionDuplicates = useCallback(async (requests: EstimateDuplicateDeleteRequest[]): Promise<number> => {
     if (requests.length === 0) return 0;

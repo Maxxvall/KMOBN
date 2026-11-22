@@ -7,6 +7,7 @@ import {
   Material,
   normalizeKey,
 } from '../types';
+import { calculateEstimateTotal } from './estimatePricing';
 
 export type BoardSwitchReplacement = {
   itemId: string;
@@ -310,6 +311,6 @@ export const applyBoardMaterialSwitch = (
   return {
     ...estimate,
     items,
-    total: items.reduce((sum, item) => sum + item.total, 0),
+    total: calculateEstimateTotal(items),
   };
 };

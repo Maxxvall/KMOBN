@@ -202,6 +202,7 @@ describe('offlineQueue v1 migration', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     offlineQueue.close();
     await deleteQueueDatabase();
     vi.unstubAllGlobals();
@@ -312,5 +313,95 @@ describe('offlineQueue v1 migration', () => {
     });
     expect(await offlineQueue.getQuarantinedCount()).toBe(1);
     expect(await offlineQueue.getClaimableQuarantinedCount()).toBe(0);
+  });
+
+  it('runs the legacy quarantine once per session even when legacy records appear later', async () => {
+    rememberOfflineUser(migrationUser());
+    await createLegacyV1Queue();
+
+    // First open of the session migrates the legacy records.
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([]);
+    expect(await offlineQueue.getQuarantinedCount()).toBe(2);
+
+    // A legacy-shaped record appearing after the session's first migration
+    // must not trigger another full-store sweep on every later read.
+    const request = indexedDB.open(QUEUE_DB_NAME);
+    const database = await requestToPromise(request);
+    const transaction = database.transaction(STORE_NAME, 'readwrite');
+    transaction.objectStore(STORE_NAME).put({
+      id: 'materials:upsert:legacy-late',
+      table: 'materials',
+      operation: 'upsert',
+      data: [{ id: 'material-late', name: 'Late board', price: 100 }],
+      timestamp: '2026-07-12T12:00:00.000Z',
+      retryCount: 0,
+    });
+    await waitForTransaction(transaction);
+    database.close();
+
+    expect(await offlineQueue.getQuarantinedCount()).toBe(2);
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([]);
+  });
+
+  it('shares one quarantine sweep across concurrent first reads', async () => {
+    await createLegacyV1Queue();
+    const transaction = vi.spyOn(IDBDatabase.prototype, 'transaction');
+
+    await expect(Promise.all([
+      offlineQueue.getAll(USER_ID),
+      offlineQueue.getQuarantinedCount(),
+    ])).resolves.toEqual([[], 2]);
+
+    const sweeps = transaction.mock.calls.filter(([stores, mode]) => Array.isArray(stores) && mode === 'readwrite');
+    expect(sweeps).toHaveLength(1);
+  });
+
+  it('repeats the legacy quarantine after a failed sweep and keeps a successful sweep once per session', async () => {
+    rememberOfflineUser(migrationUser());
+    await createLegacyV1Queue();
+
+    // The first sweep of the session fails (aborted transaction / IDB quota):
+    // the once-per-session guard must not latch, so the next open retries.
+    // The sweep is the first array-of-stores readwrite transaction; upgrade
+    // transactions use "versionchange" mode and must keep working.
+    let sweepFailuresLeft = 1;
+    const originalTransaction = IDBDatabase.prototype.transaction;
+    const transactionSpy = vi.spyOn(IDBDatabase.prototype, 'transaction')
+      .mockImplementation(function (
+        this: IDBDatabase,
+        storeNames: Parameters<IDBDatabase['transaction']>[0],
+        mode?: Parameters<IDBDatabase['transaction']>[1],
+      ) {
+        if (sweepFailuresLeft > 0 && Array.isArray(storeNames) && mode === 'readwrite') {
+          sweepFailuresLeft -= 1;
+          throw new DOMException('Simulated offline queue sweep failure', 'AbortError');
+        }
+        return originalTransaction.call(this, storeNames, mode);
+      });
+
+    await expect(offlineQueue.getAll(USER_ID)).rejects.toThrow('Simulated offline queue sweep failure');
+    transactionSpy.mockRestore();
+
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([]);
+    expect(await offlineQueue.getQuarantinedCount()).toBe(2);
+
+    // After a successful sweep the once-per-session guard still holds:
+    // a legacy record appearing later is not swept again until close().
+    const request = indexedDB.open(QUEUE_DB_NAME);
+    const database = await requestToPromise(request);
+    const transaction = database.transaction(STORE_NAME, 'readwrite');
+    transaction.objectStore(STORE_NAME).put({
+      id: 'works:delete:legacy-late-after-retry',
+      table: 'works',
+      operation: 'delete',
+      data: ['work-late'],
+      timestamp: '2026-07-12T12:00:00.000Z',
+      retryCount: 0,
+    });
+    await waitForTransaction(transaction);
+    database.close();
+
+    expect(await offlineQueue.getQuarantinedCount()).toBe(2);
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([]);
   });
 });

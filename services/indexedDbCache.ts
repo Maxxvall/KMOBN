@@ -1,4 +1,4 @@
-import { hashData } from './hashing';
+import { fingerprintData } from './hashing';
 
 export type CacheTableKey =
   | 'estimates'
@@ -6,7 +6,6 @@ export type CacheTableKey =
   | 'materials'
   | 'works'
   | 'bundles'
-  | 'salary_calculations'
   | 'estimate_sections';
 
 export interface CacheRecord<T> {
@@ -55,7 +54,6 @@ const STORE_NAMES: Record<CacheTableKey, string> = {
   materials: 'materials',
   works: 'works',
   bundles: 'bundles',
-  salary_calculations: 'salary_calculations',
   estimate_sections: 'estimate_sections',
 };
 
@@ -204,7 +202,7 @@ export const upsertCachedRecords = async <T extends { id: string }>(
 
   records.forEach(record => {
     if (!record?.id) throw new Error(`Cached ${table} record requires an id`);
-    const hash = hashData(record);
+    const hash = fingerprintData(record);
     const payload: CacheRecord<T> = {
       key: buildRecordKey(userId, record.id),
       id: record.id,
@@ -264,7 +262,7 @@ export const syncCachedRecords = async <T extends { id: string }>(
     if (!record || !record.id) return;
     const id = record.id;
     nextIds.add(id);
-    const nextHash = hashData(record);
+    const nextHash = fingerprintData(record);
     const prevHash = existingMap.get(id);
     if (prevHash !== nextHash) {
       const payload: CacheRecord<T> = {

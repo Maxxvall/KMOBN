@@ -15,6 +15,78 @@ const estimate = (overrides: Partial<Estimate> & Pick<Estimate, 'id' | 'version'
     ...overrides,
 });
 
+describe('applyEstimateSave updated_at', () => {
+    const NOW = '2026-07-14T10:00:00.000Z';
+
+    it('stamps updated_at = date = now in both overwrite branches', () => {
+        const createdChain = applyEstimateSave({
+            estimates: [],
+            draft: estimate({ id: 'v1', version: 1 }),
+            saveMode: 'overwrite',
+            now: NOW,
+            newId: 'unused',
+        });
+
+        expect(createdChain[0].date).toBe(NOW);
+        expect(createdChain[0].updated_at).toBe(NOW);
+
+        const latest = estimate({ id: 'v1', version: 1 });
+        const overwritten = applyEstimateSave({
+            estimates: [latest],
+            draft: { ...latest, status: EstimateStatus.APPROVED },
+            saveMode: 'overwrite',
+            now: NOW,
+            newId: 'unused',
+        });
+
+        expect(overwritten[0].date).toBe(NOW);
+        expect(overwritten[0].updated_at).toBe(NOW);
+    });
+
+    it('stamps updated_at = date = now in both new-version branches', () => {
+        const createdChain = applyEstimateSave({
+            estimates: [],
+            draft: estimate({ id: 'v1', version: 1 }),
+            saveMode: 'new',
+            now: NOW,
+            newId: 'v1',
+        });
+
+        expect(createdChain[0].date).toBe(NOW);
+        expect(createdChain[0].updated_at).toBe(NOW);
+
+        const old = estimate({ id: 'v1', version: 1 });
+        const latest = estimate({ id: 'v2', version: 2 });
+        const result = applyEstimateSave({
+            estimates: [old, latest],
+            draft: { ...latest, status: EstimateStatus.APPROVED },
+            saveMode: 'new',
+            now: NOW,
+            newId: 'v3',
+        });
+
+        const newVersion = result.find(item => item.id === 'v3');
+        expect(newVersion?.date).toBe(NOW);
+        expect(newVersion?.updated_at).toBe(NOW);
+    });
+
+    it('leaves historical versions with their own updated_at', () => {
+        const old = estimate({ id: 'v1', version: 1, updated_at: '2026-07-01T00:00:00.000Z' });
+        const latest = estimate({ id: 'v2', version: 2 });
+
+        const result = applyEstimateSave({
+            estimates: [old, latest],
+            draft: latest,
+            saveMode: 'new',
+            now: NOW,
+            newId: 'v3',
+        });
+
+        expect(result.find(item => item.id === 'v1')?.updated_at).toBe('2026-07-01T00:00:00.000Z');
+        expect(result.find(item => item.id === 'v3')?.updated_at).toBe(NOW);
+    });
+});
+
 describe('normalizeEstimateChains', () => {
     it.each(['overwrite', 'new'] as const)('retains individual section order after %s and reopen without touching the old version', saveMode => {
         const old = estimate({ id: 'ordered-v1', version: 1, labelIds: ['system:typical-projects'], selectedSections: [EstimateCategory.ROOF, EstimateCategory.WALLS] });
