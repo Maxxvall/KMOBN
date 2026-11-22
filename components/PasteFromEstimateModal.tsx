@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Estimate, EstimateItem, SectionId } from '../types';
 import { getEstimateCategories, getSectionLabel } from '../services/estimateSections';
+import { calculateEstimateTotal } from '../services/estimatePricing';
 import { useOptionalEstimateSections } from '../contexts/EstimateSectionsContext';
 
 interface PasteFromEstimateModalProps {
@@ -71,7 +72,7 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
 
     if (!isOpen) return null;
 
-    const previewTotal = previewItems.reduce((sum, item) => sum + item.quantity * item.price, 0);
+    const previewTotal = calculateEstimateTotal(previewItems);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
