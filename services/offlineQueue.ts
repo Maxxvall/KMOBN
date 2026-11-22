@@ -107,7 +107,7 @@ const ensureIndexes = (store: IDBObjectStore): void => {
   }
 };
 
-const openQueueDb = (): Promise<IDBDatabase> => {
+const openQueueDbConnection = (): Promise<IDBDatabase> => {
   if (cachedDb) return Promise.resolve(cachedDb);
   if (cachedDbPromise) return cachedDbPromise;
 
@@ -270,6 +270,22 @@ const getQuarantined = async (db: IDBDatabase): Promise<QuarantinedChange[]> => 
   return (result ?? []) as QuarantinedChange[];
 };
 
+// Legacy v1 records only exist while an old database is upgraded to the
+// current schema, which happens at the first open of the session. The sweep
+// therefore runs once per session at that first open; later reads skip it
+// instead of scanning the whole store every time. offlineQueue.close() ends
+// the session, so a reconnect rescans once more.
+let quarantineDoneForSession = false;
+
+const openQueueDb = async (): Promise<IDBDatabase> => {
+  const db = await openQueueDbConnection();
+  if (!quarantineDoneForSession) {
+    quarantineDoneForSession = true;
+    await quarantineLegacyChanges(db);
+  }
+  return db;
+};
+
 const enqueue = async (
   userId: string,
   table: CacheTableKey,
@@ -327,7 +343,6 @@ export const offlineQueue = {
   async getAll(userId: string): Promise<PendingChange[]> {
     if (!userId) return [];
     const db = await openQueueDb();
-    await quarantineLegacyChanges(db);
     const tx = db.transaction(STORE_NAME, 'readonly');
     const result = await requestToPromise(tx.objectStore(STORE_NAME).getAll());
     await waitForTransaction(tx);
@@ -338,8 +353,17 @@ export const offlineQueue = {
   },
 
   async getForTable(userId: string, table: CacheTableKey): Promise<PendingChange[]> {
-    const changes = await offlineQueue.getAll(userId);
-    return changes.filter(change => change.table === table);
+    if (!userId) return [];
+    const db = await openQueueDb();
+    // Read through the by_table index instead of scanning the whole store;
+    // the compound (table, userId) index is not worth a schema bump.
+    const tx = db.transaction(STORE_NAME, 'readonly');
+    const result = await requestToPromise(tx.objectStore(STORE_NAME).index('by_table').getAll(table));
+    await waitForTransaction(tx);
+    return (result ?? [])
+      .filter(isScopedChange)
+      .filter(change => change.userId === userId)
+      .sort((left, right) => left.sequence - right.sequence);
   },
 
   async acknowledge(id: string, sequence: number, operationId?: string): Promise<boolean> {
@@ -493,13 +517,11 @@ export const offlineQueue = {
 
   async getQuarantinedCount(): Promise<number> {
     const db = await openQueueDb();
-    await quarantineLegacyChanges(db);
     return (await getQuarantined(db)).length;
   },
 
   async getClaimableQuarantinedCount(): Promise<number> {
     const db = await openQueueDb();
-    await quarantineLegacyChanges(db);
     return (await getQuarantined(db)).filter(entry => entry.reason === 'legacy-v1' && isLegacyChange(entry.raw)).length;
   },
 
@@ -508,7 +530,6 @@ export const offlineQueue = {
       throw new Error('The active user must explicitly claim legacy offline changes');
     }
     const db = await openQueueDb();
-    await quarantineLegacyChanges(db);
     const entries = await getQuarantined(db);
     const claimable = entries
       .filter(entry => entry.reason === 'legacy-v1' && isLegacyChange(entry.raw))
@@ -597,5 +618,7 @@ export const offlineQueue = {
     cachedDb?.close();
     cachedDb = null;
     cachedDbPromise = null;
+    // Ending the session: the next open rescans legacy records once.
+    quarantineDoneForSession = false;
   },
 };

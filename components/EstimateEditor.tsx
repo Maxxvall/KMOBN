@@ -30,7 +30,8 @@ import {
     copyPlanToActual,
     shouldShowActualRow,
 } from '../services/estimateActuals';
-import { applyCatalogMaterialPrice, calculateEstimateTotal, checkMaterialPrice, type MaterialPriceCheck } from '../services/estimatePricing';
+import { applyCatalogMaterialPrice, buildMaterialPriceIndex, calculateEstimateTotal, checkMaterialPriceIndexed, type MaterialPriceCheck } from '../services/estimatePricing';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { applyBoardMaterialSwitch, getEstimateBoardState, planBoardMaterialSwitch } from '../services/boardMaterialSwitch';
 
 interface EstimateEditorProps {
@@ -338,6 +339,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     // can type "0." or "2,5" freely; the value reaches the item only on
     // blur/Enter, parsed through safeNumber.
     const [numericDrafts, setNumericDrafts] = useState<Record<string, string>>({});
+    // Only the active layout variant (desktop table OR mobile cards) mounts.
+    const isDesktop = useMediaQuery('(min-width: 768px)');
     const visibleCategories = useMemo(
         () => getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot, sectionsContext?.document),
         [estimate.items, estimate.sectionSnapshot, estimate.selectedSections, sectionsContext?.document],
@@ -433,9 +436,48 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         onDirtyChangeAction?.(dirty);
     }, [baselineSnapshot, estimate, onDirtyChangeAction]);
 
+    // The draft push to App is debounced (300ms): every keystroke used to
+    // re-render the whole app tree. The local estimate state stays instant.
+    // Pending drafts flush immediately on any field blur, editor close and
+    // unmount, so save/back buttons always see a fresh draft.
+    const DRAFT_PUSH_DEBOUNCE_MS = 300;
+    const draftPushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const pendingDraftRef = useRef<Estimate | null>(null);
+    const onDraftChangeActionRef = useRef(onDraftChangeAction);
     useEffect(() => {
-        onDraftChangeAction?.(estimate);
-    }, [estimate, onDraftChangeAction]);
+        onDraftChangeActionRef.current = onDraftChangeAction;
+    }, [onDraftChangeAction]);
+
+    const flushPendingDraft = useCallback(() => {
+        if (draftPushTimerRef.current) {
+            clearTimeout(draftPushTimerRef.current);
+            draftPushTimerRef.current = null;
+        }
+        const pending = pendingDraftRef.current;
+        if (pending) {
+            pendingDraftRef.current = null;
+            onDraftChangeActionRef.current?.(pending);
+        }
+    }, []);
+
+    useEffect(() => {
+        pendingDraftRef.current = estimate;
+        if (draftPushTimerRef.current) clearTimeout(draftPushTimerRef.current);
+        draftPushTimerRef.current = setTimeout(() => {
+            draftPushTimerRef.current = null;
+            flushPendingDraft();
+        }, DRAFT_PUSH_DEBOUNCE_MS);
+    }, [estimate, flushPendingDraft]);
+
+    useEffect(() => {
+        return () => {
+            if (draftPushTimerRef.current) {
+                clearTimeout(draftPushTimerRef.current);
+                draftPushTimerRef.current = null;
+            }
+            flushPendingDraft();
+        };
+    }, [flushPendingDraft]);
 
     const materialsIndex = useMemo(() => {
         const index = new Map<string, Material>();
@@ -443,11 +485,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         return index;
     }, [materialsValue]);
 
+    // Works are keyed by normalizeKey so lookups match the pricing matcher
+    // (trim + lowercase + collapsed spaces) instead of the raw string.
     const worksIndex = useMemo(() => {
         const index = new Map<string, Work>();
-        worksValue.forEach(work => index.set(work.name, work));
+        worksValue.forEach(work => index.set(normalizeKey(work.name), work));
         return index;
     }, [worksValue]);
+
+    // One material price index per catalog snapshot instead of a full scan per row.
+    const materialPriceIndex = useMemo(() => buildMaterialPriceIndex(materialsValue), [materialsValue]);
 
     const catalogCategoryIds = useMemo(
         () => sectionsContext?.allSections.map(section => section.id) ?? CATALOG_CATEGORIES,
@@ -463,6 +510,16 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     );
 
     const filteredMaterialsByCategory = useMemo(() => groupCatalogByCategory(materialsValue, catalogCategoryIds), [catalogCategoryIds, materialsValue]);
+
+    // Normalized material names per category: replaces the per-row
+    // filteredMaterials.some scan with an O(1) Set lookup.
+    const materialNamesByCategory = useMemo(() => {
+        const sets = new Map<SectionId, Set<string>>();
+        filteredMaterialsByCategory.forEach((materials, category) => {
+            sets.set(category, new Set(materials.map(material => normalizeKey(material.name))));
+        });
+        return sets;
+    }, [filteredMaterialsByCategory]);
 
     const filteredWorksByCategory = useMemo(() => groupCatalogByCategory(worksValue, catalogCategoryIds), [catalogCategoryIds, worksValue]);
 
@@ -935,7 +992,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
     const handleWorkSelect = (itemId: string, workName: string) => {
-        const work = worksIndex.get(workName);
+        const work = worksIndex.get(normalizeKey(workName));
         if (!work) {
             // Allow AI suggestions that are not in the catalog
             const aiSuggested = suggestions[itemId]?.find(suggestion => suggestion.name === workName);
@@ -949,10 +1006,11 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
 
-    // Try to apply work by exact name (used on blur / Enter) so user can type freely
+    // Try to apply work by name (used on blur / Enter) so user can type freely;
+    // matching goes through the same normalizeKey as the catalog index.
     const tryApplyWorkByName = (itemId: string, name: string) => {
         if (!name) return;
-        const work = worksIndex.get(name);
+        const work = worksIndex.get(normalizeKey(name));
         if (!work) return;
         handleWorkSelect(itemId, name);
     };
@@ -1502,7 +1560,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4" onBlurCapture={flushPendingDraft}>
             <div className="rounded-xl border border-border/70 bg-surface p-2 shadow-2xl sm:p-4 md:p-5">
                 <div className="mb-4 flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
                     <h2 className="text-xl font-semibold text-text-primary">{initialEstimateValue ? `Редактирование сметы №${estimate.estimateNumber}` : 'Создание новой сметы'}</h2>
@@ -1885,7 +1943,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                     <div className="font-semibold text-xs sm:text-sm">{subgroup === EstimateSubgroup.WORKS ? 'Работы' : subgroup === EstimateSubgroup.MATERIALS ? 'Материалы' : 'Доставка'}</div>
                                                     <div className="text-xs sm:text-sm font-medium text-text-secondary">{subTotal.toLocaleString('ru-RU')} ₽</div>
                                                 </div>
-                                                <div className="overflow-x-auto hidden md:block">
+                                                {isDesktop ? (
+                                                <div className="overflow-x-auto">
                                                     <table className="min-w-full">
                                                         <thead className="bg-gray-900/30">
                                                             <tr>
@@ -1916,12 +1975,12 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                             {renderedSubItems.map((item) => {
                                                                 const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                                 const filteredWorks = filteredWorksByCategory.get(category) || [];
-                                                                const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterials.some(material => normalizeKey(material.name) === normalizeKey(item.name));
-                                                                const workExistsInCatalog = worksValue.some(work => normalizeKey(work.name) === normalizeKey(item.name));
+                                                                const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !(materialNamesByCategory.get(category)?.has(normalizeKey(item.name)) ?? false);
+                                                                const workExistsInCatalog = worksIndex.has(normalizeKey(item.name));
                                                                 const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD || !workExistsInCatalog;
                                                                 const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
                                                                 const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
-                                                                    ? checkMaterialPrice(item, materialsValue)
+                                                                    ? checkMaterialPriceIndexed(item, materialPriceIndex)
                                                                     : null;
                                                                 const isQuickBundleWorkRow = quickBundleWork?.id === item.id;
                                                                 const isQuickBundleLinked = quickBundleItemIds.has(item.id);
@@ -2158,20 +2217,21 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         </tbody>
                                                     </table>
                                                 </div>
-                                                {/* Mobile card list */}
-                                                <div className="md:hidden space-y-2 p-1.5 sm:p-2">
+                                                ) : (
+                                                /* Mobile card list */
+                                                <div className="space-y-2 p-1.5 sm:p-2">
                                                     {visibleSubItems.length === 0 && (
                                                         <div className="text-sm text-text-secondary py-2">Нет позиций</div>
                                                     )}
                                                     {renderedSubItems.map((item) => {
                                                         const filteredMaterials = filteredMaterialsByCategory.get(category) || [];
                                                         const filteredWorks = filteredWorksByCategory.get(category) || [];
-                                                        const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !filteredMaterials.some(material => normalizeKey(material.name) === normalizeKey(item.name));
-                                                        const workExistsInCatalog = worksValue.some(work => normalizeKey(work.name) === normalizeKey(item.name));
+                                                        const useTypeaheadMaterials = filteredMaterials.length > TYPEAHEAD_THRESHOLD || !(materialNamesByCategory.get(category)?.has(normalizeKey(item.name)) ?? false);
+                                                        const workExistsInCatalog = worksIndex.has(normalizeKey(item.name));
                                                         const useTypeaheadWorks = filteredWorks.length > TYPEAHEAD_THRESHOLD || !workExistsInCatalog;
                                                         const itemSubgroup = item.subgroup || EstimateSubgroup.WORKS;
                                                         const materialPriceCheck = itemSubgroup === EstimateSubgroup.MATERIALS
-                                                            ? checkMaterialPrice(item, materialsValue)
+                                                            ? checkMaterialPriceIndexed(item, materialPriceIndex)
                                                             : null;
                                                         const isQuickBundleWorkRow = quickBundleWork?.id === item.id;
                                                         const isQuickBundleLinked = quickBundleItemIds.has(item.id);
@@ -2382,6 +2442,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                         );
                                                     })}
                                                 </div>
+                                                )}
                                                 {visibleSubItems.length > MAX_RENDERED_SUBITEMS && (
                                                     <div className="px-2 pt-2 text-sm text-text-secondary flex items-center justify-between gap-3">
                                                         <span>

@@ -313,4 +313,32 @@ describe('offlineQueue v1 migration', () => {
     expect(await offlineQueue.getQuarantinedCount()).toBe(1);
     expect(await offlineQueue.getClaimableQuarantinedCount()).toBe(0);
   });
+
+  it('runs the legacy quarantine once per session even when legacy records appear later', async () => {
+    rememberOfflineUser(migrationUser());
+    await createLegacyV1Queue();
+
+    // First open of the session migrates the legacy records.
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([]);
+    expect(await offlineQueue.getQuarantinedCount()).toBe(2);
+
+    // A legacy-shaped record appearing after the session's first migration
+    // must not trigger another full-store sweep on every later read.
+    const request = indexedDB.open(QUEUE_DB_NAME);
+    const database = await requestToPromise(request);
+    const transaction = database.transaction(STORE_NAME, 'readwrite');
+    transaction.objectStore(STORE_NAME).put({
+      id: 'materials:upsert:legacy-late',
+      table: 'materials',
+      operation: 'upsert',
+      data: [{ id: 'material-late', name: 'Late board', price: 100 }],
+      timestamp: '2026-07-12T12:00:00.000Z',
+      retryCount: 0,
+    });
+    await waitForTransaction(transaction);
+    database.close();
+
+    expect(await offlineQueue.getQuarantinedCount()).toBe(2);
+    expect(await offlineQueue.getAll(USER_ID)).toEqual([]);
+  });
 });

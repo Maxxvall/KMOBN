@@ -11,7 +11,7 @@ import {
   upsertCachedRecords,
 } from './indexedDbCache';
 import { offlineQueue, type PendingChange } from './offlineQueue';
-import { hashData } from './hashing';
+import { fingerprintData } from './hashing';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
 import { normalizeEstimateSectionsDocument, prepareEstimateSectionsDocumentForSave } from './estimateSections';
@@ -475,9 +475,10 @@ const applyPendingChanges = <T extends { id: string }>(
   return [...merged.values()];
 };
 
+// Comparison-only use: a fingerprint is enough to tell "changed" from "same".
 const getChangedRecords = <T extends { id: string }>(cached: T[], records: T[]): T[] => {
-  const cachedHashes = new Map(cached.map(record => [record.id, hashData(record)]));
-  return records.filter(record => cachedHashes.get(record.id) !== hashData(record));
+  const cachedHashes = new Map(cached.map(record => [record.id, fingerprintData(record)]));
+  return records.filter(record => cachedHashes.get(record.id) !== fingerprintData(record));
 };
 
 const saveLocalRecords = async <T extends { id: string }>(table: CacheTableKey, records: T[]): Promise<void> => {

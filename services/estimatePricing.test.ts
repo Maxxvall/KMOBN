@@ -7,7 +7,7 @@ import {
   type EstimateItem,
   type Material,
 } from '../types';
-import { applyCatalogMaterialPrice, calculateEstimateTotal, checkMaterialPrice, recalculateEstimateWorkPrices } from './estimatePricing';
+import { applyCatalogMaterialPrice, buildMaterialPriceIndex, calculateEstimateTotal, checkMaterialPrice, checkMaterialPriceIndexed, recalculateEstimateWorkPrices } from './estimatePricing';
 
 const makeMaterial = (id: string, patch: Partial<Material> = {}): Material => ({
   id,
@@ -123,6 +123,50 @@ describe('checkMaterialPrice', () => {
     );
 
     expect(result.status).toBe(expected);
+  });
+});
+
+describe('buildMaterialPriceIndex + checkMaterialPriceIndexed', () => {
+  it('reproduces every checkMaterialPrice verdict through the index', () => {
+    const materials = [
+      makeMaterial('material-1', { name: 'OSB 9 mm', price: 800 }),
+      makeMaterial('material-2', { name: '  osb   9 MM ', price: 700 }),
+      makeMaterial('material-3', { name: 'Plywood', price: 500 }),
+    ];
+    const index = buildMaterialPriceIndex(materials);
+
+    const cases: Array<Parameters<typeof checkMaterialPrice>[0]> = [
+      makeItem({ name: 'OSB 9 mm', price: 800 }), // current by name
+      makeItem({ name: 'OSB 9 mm', price: 600 }), // outdated by name
+      makeItem({ name: ' plywood ', price: 500 }), // normalized whitespace/case match
+      makeItem({ name: 'Missing panel', price: 100 }), // missing
+      makeItem(), // ambiguous: two materials normalize to "osb 9 mm"
+      makeItem({ name: 'Edited name', catalogMaterialId: 'material-3', price: 500 }), // current by id
+      makeItem({ name: 'Edited name', catalogMaterialId: 'material-3', price: 499 }), // outdated by id
+      makeItem({ name: 'Edited name', catalogMaterialId: 'gone-id' }), // id misses, name misses
+      makeItem({ name: 'Edited name', catalogMaterialId: 'gone-id' }),
+    ];
+
+    for (const item of cases) {
+      expect(checkMaterialPriceIndexed(item, index)).toEqual(checkMaterialPrice(item, materials));
+    }
+
+    expect(checkMaterialPriceIndexed(makeItem(), index).status).toBe('ambiguous');
+    expect(checkMaterialPriceIndexed(makeItem({ name: 'Missing panel' }), index).status).toBe('missing');
+    expect(checkMaterialPriceIndexed(makeItem({ name: ' plywood ', price: 500 }), index)).toMatchObject({
+      status: 'current',
+      matchedBy: 'name',
+    });
+    expect(checkMaterialPriceIndexed(makeItem({ name: 'Edited name', catalogMaterialId: 'material-3', price: 500 }), index))
+      .toMatchObject({ status: 'current', matchedBy: 'id', material: materials[2] });
+  });
+
+  it('matches by normalizeKey the same way the list scan does', () => {
+    const index = buildMaterialPriceIndex([makeMaterial('material-1', { name: '  Доска   ОБРЕЗНАЯ ', price: 800 })]);
+
+    expect(checkMaterialPriceIndexed(makeItem({ name: 'доска обрезная', price: 800 }), index).status).toBe('current');
+    expect(checkMaterialPriceIndexed(makeItem({ name: 'Доска  обрезная ' }), index).status).toBe('outdated');
+    expect(checkMaterialPriceIndexed(makeItem({ name: '' }), index).status).toBe('missing');
   });
 });
 

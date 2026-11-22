@@ -15,12 +15,29 @@ export type MaterialPriceCheck =
       matchedBy: 'id' | 'name';
     };
 
-export const checkMaterialPrice = (
+// Precomputed lookup for repeated price checks over the same catalog:
+// one Map per normalizeKey of the material name, one Map per id.
+export interface MaterialPriceIndex {
+  byId: Map<string, Material>;
+  byName: Map<string, Material[]>;
+}
+
+export const buildMaterialPriceIndex = (materials: Material[]): MaterialPriceIndex => {
+  const byId = new Map(materials.map(material => [material.id, material]));
+  const byName = new Map<string, Material[]>();
+  for (const material of materials) {
+    const key = normalizeKey(material.name);
+    byName.set(key, [...(byName.get(key) ?? []), material]);
+  }
+  return { byId, byName };
+};
+
+export const checkMaterialPriceIndexed = (
   item: Pick<EstimateItem, 'name' | 'price' | 'catalogMaterialId'>,
-  materials: Material[],
+  index: MaterialPriceIndex,
 ): MaterialPriceCheck => {
   if (item.catalogMaterialId) {
-    const linkedMaterial = materials.find(material => material.id === item.catalogMaterialId);
+    const linkedMaterial = index.byId.get(item.catalogMaterialId);
     if (linkedMaterial) {
       return {
         status: item.price === linkedMaterial.price ? 'current' : 'outdated',
@@ -34,7 +51,7 @@ export const checkMaterialPrice = (
   const normalizedName = normalizeKey(item.name);
   if (!normalizedName) return { status: 'missing' };
 
-  const matches = materials.filter(material => normalizeKey(material.name) === normalizedName);
+  const matches = index.byName.get(normalizedName) ?? [];
   if (matches.length === 0) return { status: 'missing' };
   if (matches.length > 1) return { status: 'ambiguous' };
 
@@ -46,6 +63,11 @@ export const checkMaterialPrice = (
     matchedBy: 'name',
   };
 };
+
+export const checkMaterialPrice = (
+  item: Pick<EstimateItem, 'name' | 'price' | 'catalogMaterialId'>,
+  materials: Material[],
+): MaterialPriceCheck => checkMaterialPriceIndexed(item, buildMaterialPriceIndex(materials));
 
 export type ApplyMaterialPriceResult = {
   estimate: Estimate;

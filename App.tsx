@@ -21,7 +21,7 @@ import { generatePdf } from './services/pdfGenerator';
 import { generatePdf as generatePdfColored } from './services/pdfGenerator2';
 import { generatePdfContract } from './services/pdfContractGenerator';
 import { validateEstimate, type EstimateValidationResult } from './services/estimateValidation';
-import { hashData } from './services/hashing';
+import { memoizedFingerprint } from './services/hashing';
 import { EstimateProvider } from './contexts/EstimateContext';
 import { CatalogProvider } from './contexts/CatalogContext';
 import { SubscriptionProvider } from './contexts/SubscriptionContext';
@@ -381,7 +381,7 @@ const App: React.FC = () => {
     });
 
     const needsReload = useCallback((key: string, data: unknown): boolean => {
-        const currentHash = hashData(data);
+        const currentHash = memoizedFingerprint(data);
         const savedHash = dataHashes[key];
         return savedHash !== currentHash;
     }, [dataHashes]);
@@ -393,7 +393,7 @@ const App: React.FC = () => {
             // Partial events carry only confirmed/rebased records: merge them
             // into the current list instead of replacing it.
             const merged = detail.partial ? mergePartialRecordsById(estimatesRef.current, incoming) : incoming;
-            const nextHash = hashData(merged);
+            const nextHash = memoizedFingerprint(merged);
             if (dataHashes.estimates === nextHash) return;
             const { normalized, changed } = normalizeEstimateChains(merged);
             setEstimates(normalized);
@@ -422,7 +422,7 @@ const App: React.FC = () => {
             const current = catalogListsRef.current[detail.key as 'templates' | 'materials' | 'works' | 'bundles'];
             const incoming = detail.data as Array<{ id: string }>;
             const merged = detail.partial ? mergePartialRecordsById(current, incoming) : incoming;
-            const nextHash = hashData(merged);
+            const nextHash = memoizedFingerprint(merged);
             if (dataHashes[detail.key] === nextHash) return;
             setter(merged);
             setLoadedFlags(prev => ({ ...prev, [detail.key]: true }));
@@ -991,8 +991,8 @@ const App: React.FC = () => {
             setLoadedFlags(prev => ({ ...prev, estimates: true, templates: true }));
             setDataHashes(prev => ({
                 ...prev,
-                estimates: hashData(loadedEstimates),
-                templates: hashData(loadedTemplates || []),
+                estimates: memoizedFingerprint(loadedEstimates),
+                templates: memoizedFingerprint(loadedTemplates || []),
             }));
             if (showToast) {
                 setSync({ visible: true, message: 'Данные загружены', type: 'success' });
@@ -1016,7 +1016,7 @@ const App: React.FC = () => {
         const { normalized } = normalizeEstimateChains(loadedEstimates);
         setEstimates(normalized);
         setLoadedFlags(previous => ({ ...previous, estimates: true }));
-        setDataHashes(previous => ({ ...previous, estimates: hashData(loadedEstimates) }));
+        setDataHashes(previous => ({ ...previous, estimates: memoizedFingerprint(loadedEstimates) }));
         return normalized;
     }, []);
 
@@ -1026,7 +1026,7 @@ const App: React.FC = () => {
             const loaded = await loadMaterials({ limit: subscriptionLimits.materials.max ?? undefined });
             setMaterials(loaded || []);
             setLoadedFlags(prev => ({ ...prev, materials: true }));
-            setDataHashes(prev => ({ ...prev, materials: hashData(loaded || []) }));
+            setDataHashes(prev => ({ ...prev, materials: memoizedFingerprint(loaded || []) }));
         } catch (error) {
             console.error('Failed to load materials:', error);
             setMaterials([]);
@@ -1039,7 +1039,7 @@ const App: React.FC = () => {
             const loaded = await loadWorks({ limit: subscriptionLimits.works.max ?? undefined });
             setWorks(loaded || []);
             setLoadedFlags(prev => ({ ...prev, works: true }));
-            setDataHashes(prev => ({ ...prev, works: hashData(loaded || []) }));
+            setDataHashes(prev => ({ ...prev, works: memoizedFingerprint(loaded || []) }));
         } catch (error) {
             console.error('Failed to load works:', error);
             setWorks([]);
@@ -1052,7 +1052,7 @@ const App: React.FC = () => {
             const loaded = await loadBundles({ limit: subscriptionLimits.bundles.max ?? undefined });
             setBundles(loaded || []);
             setLoadedFlags(prev => ({ ...prev, bundles: true }));
-            setDataHashes(prev => ({ ...prev, bundles: hashData(loaded || []) }));
+            setDataHashes(prev => ({ ...prev, bundles: memoizedFingerprint(loaded || []) }));
         } catch (error) {
             console.error('Failed to load bundles:', error);
             setBundles([]);

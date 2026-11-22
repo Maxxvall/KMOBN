@@ -6,6 +6,7 @@ import { exportData, importData, importSharedEstimate, validateImportData } from
 
 import { useOptionalEstimateContext } from '../contexts/EstimateContext';
 import { useOptionalCatalogContext } from '../contexts/CatalogContext';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import SmartEstimateWizard from './SmartEstimateWizard';
 import EstimateDuplicateDialog from './EstimateDuplicateDialog';
 import EstimateTransferModal from './EstimateTransferModal';
@@ -264,6 +265,8 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
     const [filterAreaMin, setFilterAreaMin] = useState('');
     const [filterAreaMax, setFilterAreaMax] = useState('');
     const [selectedVersions, setSelectedVersions] = useState<Record<string, string>>({});
+    // Only the active layout variant (desktop table OR mobile cards) mounts.
+    const isDesktop = useMediaQuery('(min-width: 768px)');
     const catalogContext = useOptionalCatalogContext();
     const materialsList = catalogContext?.materials ?? [];
     const worksList = catalogContext?.works ?? [];
@@ -421,11 +424,22 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }, [estimateList, allEstimatesList, archiveView, filterClient, filterStatus, filterBuildingType, filterAreaMin, filterAreaMax]);
     
+    // One pass over all estimates: group number → versions, newest first.
+    // getVersionHistory and both VersionDropdowns read from this Map instead
+    // of rescanning the list per row.
+    const versionsByNumber = useMemo(() => {
+        const groups = new Map<string, Estimate[]>();
+        allEstimatesList.forEach(estimate => {
+            const versions = groups.get(estimate.estimateNumber);
+            if (versions) versions.push(estimate);
+            else groups.set(estimate.estimateNumber, [estimate]);
+        });
+        groups.forEach(versions => versions.sort((a, b) => b.version - a.version));
+        return groups;
+    }, [allEstimatesList]);
+
     const getVersionHistory = (estimate: Estimate) => {
-        const groupKey = estimate.estimateNumber;
-        return allEstimatesList
-            .filter(e => e.estimateNumber === groupKey)
-            .sort((a, b) => b.version - a.version);
+        return versionsByNumber.get(estimate.estimateNumber) ?? [];
     }
 
     const getSelectedVersionEstimate = (estimate: Estimate): Estimate => {
@@ -587,8 +601,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                 </div>
             )}
 
-            {/* Desktop table */}
-            <div className="overflow-x-auto hidden md:block">
+            {/* Only the active variant mounts: desktop table or mobile cards */}
+            {isDesktop ? (
+            <div className="overflow-x-auto">
                 <table className="min-w-full">
                     <thead>
                         <tr className="border-b border-border">
@@ -653,9 +668,9 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     </div>
                 )}
             </div>
-
-            {/* Mobile card list */}
-            <div className="md:hidden space-y-3">
+            ) : (
+            /* Mobile card list */
+            <div className="space-y-3">
                 {filteredEstimates.map(estimate => {
                     const groupKey = estimate.estimateNumber;
                     const selectedEstimate = getSelectedVersionEstimate(estimate);
@@ -665,15 +680,15 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                         <article key={estimate.id} className="rounded-lg border border-border bg-background/35 p-3">
                             <div className="flex items-start justify-between gap-2 mb-2">
                                 <div className="min-w-0 flex-1">
-                                    <div className="font-semibold text-text-primary truncate">{estimate.client || 'Без клиента'}</div>
-                                    <div className="text-xs text-text-secondary">{estimate.estimateNumber} &middot; {estimate.area} м² &middot; {estimate.buildingType}</div>
+                                    <div className="font-semibold text-text-primary truncate">{selectedEstimate.client || 'Без клиента'}</div>
+                                    <div className="text-xs text-text-secondary">{selectedEstimate.estimateNumber} &middot; {selectedEstimate.area} м² &middot; {selectedEstimate.buildingType}</div>
                                 </div>
                                 <span className={`shrink-0 rounded-full px-2 py-1 text-xs font-medium ${statusColors[selectedEstimate.status]}`}>
                                     {selectedEstimate.status}
                                 </span>
                             </div>
                             <div className="text-xs text-text-secondary mb-2">
-                                {new Date(estimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                {new Date(selectedEstimate.date).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                             </div>
                             <div className="mb-3 flex min-w-0 flex-col items-stretch gap-2 min-[420px]:flex-row min-[420px]:items-center min-[420px]:justify-between min-[420px]:gap-3">
                                 <VersionDropdown
@@ -711,6 +726,7 @@ const EstimateHistory: React.FC<EstimateHistoryProps> = ({ estimates, templates:
                     </div>
                 )}
             </div>
+            )}
 
             {showQuickStart && (
                 <SmartEstimateWizard

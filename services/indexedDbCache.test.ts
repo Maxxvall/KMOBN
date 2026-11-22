@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fingerprintData } from './hashing';
 import {
   closeIndexedDbCache,
   getCachedRecords,
@@ -36,6 +37,27 @@ const records = (): CachedMaterial[] => [
   { id: 'material-2', name: 'Insulation', price: 200 },
   { id: 'material-3', name: 'Membrane', price: 300 },
 ];
+
+type RawCacheEntry = { id: string; data: unknown; hash: string };
+
+const readRawCacheRecords = async (storeName: string): Promise<RawCacheEntry[]> =>
+  new Promise((resolve, reject) => {
+    const request = indexedDB.open(CACHE_DB_NAME);
+    request.onsuccess = () => {
+      const db = request.result;
+      const tx = db.transaction(storeName, 'readonly');
+      const getAll = tx.objectStore(storeName).getAll();
+      getAll.onsuccess = () => {
+        db.close();
+        resolve((getAll.result ?? []) as RawCacheEntry[]);
+      };
+      getAll.onerror = () => {
+        db.close();
+        reject(getAll.error);
+      };
+    };
+    request.onerror = () => reject(request.error);
+  });
 
 describe('IndexedDB cache invalidation', () => {
   beforeEach(async () => {
@@ -104,5 +126,38 @@ describe('IndexedDB cache invalidation', () => {
     expect(coverage.ready).toBe(true);
     expect(coverage.missingTables).toEqual([]);
     expect(coverage.lastPreparedAt).toBeTruthy();
+  });
+
+  it('stores a compact fingerprint hash instead of a full JSON copy of the record', async () => {
+    const initial = records();
+    await upsertCachedRecords('materials', USER_ID, initial);
+
+    const raw = await readRawCacheRecords('materials');
+    expect(raw).toHaveLength(3);
+    const stored = raw.find(entry => entry.id === 'material-1');
+    expect(stored).toBeDefined();
+    // Expected value comes from the standalone fingerprint implementation,
+    // not from the cache module under test.
+    expect(stored!.hash).toBe(fingerprintData(initial[0]));
+    // The old format stored the whole record as a JSON string; a fingerprint
+    // never contains the payload itself.
+    expect(stored!.hash).not.toContain('Board');
+    expect(stored!.hash).not.toContain('{');
+  });
+
+  it('does not rewrite unchanged records when upsert and sync share one hash function', async () => {
+    const initial = records();
+    await upsertCachedRecords('materials', USER_ID, initial);
+
+    const result = await syncCachedRecords('materials', USER_ID, initial);
+
+    expect(result.changed).toBe(false);
+    expect(result.changedIds).toEqual([]);
+    const raw = await readRawCacheRecords('materials');
+    expect(raw.map(entry => entry.hash)).toEqual([
+      fingerprintData(initial[0]),
+      fingerprintData(initial[1]),
+      fingerprintData(initial[2]),
+    ]);
   });
 });
