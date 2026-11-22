@@ -116,3 +116,12 @@
 - `services/estimatePricing.test.ts` — buildMaterialPriceIndex + checkMaterialPriceIndexed: те же вердикты, что у checkMaterialPrice (current/outdated/missing/ambiguous), матчинг по normalizeKey.
 - `services/offlineQueue.test.ts`/`offlineQueue.migration.test.ts` — поведение миграции не изменилось (теперь однократно); getForTable возвращает те же записи.
 - Компоненты App/EstimateHistory/EstimateEditor юнит-тестами не покрываются — критерии закрываются кодом по контракту + ревью ветки.
+
+## Построено таском 02 (фактические интерфейсы сборки 2)
+
+- `memoizedFingerprint(value: unknown): string` — WeakMap-мемо по ссылке объекта (примитивы — прямой пересчёт) в hashing.ts.
+- CacheRecord.hash = fingerprintData; одна функция computeRecordHash в upsertCachedRecords и syncCachedRecords; hashMemoryCache удалён. Первый прогон после обновления перепишет хэши кэша один раз.
+- `buildMaterialPriceIndex(materials): { byId, byName }` + `checkMaterialPriceIndexed(item, index): MaterialPriceCheck`; checkMaterialPrice делегирует.
+- Карантин legacy в offlineQueue — однократно за сессию при первом openQueueDb (guard сбрасывается в close()); getForTable — index('by_table').getAll(table) + фильтр userId в JS.
+- `useMediaQuery(query): boolean` (hooks/useMediaQuery.ts); в EstimateHistory и EstimateEditor смонтирован только активный DOM-вариант.
+- worksIndex редактора ключуется normalizeKey (матч работ в редакторе стал регистронезависимым — запрошенный переход).
