@@ -63,3 +63,12 @@
 - `e2e/`, `electron/` (main-процесс не менялся), `supabase/` (миграции RPC не трогаем), `dist*/`, `release/`.
 - `npm run build` не запускать; Playwright/Electron E2E не запускать (правило AGENTS.md).
 - Формат экспорта данных и схему RPC-контракта (p_expected_revision и пр.) не менять.
+
+## Построено таском 01 (фактические интерфейсы)
+
+- `calculateEstimateTotal(items: EstimateItem[]): number` — Σ item.total (estimatePricing.ts).
+- `stripImportedServiceFields<T extends object>(record: T): T` — serverRevision→0, удаляет baseDocument/operationId/syncConflict (database.ts).
+- Событие `kmobn:cache-update`: detail `{ key, data, partial?: boolean }`; partial только на confirmedRecord/rebase-диспатчах offlineSync.
+- `App.handleCacheUpdate`: partial → мердж по id (estimates — затем normalizeEstimateChains), хэш от объединённого списка; списки читаются через render-refs (estimatesRef, catalogListsRef — паттерн существующего materialsRef).
+- `useEstimateCrud`: общая цепочка `mutationQueueRef` для save+archive; чтение/обновление `estimatesRef.current`.
+- `applyEstimateSave`: каждая ветка несёт `date: now` + `updated_at: now`.
