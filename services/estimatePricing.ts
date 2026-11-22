@@ -1,5 +1,10 @@
 import { Estimate, EstimateItem, EstimateSubgroup, Material, Work, normalizeKey } from '../types';
 
+// Single owner of the estimate total: the estimate total is always the sum
+// of item totals, never a second quantity × price pass over the rows.
+export const calculateEstimateTotal = (items: EstimateItem[]): number =>
+  items.reduce((sum, item) => sum + item.total, 0);
+
 export type MaterialPriceCheck =
   | { status: 'missing' }
   | { status: 'ambiguous' }

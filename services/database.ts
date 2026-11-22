@@ -722,7 +722,7 @@ export const prepareSharedEstimateImport = (
 
   return {
     numberChanged,
-    estimate: {
+    estimate: stripImportedServiceFields({
       ...source,
       id: newId,
       parentId: undefined,
@@ -737,7 +737,7 @@ export const prepareSharedEstimateImport = (
         ...item,
         id: `${newId}-item-${index + 1}`,
       })),
-    },
+    }),
   };
 };
 
@@ -764,6 +764,25 @@ export const mergeImportedEstimate = (incoming: Estimate, existing?: Estimate): 
   return existing.explanation === undefined
     ? incoming
     : { ...incoming, explanation: existing.explanation };
+};
+
+// Imported records must never carry the source account's sync identity:
+// a foreign serverRevision is sent as p_expected_revision, fails with a
+// non-retryable conflict and blocks the offline queue. This pure function
+// removes those service fields and starts the record at revision 0.
+export const stripImportedServiceFields = <T extends object>(record: T): T => {
+  const {
+    serverRevision: _serverRevision,
+    baseDocument: _baseDocument,
+    operationId: _operationId,
+    syncConflict: _syncConflict,
+    ...rest
+  } = record as Record<string, unknown>;
+  void _serverRevision;
+  void _baseDocument;
+  void _operationId;
+  void _syncConflict;
+  return { ...rest, serverRevision: 0 } as unknown as T;
 };
 
 export const exportData = async (): Promise<string> => {
@@ -978,20 +997,26 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
         };
       }
       templatesAdded++;
-      return {
+      return stripImportedServiceFields({
         ...t,
         id: generateId('template'),
         items: Array.isArray(t.items) ? t.items : [],
         sortOrder: typeof t.sortOrder === 'number' ? t.sortOrder : makeSortOrder(index),
-      };
+      });
     });
 
     const estimates = rawEstimates.map((e, index) => {
       const mappedId = estimateIdMap.get(e.id) as string;
       const key = `${e.estimateNumber}::v${e.version ?? 0}`;
-      const merged = mergeImportedEstimate(e, existingEstimateByNumberVersion.get(key));
+      const existing = existingEstimateByNumberVersion.get(key);
+      const merged = mergeImportedEstimate(e, existing);
+      // New records start clean at revision 0; records merged with a local
+      // existing one keep the LOCAL server identity (the file's revision is
+      // guaranteed wrong for this account).
+      const cleaned = stripImportedServiceFields(merged);
       return {
-        ...merged,
+        ...cleaned,
+        ...(existing ? { serverRevision: existing.serverRevision ?? 0 } : {}),
         id: mappedId,
         parentId: e.parentId ? estimateIdMap.get(e.parentId) : undefined,
         items: Array.isArray(e.items) ? e.items : [],
@@ -1018,11 +1043,11 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
         };
       }
       materialsAdded++;
-      return {
+      return stripImportedServiceFields({
         ...m,
         id: generateId('material'),
         sortOrder: typeof m.sortOrder === 'number' ? m.sortOrder : makeSortOrder(index),
-      };
+      });
     });
 
     const dedupMaterialsResult = dedupById(materials);
@@ -1044,11 +1069,11 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
         };
       }
       worksAdded++;
-      return {
+      return stripImportedServiceFields({
         ...w,
         id: generateId('work'),
         sortOrder: typeof w.sortOrder === 'number' ? w.sortOrder : makeSortOrder(index),
-      };
+      });
     });
 
     const dedupWorksResult = dedupById(works);
@@ -1070,12 +1095,12 @@ export const importData = async (jsonData: string): Promise<ImportResult> => {
         };
       }
       bundlesAdded++;
-      return {
+      return stripImportedServiceFields({
         ...b,
         id: generateId('bundle'),
         items: Array.isArray(b.items) ? b.items : [],
         sortOrder: typeof b.sortOrder === 'number' ? b.sortOrder : makeSortOrder(index),
-      };
+      });
     });
 
     const dedupBundlesResult = dedupById(bundles);

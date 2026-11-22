@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
-import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey } from '../types';
+import { BoardMoisture, Estimate, EstimateItem, EstimateStatus, GenerationParams, EstimateCategory, EstimateSubgroup, ProjectTemplate, Material, Work, WorkBundle, SectionId, normalizeKey, safeNumber } from '../types';
 import { ESTIMATE_CATEGORIES, ESTIMATE_EXPLANATION_MAX_LENGTH } from '../types';
 import { CATALOG_CATEGORIES, getEstimateCategories, getSectionLabel, getSectionSubgroups } from '../services/estimateSections';
 import { generateEstimateWithAI } from '../services/geminiService';
@@ -30,7 +30,7 @@ import {
     copyPlanToActual,
     shouldShowActualRow,
 } from '../services/estimateActuals';
-import { applyCatalogMaterialPrice, checkMaterialPrice, type MaterialPriceCheck } from '../services/estimatePricing';
+import { applyCatalogMaterialPrice, calculateEstimateTotal, checkMaterialPrice, type MaterialPriceCheck } from '../services/estimatePricing';
 import { applyBoardMaterialSwitch, getEstimateBoardState, planBoardMaterialSwitch } from '../services/boardMaterialSwitch';
 
 interface EstimateEditorProps {
@@ -334,6 +334,10 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const [pasteTargetCategory, setPasteTargetCategory] = useState<SectionId>(EstimateCategory.FOUNDATION);
     const [boardSwitchTarget, setBoardSwitchTarget] = useState<BoardMoisture | null>(null);
     const [boardSwitchNotice, setBoardSwitchNotice] = useState<string | null>(null);
+    // Draft strings for quantity/price inputs (key "itemId:field"): the user
+    // can type "0." or "2,5" freely; the value reaches the item only on
+    // blur/Enter, parsed through safeNumber.
+    const [numericDrafts, setNumericDrafts] = useState<Record<string, string>>({});
     const visibleCategories = useMemo(
         () => getEstimateCategories(estimate.items, estimate.selectedSections, estimate.sectionSnapshot, sectionsContext?.document),
         [estimate.items, estimate.sectionSnapshot, estimate.selectedSections, sectionsContext?.document],
@@ -629,10 +633,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         return ReactDOM.createPortal(listEl, document.body);
     };
 
-    const calculateTotal = (items: EstimateItem[]) => {
-        return items.reduce((sum, item) => sum + (item.quantity * item.price), 0);
-    };
-
     const groupedItems = useMemo(() => {
         const groups = new Map<SectionId, EstimateItem[]>();
         ESTIMATE_CATEGORIES.forEach(cat => groups.set(cat, []));
@@ -684,8 +684,37 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 }
                 return item;
             });
-            return { ...prev, items: newItems, total: calculateTotal(newItems) };
+            return { ...prev, items: newItems, total: calculateEstimateTotal(newItems) };
         });
+    };
+
+    // Numeric input drafts: while the user types, only the draft string
+    // changes ("0." or "2,5" survive); the parsed number reaches the item on
+    // blur/Enter. Garbage falls back to the last committed value instead of
+    // corrupting the row. Programmatic paths keep writing numbers directly.
+    const numericDraftKey = (itemId: string, field: 'quantity' | 'price') => `${itemId}:${field}`;
+
+    const getNumericDraftValue = (item: EstimateItem, field: 'quantity' | 'price'): string => {
+        const draft = numericDrafts[numericDraftKey(item.id, field)];
+        return draft !== undefined ? draft : String(item[field] ?? '');
+    };
+
+    const handleNumericDraftChange = (itemId: string, field: 'quantity' | 'price', value: string) => {
+        setNumericDrafts(prev => ({ ...prev, [numericDraftKey(itemId, field)]: value }));
+    };
+
+    const commitNumericDraft = (item: EstimateItem, field: 'quantity' | 'price', rawValue: string) => {
+        const key = numericDraftKey(item.id, field);
+        setNumericDrafts(prev => {
+            if (!(key in prev)) return prev;
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+        const parsed = safeNumber(rawValue, item[field]);
+        if (parsed !== item[field]) {
+            updateItem(item.id, field, parsed);
+        }
     };
 
     // Update multiple fields on an item atomically
@@ -699,7 +728,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 }
                 return item;
             });
-            return { ...prev, items: newItems, total: calculateTotal(newItems) };
+            return { ...prev, items: newItems, total: calculateEstimateTotal(newItems) };
         });
     };
 
@@ -905,7 +934,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     };
     const removeItem = (itemId: string) => {
         const newItems = estimate.items.filter(item => item.id !== itemId);
-        setEstimate(prev => ({ ...prev, items: newItems, total: calculateTotal(newItems) }));
+        setEstimate(prev => ({ ...prev, items: newItems, total: calculateEstimateTotal(newItems) }));
     };
 
     const handleGenerate = useCallback(async () => {
@@ -921,7 +950,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 total: (item.quantity || 0) * (item.price || 0),
             }));
-            const total = calculateTotal(newItems);
+            const total = calculateEstimateTotal(newItems);
             setEstimate(prev => ({ ...prev, items: newItems, total }));
 
             if (!selectedTemplate) {
@@ -1083,7 +1112,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 });
             }
 
-            const total = calculateTotal(merged);
+            const total = calculateEstimateTotal(merged);
             setEstimate(prev => ({
                 ...prev,
                 items: merged,
@@ -1220,7 +1249,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 ...prev,
                 items: newItems,
                 selectedSections: (prev.selectedSections ?? []).filter(c => c !== cat),
-                total: newItems.length === prev.items.length ? prev.total : calculateTotal(newItems),
+                total: newItems.length === prev.items.length ? prev.total : calculateEstimateTotal(newItems),
             };
         });
     };
@@ -1234,15 +1263,20 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         const coefficient = prompt(`Коэффициент для масштабирования (1 = без изменений):`, '1');
         if (coefficient === null) return;
         const factor = parseFloat(coefficient) || 1;
-        const newItems = itemsInCat.map(item => ({
-            ...item,
-            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            quantity: +(item.quantity * factor).toFixed(2),
-            total: +(item.quantity * factor * item.price).toFixed(2),
-        }));
+        const newItems = itemsInCat.map(item => {
+            // Keep the row invariant: total = rounded quantity × price,
+            // the product itself is not rounded a second time.
+            const scaledQuantity = +(item.quantity * factor).toFixed(2);
+            return {
+                ...item,
+                id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                quantity: scaledQuantity,
+                total: scaledQuantity * item.price,
+            };
+        });
         setEstimate(prev => {
             const updatedItems = [...prev.items, ...newItems];
-            return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
+            return { ...prev, items: updatedItems, total: calculateEstimateTotal(updatedItems) };
         });
     }, [estimate.items]);
 
@@ -1251,10 +1285,13 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         setPasteModalOpen(true);
     }, []);
 
-    const handlePasteFromEstimate = useCallback((items: EstimateItem[], _targetCategory: SectionId) => {
+    const handlePasteFromEstimate = useCallback((items: EstimateItem[], targetCategory: SectionId) => {
         setEstimate(prev => {
-            const updatedItems = [...prev.items, ...items];
-            return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
+            // Honour the "Целевой раздел" the modal promised: every pasted
+            // row lands in targetCategory, its subgroup stays as-is.
+            const pastedItems = items.map(item => ({ ...item, category: targetCategory }));
+            const updatedItems = [...prev.items, ...pastedItems];
+            return { ...prev, items: updatedItems, total: calculateEstimateTotal(updatedItems) };
         });
         setPasteModalOpen(false);
     }, []);
@@ -1278,7 +1315,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         );
         setEstimate(prev => {
             const updatedItems = [...prev.items, ...smartItems];
-            return { ...prev, items: updatedItems, total: calculateTotal(updatedItems) };
+            return { ...prev, items: updatedItems, total: calculateEstimateTotal(updatedItems) };
         });
         setBundlePickerOpen(false);
     }, [bundlesValue]);
@@ -2005,10 +2042,28 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             <option value="м3">м3</option>
                                                                         </select>
                                                                     </td>
-                                                                    <td className="p-1 w-32"><input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', inputStyles + " text-right text-sm")} /></td>
+                                                                    <td className="p-1 w-32">
+                                                                        <input
+                                                                            type="text"
+                                                                            inputMode="decimal"
+                                                                            value={getNumericDraftValue(item, 'quantity')}
+                                                                            onChange={e => handleNumericDraftChange(item.id, 'quantity', e.target.value)}
+                                                                            onBlur={e => commitNumericDraft(item, 'quantity', e.currentTarget.value)}
+                                                                            onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); } }}
+                                                                            className={getFieldClass(item.id, 'quantity', inputStyles + " text-right text-sm")}
+                                                                        />
+                                                                    </td>
                                                                     <td className="p-1 w-32">
                                                                         <div className="flex items-center gap-1">
-                                                                            <input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', inputStyles + " min-w-0 flex-1 text-right text-sm")} />
+                                                                            <input
+                                                                                type="text"
+                                                                                inputMode="decimal"
+                                                                                value={getNumericDraftValue(item, 'price')}
+                                                                                onChange={e => handleNumericDraftChange(item.id, 'price', e.target.value)}
+                                                                                onBlur={e => commitNumericDraft(item, 'price', e.currentTarget.value)}
+                                                                                onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); } }}
+                                                                                className={getFieldClass(item.id, 'price', inputStyles + " min-w-0 flex-1 text-right text-sm")}
+                                                                            />
                                                                             {materialPriceCheck && (
                                                                                 <MaterialPriceSyncButton check={materialPriceCheck} onApply={() => syncMaterialPrice(item.id)} />
                                                                             )}
@@ -2170,12 +2225,28 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 <div className="grid grid-cols-3 gap-2">
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Кол-во</label>
-                                                                        <input type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', e.target.value)} className={getFieldClass(item.id, 'quantity', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right md:min-h-9")} />
+                                                                        <input
+                                                                            type="text"
+                                                                            inputMode="decimal"
+                                                                            value={getNumericDraftValue(item, 'quantity')}
+                                                                            onChange={e => handleNumericDraftChange(item.id, 'quantity', e.target.value)}
+                                                                            onBlur={e => commitNumericDraft(item, 'quantity', e.currentTarget.value)}
+                                                                            onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); } }}
+                                                                            className={getFieldClass(item.id, 'quantity', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm text-right md:min-h-9")}
+                                                                        />
                                                                     </div>
                                                                     <div>
                                                                         <label className="text-xs text-text-secondary block mb-1">Цена</label>
                                                                         <div className="flex items-center gap-1">
-                                                                            <input type="number" value={item.price} onChange={e => updateItem(item.id, 'price', e.target.value)} className={getFieldClass(item.id, 'price', "min-h-[44px] min-w-0 flex-1 rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9")} />
+                                                                            <input
+                                                                                type="text"
+                                                                                inputMode="decimal"
+                                                                                value={getNumericDraftValue(item, 'price')}
+                                                                                onChange={e => handleNumericDraftChange(item.id, 'price', e.target.value)}
+                                                                                onBlur={e => commitNumericDraft(item, 'price', e.currentTarget.value)}
+                                                                                onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); } }}
+                                                                                className={getFieldClass(item.id, 'price', "min-h-[44px] min-w-0 flex-1 rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9")}
+                                                                            />
                                                                             {materialPriceCheck && (
                                                                                 <MaterialPriceSyncButton mobile check={materialPriceCheck} onApply={() => syncMaterialPrice(item.id)} />
                                                                             )}
@@ -2340,7 +2411,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                             total: (item.quantity || 0) * (item.price || 0),
                         };
                         const newItems = [...prev.items, newItem];
-                        return { ...prev, items: newItems, total: calculateTotal(newItems) };
+                        return { ...prev, items: newItems, total: calculateEstimateTotal(newItems) };
                     });
                     setAiAnalysisMissing(prev => prev.filter(({ id }) => id !== item.id));
                     setAiAnalysisOptional(prev => prev.filter(({ id }) => id !== item.id));

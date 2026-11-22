@@ -15,6 +15,18 @@ const resetQueue = async () => {
 const enqueueMaterial = (id: string, price: number) =>
   offlineQueue.enqueueUpserts(TEST_USER, 'materials', [{ id, name: id, price }]);
 
+type CacheUpdateDetail = { key: string; data: Array<{ id: string }>; partial?: boolean };
+
+const stubWindowEventBus = (): { bus: EventTarget; details: CacheUpdateDetail[] } => {
+  const bus = new EventTarget();
+  const details: CacheUpdateDetail[] = [];
+  bus.addEventListener('kmobn:cache-update', (event: Event) => {
+    details.push((event as CustomEvent).detail as CacheUpdateDetail);
+  });
+  vi.stubGlobal('window', bus);
+  return { bus, details };
+};
+
 describe('processOfflineQueue', () => {
   beforeEach(async () => {
     vi.stubGlobal('window', globalThis);
@@ -189,5 +201,57 @@ describe('processOfflineQueue', () => {
     type EnqueueTable = Parameters<typeof offlineQueue.enqueueUpserts>[1];
 
     expectTypeOf<EnqueueTable>().toEqualTypeOf<CacheTableKey>();
+  });
+
+  it('marks confirmed-record cache events as partial', async () => {
+    const { details } = stubWindowEventBus();
+
+    await enqueueMaterial('material-1', 100);
+    await processOfflineQueue(TEST_USER, async () => ({
+      confirmedRecord: { table: 'materials', data: { id: 'material-1', serverRevision: 4 } },
+    }));
+
+    expect(details).toHaveLength(1);
+    expect(details[0]).toMatchObject({
+      key: 'materials',
+      partial: true,
+      data: [{ id: 'material-1', serverRevision: 4 }],
+    });
+  });
+
+  it('marks rebase cache events as partial', async () => {
+    const { details } = stubWindowEventBus();
+
+    await enqueueMaterial('material-2', 200);
+    await processOfflineQueue(TEST_USER, async change => {
+      if (change.recordId === 'material-2') {
+        // A newer local edit supersedes the in-flight change, so the
+        // acknowledgement misses and the server confirmation is rebased.
+        await enqueueMaterial('material-2', 250);
+        return {
+          confirmedRecord: { table: 'materials', data: { id: 'material-2', serverRevision: 9 } },
+        };
+      }
+    });
+
+    expect(details).toHaveLength(1);
+    expect(details[0]).toMatchObject({
+      key: 'materials',
+      partial: true,
+      data: [{ id: 'material-2', serverRevision: 9 }],
+    });
+  });
+
+  it('keeps estimate_sections cache events full (no partial flag)', async () => {
+    const { details } = stubWindowEventBus();
+
+    await offlineQueue.enqueueUpserts(TEST_USER, 'estimate_sections', [{ id: 'sections-user' }]);
+    await processOfflineQueue(TEST_USER, async () => ({
+      confirmedSections: { id: 'sections-user', serverRevision: 2, definitions: [], order: [] },
+    }));
+
+    expect(details).toHaveLength(1);
+    expect(details[0]).toMatchObject({ key: 'estimate_sections', data: [{ id: 'sections-user', serverRevision: 2 }] });
+    expect(details[0].partial).toBeUndefined();
   });
 });

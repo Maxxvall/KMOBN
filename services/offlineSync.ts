@@ -181,6 +181,7 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
               detail: {
                 key: result.confirmedRecord.table,
                 data: [result.confirmedRecord.data],
+                partial: true,
               },
             }));
           }
@@ -204,7 +205,7 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
             );
             if (typeof window !== 'undefined' && typeof CustomEvent !== 'undefined') {
               window.dispatchEvent(new CustomEvent('kmobn:cache-update', {
-                detail: { key: rebased.table, data: [rebased.data] },
+                detail: { key: rebased.table, data: [rebased.data], partial: true },
               }));
             }
           }

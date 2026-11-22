@@ -77,13 +77,14 @@ export const applyEstimateSave = ({
     const effectiveMode: EstimateSaveMode = saveMode === 'overwrite' && latest && draft.id !== latest.id ? 'new' : saveMode;
 
     if (effectiveMode === 'overwrite') {
-        if (!latest) return [...estimates, { ...draft, date: now }];
+        if (!latest) return [...estimates, { ...draft, date: now, updated_at: now }];
         const updated: Estimate = {
             ...draft,
             id: latest.id,
             version: latest.version,
             parentId: latest.parentId,
             date: now,
+            updated_at: now,
             sortOrder: latest.sortOrder,
             isArchived: nextArchived,
         };
@@ -92,12 +93,13 @@ export const applyEstimateSave = ({
             : item.id === latest.id ? updated : { ...item, isArchived: nextArchived });
     }
 
-    if (!latest) return [...estimates, { ...draft, version: 1, date: now }];
+    if (!latest) return [...estimates, { ...draft, version: 1, date: now, updated_at: now }];
     const newVersion: Estimate = {
         ...draft,
         id: newId,
         version: maxVersion + 1,
         date: now,
+        updated_at: now,
         parentId: latest.parentId || latest.id,
         isArchived: nextArchived,
         sortOrder: latest.sortOrder,

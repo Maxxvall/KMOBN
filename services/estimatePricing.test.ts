@@ -7,7 +7,7 @@ import {
   type EstimateItem,
   type Material,
 } from '../types';
-import { applyCatalogMaterialPrice, checkMaterialPrice, recalculateEstimateWorkPrices } from './estimatePricing';
+import { applyCatalogMaterialPrice, calculateEstimateTotal, checkMaterialPrice, recalculateEstimateWorkPrices } from './estimatePricing';
 
 const makeMaterial = (id: string, patch: Partial<Material> = {}): Material => ({
   id,
@@ -41,6 +41,30 @@ const makeEstimate = (items: EstimateItem[]): Estimate => ({
   total: items.reduce((sum, item) => sum + item.total, 0),
   buildingType: 'House',
   area: 100,
+});
+
+describe('calculateEstimateTotal', () => {
+  it('is the single total formula: the estimate total equals the sum of item totals', () => {
+    const items = [
+      makeItem({ quantity: 2, price: 700, total: 1400 }),
+      makeItem({ id: 'item-2', name: 'Плинтус', quantity: 0.5, price: 300, total: 150 }),
+      makeItem({ id: 'item-3', name: 'Доставка', quantity: 3, price: 0, total: 0 }),
+    ];
+
+    expect(calculateEstimateTotal(items)).toBe(1550);
+  });
+
+  it('returns 0 for an empty estimate', () => {
+    expect(calculateEstimateTotal([])).toBe(0);
+  });
+
+  it('does not recompute quantity × price, so a stale total still wins over a product', () => {
+    // The invariant "estimate total = Σ item.total" is the ownership boundary:
+    // callers keep item.total = quantity × price, the total function sums totals.
+    const inconsistent = makeItem({ quantity: 4, price: 100, total: 123 });
+
+    expect(calculateEstimateTotal([inconsistent])).toBe(123);
+  });
 });
 
 describe('checkMaterialPrice', () => {

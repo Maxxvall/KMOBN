@@ -53,7 +53,9 @@ export const useEstimateCrud = ({
 }: UseEstimateCrudParams) => {
   const estimatesRef = useRef(estimates);
   estimatesRef.current = estimates;
-  const archiveMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  // Single serialization chain for whole-table estimates writes: saves and
+  // archive flips must never interleave, or two versions can share a number.
+  const mutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   const handleCreateNew = useCallback(() => {
     // Don't block action while subscription is loading — allow creation with subsequent check
     if (!subscriptionLoading && !canCreateEstimate(subscriptionUsage, subscriptionLimits)) {
@@ -129,32 +131,39 @@ export const useEstimateCrud = ({
       return;
     }
 
-    const updatedEstimates = applyEstimateSave({
-      estimates,
-      draft,
-      saveMode,
-      now: new Date().toISOString(),
-      newId: `sm-id-${Date.now()}`,
-      restoreFromArchive,
-    });
+    // Serialize the whole-table write with archiving on the shared queue and
+    // read the freshest list at execution time — a save landing mid-archive
+    // (or a double click) must not mint two versions with the same number.
+    mutationQueueRef.current = mutationQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const updatedEstimates = applyEstimateSave({
+          estimates: estimatesRef.current,
+          draft,
+          saveMode,
+          now: new Date().toISOString(),
+          newId: `sm-id-${Date.now()}`,
+          restoreFromArchive,
+        });
 
-    // Save directly to DB first, then update state — prevents cache event from overwriting stale data
-    void saveEstimates(updatedEstimates).then(() => {
-      setEstimates(updatedEstimates);
-      setEditorDirty(false);
-      setEditorDraft(null);
-      setShowSaveOptions(false);
-      setPendingView(null);
-      setShowUnsavedModal(false);
-      setViewAfterSave(View.HISTORY);
-      goToView(afterSaveView);
-    }).catch((error) => {
-      console.error('Failed to save estimate to DB:', error);
-      setSync({ visible: true, message: 'Ошибка сохранения сметы в БД', type: 'error' });
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
-    });
+        // Save directly to DB first, then update state — prevents cache event from overwriting stale data
+        await saveEstimates(updatedEstimates);
+        estimatesRef.current = updatedEstimates;
+        setEstimates(updatedEstimates);
+        setEditorDirty(false);
+        setEditorDraft(null);
+        setShowSaveOptions(false);
+        setPendingView(null);
+        setShowUnsavedModal(false);
+        setViewAfterSave(View.HISTORY);
+        goToView(afterSaveView);
+      })
+      .catch((error) => {
+        console.error('Failed to save estimate to DB:', error);
+        setSync({ visible: true, message: 'Ошибка сохранения сметы в БД', type: 'error' });
+        setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+      });
   }, [
-    estimates,
     goToView,
     setEstimates,
     setEditorValidationResult,
@@ -168,7 +177,7 @@ export const useEstimateCrud = ({
   ]);
 
   const handleSetArchived = useCallback((estimate: Estimate, archived: boolean) => {
-    archiveMutationQueueRef.current = archiveMutationQueueRef.current
+    mutationQueueRef.current = mutationQueueRef.current
       .catch(() => undefined)
       .then(async () => {
         const updatedEstimates = setEstimateChainArchived(estimatesRef.current, estimate.estimateNumber, archived);

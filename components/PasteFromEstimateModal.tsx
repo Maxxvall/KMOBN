@@ -47,12 +47,17 @@ const PasteFromEstimateModal: React.FC<PasteFromEstimateModalProps> = ({
 
     const handleConfirm = () => {
         if (previewItems.length === 0) return;
-        const scaledItems = previewItems.map(item => ({
-            ...item,
-            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            quantity: +(item.quantity * scaleFactor).toFixed(2),
-            total: +(item.quantity * scaleFactor * item.price).toFixed(2),
-        }));
+        const scaledItems = previewItems.map(item => {
+            // Keep the row invariant: total = rounded quantity × price,
+            // the product itself is not rounded a second time.
+            const scaledQuantity = +(item.quantity * scaleFactor).toFixed(2);
+            return {
+                ...item,
+                id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                quantity: scaledQuantity,
+                total: scaledQuantity * item.price,
+            };
+        });
         onConfirm(scaledItems, targetCategory);
         resetAndClose();
     };

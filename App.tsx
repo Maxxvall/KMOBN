@@ -51,6 +51,17 @@ import {
     updateUserSubscription,
 } from './services/subscriptionService';
 import { createPayment } from './services/paymentService';
+
+// Merges a partial cache-update snapshot into the current list by record id.
+// Partial events carry only the changed records — they must never replace
+// the whole list, otherwise a confirmed sync collapses it to one row.
+const mergePartialRecordsById = <T extends { id: string }>(current: T[], incoming: T[]): T[] => {
+    const merged = new Map(current.map(record => [record.id, record]));
+    for (const record of incoming) {
+        merged.set(record.id, record);
+    }
+    return [...merged.values()];
+};
 import { setupAppUsageTracking } from './services/appUsage';
 import { clearOfflineUser, getOfflineUser, rememberOfflineUser } from './services/offlineIdentity';
 import { buildCatalogDuplicateDeletePlan, type CatalogDuplicateDecision } from './services/duplicateManagement';
@@ -292,6 +303,8 @@ const App: React.FC = () => {
         return null;
     }, [supabaseUser]);
     const [estimates, setEstimates] = useState<Estimate[]>([]);
+    const estimatesRef = useRef<Estimate[]>(estimates);
+    estimatesRef.current = estimates;
     const isEditorDraftLatestVersion = useMemo(() => {
         if (!editorDraft) return true;
         const chain = estimates.filter(item => String(item.estimateNumber) === String(editorDraft.estimateNumber));
@@ -305,6 +318,8 @@ const App: React.FC = () => {
     materialsRef.current = materials;
     const [works, setWorks] = useState<Work[]>([]);
     const [bundles, setBundles] = useState<WorkBundle[]>([]);
+    const catalogListsRef = useRef<{ templates: ProjectTemplate[]; materials: Material[]; works: Work[]; bundles: WorkBundle[] }>({ templates: [], materials: [], works: [], bundles: [] });
+    catalogListsRef.current = { templates, materials, works, bundles };
     const [sectionsDocument, setSectionsDocument] = useState<EstimateSectionsDocument>(() => createEstimateSectionsDocument('local'));
     const [sectionsLoading, setSectionsLoading] = useState(true);
     const [sectionsError, setSectionsError] = useState<string | null>(null);
@@ -371,17 +386,19 @@ const App: React.FC = () => {
         return savedHash !== currentHash;
     }, [dataHashes]);
 
-    const handleCacheUpdate = useCallback((detail: { key: CacheTableKey; data: unknown[] }) => {
-        const nextHash = hashData(detail.data);
-        if (dataHashes[detail.key] === nextHash) return;
-
+    const handleCacheUpdate = useCallback((detail: { key: CacheTableKey; data: unknown[]; partial?: boolean }) => {
         if (detail.key === 'estimates') {
             if (saveInFlightRef.current) return;
-            const loaded = detail.data as Estimate[];
-            const { normalized, changed } = normalizeEstimateChains(loaded);
+            const incoming = detail.data as Estimate[];
+            // Partial events carry only confirmed/rebased records: merge them
+            // into the current list instead of replacing it.
+            const merged = detail.partial ? mergePartialRecordsById(estimatesRef.current, incoming) : incoming;
+            const nextHash = hashData(merged);
+            if (dataHashes.estimates === nextHash) return;
+            const { normalized, changed } = normalizeEstimateChains(merged);
             setEstimates(normalized);
             setLoadedFlags(prev => ({ ...prev, estimates: true }));
-            setDataHashes(prev => ({ ...prev, estimates: hashData(loaded) }));
+            setDataHashes(prev => ({ ...prev, estimates: nextHash }));
             if (changed) {
                 void saveEstimates(normalized);
             }
@@ -394,18 +411,22 @@ const App: React.FC = () => {
             return;
         }
 
-        const setterMap: Record<string, [React.Dispatch<React.SetStateAction<unknown>>, string]> = {
-            templates: [setTemplates as React.Dispatch<React.SetStateAction<unknown>>, 'templates'],
-            materials: [setMaterials as React.Dispatch<React.SetStateAction<unknown>>, 'materials'],
-            works: [setWorks as React.Dispatch<React.SetStateAction<unknown>>, 'works'],
-            bundles: [setBundles as React.Dispatch<React.SetStateAction<unknown>>, 'bundles'],
+        const setterMap: Record<string, React.Dispatch<React.SetStateAction<unknown>>> = {
+            templates: setTemplates as React.Dispatch<React.SetStateAction<unknown>>,
+            materials: setMaterials as React.Dispatch<React.SetStateAction<unknown>>,
+            works: setWorks as React.Dispatch<React.SetStateAction<unknown>>,
+            bundles: setBundles as React.Dispatch<React.SetStateAction<unknown>>,
         };
-        const entry = setterMap[detail.key];
-        if (entry) {
-            const [setter, flag] = entry;
-            setter(detail.data);
-            setLoadedFlags(prev => ({ ...prev, [flag]: true }));
-            setDataHashes(prev => ({ ...prev, [flag]: hashData(detail.data) }));
+        const setter = setterMap[detail.key];
+        if (setter) {
+            const current = catalogListsRef.current[detail.key as 'templates' | 'materials' | 'works' | 'bundles'];
+            const incoming = detail.data as Array<{ id: string }>;
+            const merged = detail.partial ? mergePartialRecordsById(current, incoming) : incoming;
+            const nextHash = hashData(merged);
+            if (dataHashes[detail.key] === nextHash) return;
+            setter(merged);
+            setLoadedFlags(prev => ({ ...prev, [detail.key]: true }));
+            setDataHashes(prev => ({ ...prev, [detail.key]: nextHash }));
         }
     }, [dataHashes, supabaseUser]);
 
@@ -1497,15 +1518,21 @@ const App: React.FC = () => {
         const { materialName, workName } = params;
         if (!materialName && !workName) return;
 
+        // Match the way pricing matches: normalize both sides (case,
+        // whitespace) so every draft with the same catalog name gets flagged.
+        const normalizedMaterial = materialName ? normalizeKey(materialName) : '';
+        const normalizedWork = workName ? normalizeKey(workName) : '';
+        if (!normalizedMaterial && !normalizedWork) return;
+
         setEstimates(prevEstimates => {
             let changed = false;
             const nextEstimates = prevEstimates.map(estimate => {
                 if (estimate.status !== EstimateStatus.DRAFT) return estimate;
                 const hasMatch = estimate.items.some(item => {
-                    if (materialName && item.subgroup === EstimateSubgroup.MATERIALS && item.name === materialName) {
+                    if (normalizedMaterial && item.subgroup === EstimateSubgroup.MATERIALS && normalizeKey(item.name) === normalizedMaterial) {
                         return true;
                     }
-                    if (workName && item.subgroup === EstimateSubgroup.WORKS && item.name === workName) {
+                    if (normalizedWork && item.subgroup === EstimateSubgroup.WORKS && normalizeKey(item.name) === normalizedWork) {
                         return true;
                     }
                     return false;
