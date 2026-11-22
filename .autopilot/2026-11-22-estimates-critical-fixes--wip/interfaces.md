@@ -167,3 +167,14 @@
 - offlineQueue.test.ts / offlineSync.test.ts / offlineReliability.test.ts: assertions на nextRetryAt переписываются на failureKind/lastAttemptAt; фикстуры salary_calculations → 'bundles'.
 - Остальные тесты не меняются; `npm run test` (313) остаётся зелёным; lint без новых ошибок.
 - Компоненты не покрываются юнит-тестами — критерии кодом по контракту + ревью ветки.
+
+## Построено таском 03 (фактические интерфейсы сборки 3)
+
+- `services/recordOrder.ts`: parseTimestamp(unknown), inferSortOrder(record, fallbackIndex), compareByStableOrder(left, right), normalizeStableOrder<T extends {id:string}>(records) — без импортов внутрь проекта; потребители database.ts и supabase.ts.
+- `services/ids.ts`: `createOperationId(): string` (crypto.randomUUID + фолбэк) — единственная реализация.
+- `components/AddEstimateItemModal.tsx`: пропы-дизъюнкт `{kind:'material', onAdd(name,cat,price,link?), onSaved(Material)} | {kind:'work', onAdd(name,cat,price), onSaved(Work)}`; два старых модальных файла удалены.
+- App.tsx: `applyNormalizedEstimates(incoming): Promise<void>` (единый normalize→save), `showSyncStatus(message, type, durationMs): timerId` (возвращает timerId для cleanup двух effect-мест) — единая поверхность sync-статуса, тексты/длительности прежние.
+- offlineQueue: поле nextRetryAt удалено (markFailed хранит retryCount/lastError/lastAttemptAt/failureKind); isWorkspacePendingChange = SUPPORTED_TABLES.has; legacy salary_calculations-записи уходят в карантин как unrecognized (данные не удаляются).
+- supabase: upsertTable/deleteTableRecords + 6 upsert-обёрток удалены; fetch*/RPC не тронуты.
+- R22: loadingPrices удалён, мёртвое условие удалено, colSpan примечаний учитывает Факт, id строк с суффиксом Math.random.
+- R23: все Σ item.total через calculateEstimateTotal (estimatePricing ×2, boardMaterialSwitch, houseCalibration).

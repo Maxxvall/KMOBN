@@ -53,3 +53,10 @@ DROP (не переносится): mergePartialRecordsById между импо�
 ## Debt
 
 - Placeholder: нет. EmptyEnv: нет. Новых A## в коде: нет (углубления R##.n по спеке).
+
+## Сборка 3 — ход
+
+- T03: done_with_concerns — коммит e67a691, тесты 313/313, lint чист, tsc-дельта 0. Все R18-R23 выполнены.
+  - Оговорка 1 (принята): useEstimateCrud тронут по прямой директиве спеки R21е (6 из 13 мест setSync там); баннер «Не удалось изменить архив» сохранён.
+  - Оговорка 2 → ремонт F4: ветка «Повтор синхронизации в…» (StatusIndicators.tsx:61) существует, ключится на собственный всегда-null retryAt (useOfflineSync.ts:29,178,204,217,238) — файлы были вне зоны T03.
+  - Оговорка 3 (принята): isWorkspacePendingChange = SUPPORTED_TABLES.has; legacy salary_calculations уходят в карантин как unrecognized, данные не удаляются.
