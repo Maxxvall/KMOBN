@@ -72,3 +72,47 @@
 - `App.handleCacheUpdate`: partial → мердж по id (estimates — затем normalizeEstimateChains), хэш от объединённого списка; списки читаются через render-refs (estimatesRef, catalogListsRef — паттерн существующего materialsRef).
 - `useEstimateCrud`: общая цепочка `mutationQueueRef` для save+archive; чтение/обновление `estimatesRef.current`.
 - `applyEstimateSave`: каждая ветка несёт `date: now` + `updated_at: now`.
+
+## Границы сборки 2 (🟡 оптимизация)
+
+### services/hashing.ts
+
+- **Открывает:** новый экспорт `memoizedFingerprint(value: unknown): string` — компактный fingerprint с WeakMap-мемо по ссылке объекта (для иммутабельных обновлений). `hashData`/`fingerprintData` без изменений; `hashData` остаётся в duplicateManagement (дедупликация — корректность).
+
+### services/indexedDbCache.ts
+
+- **Контракт:** поле `hash` в CacheRecord теперь fingerprintData (компактная строка). Первый прогон сравнения после обновления перезапишет хэши всех записей кэша один раз — приемлемо и самозалечивается. `hashMemoryCache` удаляется (был write-only, комментарий лгал). Сравнение в syncCachedRecords и запись в upsertCachedRecords используют ОДНУ и ту же функцию.
+
+### services/database.ts
+
+- `getChangedRecords` сравнивает через `fingerprintData` (использование только для сравнения).
+
+### services/estimatePricing.ts
+
+- **Открывает:** `buildMaterialPriceIndex(materials: Material[]): MaterialPriceIndex` и `checkMaterialPriceIndexed(item, index): MaterialPriceCheck` (индекс: Map по normalizeKey → список материалов). Существующая `checkMaterialPrice(item, materials)` сохранена и делегирует. Используется редактором (по одному index на materialsValue, useMemo).
+
+### components/EstimateEditor.tsx
+
+- Черновик в App: дебаунс 300 мс (`onDraftChangeAction`), сброс (немедленный пуш последнего значения) на blur любого поля, unmount и закрытие редактора. Локальное состояние estimate остаётся мгновенным.
+- Каталожные индексы — useMemo: нормализованный Map работ (raw-key worksIndex заменяется), Set нормализованных имён материалов по категории, MaterialPriceIndex один на materialsValue. `worksValue.some(...)` и per-row `filteredMaterials.some(...)` исчезают.
+
+### components/EstimateHistory.tsx
+
+- Один useMemo: `Map<string, Estimate[]>` «estimateNumber → версии (version desc)»; обе VersionDropdown читают из него. Мобильная карточка: клиент/дата из `selectedEstimate` (как на десктопе).
+
+### hooks/useMediaQuery.ts (новый)
+
+- **Открывает:** `useMediaQuery(query: string): boolean` — matchMedia + listener. В EstimateHistory и EstimateEditor монтируется только активный вариант (isDesktop ? table : cards); классы `hidden md:block`/`md:hidden` на этих блоках снимаются.
+
+### services/offlineQueue.ts
+
+- `quarantineLegacyChanges` — однократно за сессию при первом openQueueDb (module-guard); прямые вызовы из getAll/getQuarantinedCount/getClaimableQuarantinedCount убраны.
+- `getForTable` — через индекс by_table (`store.index('by_table').getAll(table)`) + фильтр userId в JS; компаунд-индекс не добавляется (без bump схемы).
+
+### Тесты (сборка 2)
+
+- `services/hashing.test.ts` — memoizedFingerprint: та же ссылка → та же строка; новая ссылка с теми же данными → пересчёт (та же строка); изменение данных через новую ссылку → новый fingerprint.
+- `services/indexedDbCache.test.ts` — hash в записи = fingerprint (не полная JSON-строка).
+- `services/estimatePricing.test.ts` — buildMaterialPriceIndex + checkMaterialPriceIndexed: те же вердикты, что у checkMaterialPrice (current/outdated/missing/ambiguous), матчинг по normalizeKey.
+- `services/offlineQueue.test.ts`/`offlineQueue.migration.test.ts` — поведение миграции не изменилось (теперь однократно); getForTable возвращает те же записи.
+- Компоненты App/EstimateHistory/EstimateEditor юнит-тестами не покрываются — критерии закрываются кодом по контракту + ревью ветки.
