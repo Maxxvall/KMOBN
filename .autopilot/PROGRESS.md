@@ -1,26 +1,31 @@
 <!-- autopilot:progress -->
 # СметыKMOBN (karkas-master) — что осталось
 
-Последняя сборка: `.autopilot/2026-11-22-estimates-critical-fixes/` — 8 критичных фиксов вкладки «Сметы» сданы (T01 + ремонты F1, F2), тесты 303/303, lint чист, слепая приёмка 8/8.
+Последняя сборка: `.autopilot/2026-11-22-estimates-critical-fixes/` — две сборки в одном прогоне: 8 красных фиксов вкладки «Сметы» (T01 + F1, F2) и 6 пунктов 🟡-оптимизации (T02 + F3). Тесты 313/313, lint чист, слепая приёмка обеих сборок 8/8 и 6/6.
 
 ## Договорились — не пересматривать
 
-- «Важные» = 8 🔴-пунктов аудита вкладки Сметы; 🟡 «Лишняя работа» и 🟢 «Мусор и дубли» — вне той сборки, отдельный заход (R10i/R11i).
-- Итог сметы — единый источник Σ item.total (`calculateEstimateTotal` в services/estimatePricing.ts); инвариант строки: item.total = quantity × price. Второй формулы Σ(q×p) на уровне сметы больше нигде нет.
-- «Целевой раздел» при вставке — реализуем обещание модалки (позиции перекладываются в выбранный раздел), не убирать UI (R04).
-- Импортируемые записи всегда очищаются через `stripImportedServiceFields` (serverRevision → 0); у смерженных с локальными ревизия берётся из локальной записи.
+- Итог сметы — единый источник Σ item.total (`calculateEstimateTotal` в estimatePricing); инвариант строки: item.total = округлённое quantity × price.
+- Хэши сравнения и поле hash в IndexedDB — компактный `fingerprintData`; в App — `memoizedFingerprint` (WeakMap по ссылке); `duplicateManagement` остаётся на полном hashData (дедупликация без коллизий).
+- Числовые инпуты редактора (основные и фактические строки) — черновик-строка (numericDrafts) + safeNumber на blur/Enter; пуш черновика в App — дебаунс 300 мс со сбросом на blur/unmount/закрытие.
+- Каталог в редакторе — по индексам (normalizeKey Map работ, Set материалов по категориям, buildMaterialPriceIndex).
+- В списке и редакторе монтируется один DOM-вариант (useMediaQuery 768px).
+- Событие kmobn:cache-update бывает partial; App мерджит по id.
+- Импортируемые записи очищаются через stripImportedServiceFields; смерженные берут локальную ревизию.
+- Сейв и архивация — одна очередь mutationQueueRef; карантин legacy очереди — однократно за сессию (сбой свипа не «запирает» guard).
 
 ## Не доделано
 
-- 🟡 «Лишняя работа (оптимизация)» — весь список аудита: хэши (hashData = полная JSON-строка в IDB + неработающий hashMemoryCache), дебаунс черновика редактора, Map-индекс работ, двойной DOM (список+редактор), O(n²) версий в истории, миграция очереди на каждом чтении, needsReload-хэши всех таблиц (R10i).
-- 🟢 «Мусор и дубли (удалить)» — мёртвый слой upsertTable/deleteTableRecords в supabase.ts, остатки авто-ретрая (nextRetryAt/OfflineSyncError), salary_calculations в списках таблиц, дубли stableStringify/модалок/setSync+setTimeout (R11i).
-- Сериализация save+archive (mutationQueueRef) не покрыта юнит-тестом — хук тестами не закладывался; регресс вернёт «две версии с одним номером».
+- 🟢 «Мусор и дубли (удалить)» — весь зелёный список аудита: мёртвый слой upsertTable/deleteTableRecords в supabase.ts, остатки авто-ретрая (nextRetryAt/OfflineSyncError), salary_calculations в списках таблиц, дубли stableStringify/модалок/setSync+setTimeout (R11i) — пользователь направлял только красный и жёлтый списки.
+- Сериализация save+archive (mutationQueueRef) не покрыта юнит-тестом — регресс вернёт «две версии с одним номером».
+- 3 места считают Σ item.total инлайном мимо named-функции (estimatePricing.ts:90,124, boardMaterialSwitch.ts:313, houseCalibration.ts:92) — формула та же, чистка для 🟢-захода.
 
 ## Известные баги
 
-- `commitActualDraft` (EstimateEditor.tsx ~:739-748) создаёт нулевые «ручные» факты при tab-проходе без ввода (focus+blur); в итогах не видно (isActualComplete требует quantity > 0), но записи попадают в смету — находка повторного ревью F1, не блокер.
-- Гонка render-ref при двух partial-событиях кэша в один тик (App.handleCacheUpdate) — реальна, узкая, самозалечивается полным снапшотом refreshCacheInBackground; оставлена сознательно.
-- goToView/флаги редактора после сейва срабатывают в момент фактической записи в очереди — следствие сериализации R06, приемлемо.
+- Латентные tsc-ошибки (5 шт., 3 файла: database.ts:1020, database.test.ts, offlineSync.test.ts — serverRevision отсутствует в типе Estimate): vitest/eslint/vite-build/electron-tsc их не видят, ни одна команда проекта не сломана; чинить в 🟢-заходе или при введении typecheck.
+- `commitActualDraft` (EstimateEditor.tsx ~:739-748) создаёт нулевые «ручные» факты при tab-проходе без ввода; в итогах не видно, но записи попадают в смету.
+- Гонка render-ref при двух partial-событиях кэша в один тик (App.handleCacheUpdate) — узкая, самозалечивается полным снапшотом.
+- goToView/флаги редактора после сейва срабатывают в момент фактической записи в очереди — следствие сериализации, приемлемо.
 
 ## Правки без автопилота
 
