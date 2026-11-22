@@ -109,7 +109,7 @@ export const applyCatalogMaterialPrice = (
     estimate: {
       ...estimate,
       items,
-      total: items.reduce((sum, item) => sum + item.total, 0),
+      total: calculateEstimateTotal(items),
     },
     check,
     changed: true,
@@ -143,7 +143,7 @@ export const recalculateEstimateWorkPrices = (estimate: Estimate, works: Work[])
   return {
     ...estimate,
     items,
-    total: items.reduce((sum, item) => sum + item.total, 0),
+    total: calculateEstimateTotal(items),
     needsPriceUpdate: false,
   };
 };

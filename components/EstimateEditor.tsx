@@ -13,8 +13,7 @@ import AIGenerationModal from './AIGenerationModal';
 import BundlePickerModal from './BundlePickerModal';
 import PasteFromEstimateModal from './PasteFromEstimateModal';
 import BoardMaterialSwitchModal from './BoardMaterialSwitchModal';
-import AddEstimateMaterialModal from './AddEstimateMaterialModal';
-import AddEstimateWorkModal from './AddEstimateWorkModal';
+import AddEstimateItemModal from './AddEstimateItemModal';
 import { aiAutocomplete, analyzeMissingItems, applySmartPackagingRules, sanitizeQuantities } from '../services/openRouterService';
 import { hasOpenRouterKey } from '../services/aiConfig';
 import { maybeRecordCorrectionFromSession } from '../services/aiLearning';
@@ -375,8 +374,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
     const generationAbortControllerRef = useRef<AbortController | null>(null);
     const generationRequestIdRef = useRef(0);
     const analysisAbortControllerRef = useRef<AbortController | null>(null);
-    const [loadingPrices, _setLoadingPrices] = useState<Record<string, boolean>>({});
-
     const aiSessionRef = useRef<null | {
         baselineItems: EstimateItem[];
         cacheKey?: string;
@@ -889,7 +886,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const addItem = (category: SectionId, subgroup: EstimateSubgroup = EstimateSubgroup.WORKS) => {
         const newItem: EstimateItem = {
-            id: `item-new-${Date.now()}`,
+            id: `item-new-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             name: '',
             unit: 'шт',
             quantity: 1,
@@ -903,7 +900,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
 
     const addActualOnlyItem = (category: SectionId, subgroup: EstimateSubgroup = EstimateSubgroup.MATERIALS) => {
         const newItem: EstimateItem = {
-            id: `item-actual-${Date.now()}`,
+            id: `item-actual-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
             name: '',
             unit: 'шт',
             quantity: 0,
@@ -1903,7 +1900,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                 <div className="mt-4 space-y-3 sm:mt-5 sm:space-y-4">
                     {visibleCategories.map((category, catIndex) => {
                         const items = groupedItems.get(category) || [];
-                        if (items.length === 0 && !visibleCategories.includes(category)) return null;
                         const isCollapsed = Boolean(collapsedCategories[category]);
                         const catTotal = categorySubtotals.get(category) || 0;
                         return (
@@ -2024,8 +2020,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                     <input
                                                                                         type="text"
                                                                                         id={`typeahead-input-${item.id}`}
-                                                                                        disabled={!!loadingPrices[item.id]}
-                                                                                        style={{ cursor: loadingPrices[item.id] ? 'wait' : undefined }}
                                                                                         value={item.name}
                                                                                         onChange={e => {
                                                                                             updateItem(item.id, 'name', e.target.value);
@@ -2052,8 +2046,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                 <select
                                                                                     value={item.name}
                                                                                     onChange={e => handleMaterialSelect(item.id, e.target.value)}
-                                                                                    disabled={!!loadingPrices[item.id]}
-                                                                                    style={{ cursor: loadingPrices[item.id] ? 'wait' : undefined }}
                                                                                     className={getFieldClass(item.id, 'name', inputStyles + " text-sm")}
                                                                                 >
                                                                                     <option value="">— Выберите материал —</option>
@@ -2201,7 +2193,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                 </tr>
                                                                 {openNotes[item.id] && (
                                                                     <tr>
-                                                                        <td colSpan={8} className="p-1 bg-gray-900/20">
+                                                                        <td colSpan={showActuals ? 12 : 8} className="p-1 bg-gray-900/20">
                                                                             <textarea
                                                                                 value={item.note || ''}
                                                                                 onChange={e => updateItem(item.id, 'note', e.target.value)}
@@ -2269,7 +2261,6 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             <input
                                                                                 type="text"
                                                                                 id={`typeahead-mobile-${item.id}`}
-                                                                                disabled={!!loadingPrices[item.id]}
                                                                                 value={item.name}
                                                                                 onChange={e => {
                                                                                     updateItem(item.id, 'name', e.target.value);
@@ -2290,7 +2281,7 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                             {renderSuggestionsPortal(item.id, suggestions[item.id] as Material[] | undefined, (it) => selectMaterialSuggestion(item.id, it as Material))}
                                                                         </div>
                                                                     ) : (
-                                                                        <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} disabled={!!loadingPrices[item.id]} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}>
+                                                                        <select value={item.name} onChange={e => handleMaterialSelect(item.id, e.target.value)} className={getFieldClass(item.id, 'name', "w-full min-h-[44px] p-2 bg-background border border-border rounded-md text-text-primary text-sm md:min-h-9")}>
                                                                             <option value="">— Выберите материал —</option>
                                                                             {filteredMaterials.map(mat => <option key={mat.id} value={mat.name}>{mat.name}</option>)}
                                                                         </select>
@@ -2503,7 +2494,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             </div>
 
             {materialToAdd && catalogContext?.onAddMaterial && (
-                <AddEstimateMaterialModal
+                <AddEstimateItemModal
+                    kind="material"
                     key={materialToAdd.id}
                     item={materialToAdd}
                     sectionLabel={getSectionLabel(materialToAdd.category, estimate.sectionSnapshot, sectionsContext?.document)}
@@ -2514,7 +2506,8 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
             )}
 
             {workToAdd && catalogContext?.onAddWork && (
-                <AddEstimateWorkModal
+                <AddEstimateItemModal
+                    kind="work"
                     key={workToAdd.id}
                     item={workToAdd}
                     sectionLabel={getSectionLabel(workToAdd.category, estimate.sectionSnapshot, sectionsContext?.document)}

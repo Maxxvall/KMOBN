@@ -1,5 +1,6 @@
 import type { CacheTableKey } from './indexedDbCache';
 import { isIndexedDbAvailable } from './indexedDbCache';
+import { createOperationId } from './ids';
 import { getOfflineUserId } from './offlineIdentity';
 
 export type PendingOperation = 'upsert' | 'delete';
@@ -18,12 +19,8 @@ export interface PendingChange {
   retryCount: number;
   lastError?: string;
   lastAttemptAt?: string;
-  nextRetryAt?: string;
   failureKind?: 'transient' | 'permanent';
 }
-
-export const isWorkspacePendingChange = (change: PendingChange): boolean =>
-  change.table !== 'salary_calculations';
 
 const QUEUE_DB_NAME = 'kmobn_offline_queue';
 const QUEUE_DB_VERSION = 4;
@@ -40,7 +37,6 @@ const SUPPORTED_TABLES = new Set<CacheTableKey>([
   'materials',
   'works',
   'bundles',
-  'salary_calculations',
   'estimate_sections',
 ]);
 
@@ -73,13 +69,9 @@ const nextSequence = (): number => {
   return lastSequence;
 };
 
-const createOperationId = (): string => {
-  if (typeof globalThis.crypto?.randomUUID === 'function') return globalThis.crypto.randomUUID();
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, token => {
-    const random = Math.floor(Math.random() * 16);
-    return (token === 'x' ? random : (random & 0x3) | 0x8).toString(16);
-  });
-};
+// Workspace tables are exactly the supported offline tables.
+export const isWorkspacePendingChange = (change: PendingChange): boolean =>
+  SUPPORTED_TABLES.has(change.table);
 
 const isSameSnapshot = (
   current: PendingChange | undefined,
@@ -428,7 +420,6 @@ export const offlineQueue = {
       retryCount: 0,
       lastError: undefined,
       lastAttemptAt: undefined,
-      nextRetryAt: undefined,
       failureKind: undefined,
     };
     store.put(rebased);
@@ -450,15 +441,11 @@ export const offlineQueue = {
     const current = await requestToPromise(store.get(id)) as PendingChange | undefined;
     const shouldUpdate = isSameSnapshot(current, sequence, operationId);
     if (shouldUpdate) {
-      const retryCount = current.retryCount + 1;
-      const now = new Date();
-      const retryDelayMs = Math.min(5 * 60_000, 1000 * (2 ** Math.max(0, retryCount - 1)));
       store.put({
         ...current,
-        retryCount,
+        retryCount: current.retryCount + 1,
         lastError: formatErrorMessage(error),
-        lastAttemptAt: now.toISOString(),
-        nextRetryAt: retryable ? new Date(now.getTime() + retryDelayMs).toISOString() : undefined,
+        lastAttemptAt: new Date().toISOString(),
         failureKind: retryable ? 'transient' : 'permanent',
       });
     }

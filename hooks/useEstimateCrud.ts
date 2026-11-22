@@ -28,6 +28,7 @@ type UseEstimateCrudParams = {
   setPendingView: React.Dispatch<React.SetStateAction<View | null>>;
   setViewAfterSave: React.Dispatch<React.SetStateAction<View>>;
   setSync: React.Dispatch<React.SetStateAction<{ visible: boolean; message: string; type: 'success' | 'error' | 'info' }>>;
+  showSyncStatus: (message: string, type: 'success' | 'error' | 'info', durationMs: number) => void;
 };
 
 export const useEstimateCrud = ({
@@ -50,6 +51,7 @@ export const useEstimateCrud = ({
   setPendingView,
   setViewAfterSave,
   setSync,
+  showSyncStatus,
 }: UseEstimateCrudParams) => {
   const estimatesRef = useRef(estimates);
   estimatesRef.current = estimates;
@@ -160,8 +162,7 @@ export const useEstimateCrud = ({
       })
       .catch((error) => {
         console.error('Failed to save estimate to DB:', error);
-        setSync({ visible: true, message: 'Ошибка сохранения сметы в БД', type: 'error' });
-        setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+        showSyncStatus('Ошибка сохранения сметы в БД', 'error', 4000);
       });
   }, [
     goToView,
@@ -173,7 +174,7 @@ export const useEstimateCrud = ({
     setEditorDirty,
     setEditorDraft,
     setViewAfterSave,
-    setSync,
+    showSyncStatus,
   ]);
 
   const handleSetArchived = useCallback((estimate: Estimate, archived: boolean) => {
@@ -184,18 +185,17 @@ export const useEstimateCrud = ({
         await saveEstimates(updatedEstimates);
         estimatesRef.current = updatedEstimates;
         setEstimates(updatedEstimates);
-        setSync({
-          visible: true,
-          message: archived ? 'Смета перемещена в архив и исключена из расчёта дома' : 'Смета возвращена в текущие',
-          type: 'success',
-        });
-        setTimeout(() => setSync(state => ({ ...state, visible: false })), 3000);
+        showSyncStatus(
+          archived ? 'Смета перемещена в архив и исключена из расчёта дома' : 'Смета возвращена в текущие',
+          'success',
+          3000,
+        );
       })
       .catch(error => {
         console.error('Failed to update estimate archive state:', error);
         setSync({ visible: true, message: 'Не удалось изменить архив', type: 'error' });
       });
-  }, [setEstimates, setSync]);
+  }, [setEstimates, setSync, showSyncStatus]);
 
   const handleDeleteEstimate = useCallback(async (estimateToDelete: Estimate) => {
     if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
@@ -209,14 +209,12 @@ export const useEstimateCrud = ({
       await deleteEstimatesByNumber(estimateNumberToDelete);
       setEstimates(prevEstimates => prevEstimates.filter(e => e.estimateNumber !== estimateNumberToDelete));
       consumeDeleteLimit();
-      setSync({ visible: true, message: 'Сметы удалены из БД', type: 'success' });
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
+      showSyncStatus('Сметы удалены из БД', 'success', 2000);
     } catch (error) {
       console.error('Failed to delete estimates from DB:', error);
-      setSync({ visible: true, message: 'Ошибка удаления смет в БД', type: 'error' });
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+      showSyncStatus('Ошибка удаления смет в БД', 'error', 4000);
     }
-  }, [subscriptionUsage, subscriptionLimits, goToView, setEstimates, consumeDeleteLimit, setSync]);
+  }, [subscriptionUsage, subscriptionLimits, goToView, setEstimates, consumeDeleteLimit, showSyncStatus]);
 
   const handleDeleteEstimateVersion = useCallback(async (estimateToDelete: Estimate) => {
     if (!canDeleteEstimate(subscriptionUsage, subscriptionLimits)) {
@@ -256,7 +254,7 @@ export const useEstimateCrud = ({
         await saveEstimates(updatedEstimates);
         setEstimates(updatedEstimates);
         consumeDeleteLimit();
-        setSync({ visible: true, message: 'Смета полностью удалена', type: 'success' });
+        showSyncStatus('Смета полностью удалена', 'success', 2000);
       } else {
         const deletedId = estimateToDelete.id;
         const remainingVersions = versionHistory.filter(e => e.id !== deletedId);
@@ -292,16 +290,13 @@ export const useEstimateCrud = ({
         await saveEstimates(updatedEstimates);
         setEstimates(updatedEstimates);
         consumeDeleteLimit();
-        const msg = isLatest ? 'Версия удалена, главная обновлена' : 'Версия сметы удалена';
-        setSync({ visible: true, message: msg, type: 'success' });
+        showSyncStatus(isLatest ? 'Версия удалена, главная обновлена' : 'Версия сметы удалена', 'success', 2000);
       }
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 2000);
     } catch (error) {
       console.error('Failed to delete estimate version from DB:', error);
-      setSync({ visible: true, message: 'Ошибка удаления версии в БД', type: 'error' });
-      setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+      showSyncStatus('Ошибка удаления версии в БД', 'error', 4000);
     }
-  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit, setSync]);
+  }, [subscriptionUsage, subscriptionLimits, goToView, estimates, setEstimates, consumeDeleteLimit, showSyncStatus]);
 
   const handleDeleteVersionDuplicates = useCallback(async (requests: EstimateDuplicateDeleteRequest[]): Promise<number> => {
     if (requests.length === 0) return 0;

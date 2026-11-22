@@ -6,7 +6,6 @@ export type CacheTableKey =
   | 'materials'
   | 'works'
   | 'bundles'
-  | 'salary_calculations'
   | 'estimate_sections';
 
 export interface CacheRecord<T> {
@@ -55,7 +54,6 @@ const STORE_NAMES: Record<CacheTableKey, string> = {
   materials: 'materials',
   works: 'works',
   bundles: 'bundles',
-  salary_calculations: 'salary_calculations',
   estimate_sections: 'estimate_sections',
 };
 

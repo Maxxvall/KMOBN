@@ -88,7 +88,7 @@ describe('processOfflineQueue', () => {
 
     const [failed] = await offlineQueue.getAll(TEST_USER);
     expect(failed).toMatchObject({ failureKind: 'permanent', retryCount: 1 });
-    expect(failed.nextRetryAt).toBeUndefined();
+    expect(failed.lastAttemptAt).toBeDefined();
   });
 
   it('continues with independent changes after a permanent rejection', async () => {
@@ -172,14 +172,13 @@ describe('processOfflineQueue', () => {
     expect(await offlineQueue.getAll(TEST_USER)).toEqual([]);
   });
 
-  it('processes workspace tables in FIFO order and retains local salary calculations', async () => {
+  it('processes every workspace table in FIFO order and drains the queue', async () => {
     const tables: CacheTableKey[] = [
       'estimates',
       'templates',
       'materials',
       'works',
       'bundles',
-      'salary_calculations',
       'estimate_sections',
     ];
     for (const table of tables) {
@@ -192,9 +191,7 @@ describe('processOfflineQueue', () => {
     expect(executeChange.mock.calls.map(([change]) => change.table)).toEqual([
       'estimates', 'templates', 'materials', 'works', 'bundles', 'estimate_sections',
     ]);
-    expect(await offlineQueue.getAll(TEST_USER)).toEqual([
-      expect.objectContaining({ table: 'salary_calculations', retryCount: 0 }),
-    ]);
+    expect(await offlineQueue.getAll(TEST_USER)).toEqual([]);
   });
 
   it('restricts queue tables to CacheTableKey at compile time', () => {

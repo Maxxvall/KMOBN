@@ -12,6 +12,7 @@ import {
 } from './indexedDbCache';
 import { offlineQueue, type PendingChange } from './offlineQueue';
 import { fingerprintData } from './hashing';
+import { normalizeStableOrder } from './recordOrder';
 import { getOfflineUserId, rememberOfflineUser } from './offlineIdentity';
 import { withTableMutationLock } from './tableMutationLock';
 import { normalizeEstimateSectionsDocument, prepareEstimateSectionsDocumentForSave } from './estimateSections';
@@ -36,53 +37,6 @@ const ensureSupabase = () => {
 
 type LoadTableOptions = {
   limit?: number;
-};
-
-const parseTimestamp = (value?: string | null): number | null => {
-  if (!value) return null;
-  const parsed = Date.parse(value);
-  return Number.isFinite(parsed) ? parsed : null;
-};
-
-const inferStableSortOrder = (record: Record<string, unknown>, fallbackIndex: number): number => {
-  if (typeof record.sortOrder === 'number' && Number.isFinite(record.sortOrder)) {
-    return record.sortOrder;
-  }
-
-  const createdAtTs = parseTimestamp(typeof record.created_at === 'string' ? record.created_at : null);
-  if (createdAtTs != null) return createdAtTs;
-
-  const updatedAtTs = parseTimestamp(typeof record.updated_at === 'string' ? record.updated_at : null);
-  if (updatedAtTs != null) return updatedAtTs;
-
-  const lastUpdatedTs = parseTimestamp(typeof record.lastUpdated === 'string' ? record.lastUpdated : null);
-  if (lastUpdatedTs != null) return lastUpdatedTs;
-
-  const dateTs = parseTimestamp(typeof record.date === 'string' ? record.date : null);
-  if (dateTs != null) return dateTs;
-
-  const idText = typeof record.id === 'string' ? record.id : '';
-  const numericIdPart = Number((idText.match(/(\d{8,})/) || [])[1]);
-  if (Number.isFinite(numericIdPart)) return numericIdPart;
-
-  return fallbackIndex;
-};
-
-const compareByStableOrder = <T extends { id: string }>(left: T, right: T): number => {
-  const leftSortOrder = inferStableSortOrder(left as unknown as Record<string, unknown>, 0);
-  const rightSortOrder = inferStableSortOrder(right as unknown as Record<string, unknown>, 0);
-  if (leftSortOrder !== rightSortOrder) return leftSortOrder - rightSortOrder;
-
-  const leftCreatedAt = parseTimestamp((left as unknown as { created_at?: string | null }).created_at ?? null) ?? 0;
-  const rightCreatedAt = parseTimestamp((right as unknown as { created_at?: string | null }).created_at ?? null) ?? 0;
-  if (leftCreatedAt !== rightCreatedAt) return leftCreatedAt - rightCreatedAt;
-
-  return String(left.id).localeCompare(String(right.id));
-};
-
-const normalizeStableOrder = <T extends { id: string }>(records: T[]): T[] => {
-  if (records.length <= 1) return records;
-  return [...records].sort(compareByStableOrder);
 };
 
 const findCachedUserId = (): string | null => {

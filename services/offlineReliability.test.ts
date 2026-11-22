@@ -16,21 +16,19 @@ const remote = vi.hoisted(() => ({
   getSession: vi.fn(),
 }));
 
-vi.mock('./supabase', () => ({
-  default: { auth: { getSession: remote.getSession } },
-  isSupabaseConfigured: () => true,
-  fetchEstimates: vi.fn(),
-  fetchTemplates: vi.fn(),
-  fetchMaterials: vi.fn(),
-  fetchWorks: vi.fn(),
-  fetchBundles: vi.fn(),
-  fetchEstimateSections: vi.fn(),
-  saveEstimateSectionsRemote: remote.saveSections,
-  saveOfflineRecord: remote.saveRecord,
-  deleteOfflineRecord: remote.deleteRecord,
-  upsertTable: vi.fn(),
-  deleteTableRecords: vi.fn(),
-}));
+  vi.mock('./supabase', () => ({
+    default: { auth: { getSession: remote.getSession } },
+    isSupabaseConfigured: () => true,
+    fetchEstimates: vi.fn(),
+    fetchTemplates: vi.fn(),
+    fetchMaterials: vi.fn(),
+    fetchWorks: vi.fn(),
+    fetchBundles: vi.fn(),
+    fetchEstimateSections: vi.fn(),
+    saveEstimateSectionsRemote: remote.saveSections,
+    saveOfflineRecord: remote.saveRecord,
+    deleteOfflineRecord: remote.deleteRecord,
+  }));
 
 const USER_ID = 'offline-reliability-user';
 const DATABASES = ['kmobn_indexeddb_cache', 'kmobn_offline_queue'];
@@ -173,7 +171,6 @@ describe('offline reliability regressions', () => {
     await expect(processOfflineQueue(USER_ID)).resolves.toMatchObject({ pendingCount: 1 });
     const [pending] = await offlineQueue.getAll(USER_ID);
     expect(pending).toMatchObject({ operation: 'delete', failureKind: 'permanent' });
-    expect(pending.nextRetryAt).toBeUndefined();
 
     await processOfflineQueue(USER_ID);
     expect(remote.deleteRecord).toHaveBeenCalledTimes(1);

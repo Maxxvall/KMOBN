@@ -12,7 +12,6 @@ const SUPPORTED_TABLES: ReadonlySet<CacheTableKey> = new Set<CacheTableKey>([
   'materials',
   'works',
   'bundles',
-  'salary_calculations',
   'estimate_sections',
 ]);
 
@@ -31,18 +30,6 @@ export type OfflineSyncResult = {
   syncedTables: CacheTableKey[];
   pendingCount: number;
 };
-
-export class OfflineSyncError extends Error {
-  readonly change: PendingChange;
-  readonly retryable: boolean;
-
-  constructor(change: PendingChange, cause: unknown, retryable: boolean) {
-    super(cause instanceof Error ? cause.message : String(cause));
-    this.name = 'OfflineSyncError';
-    this.change = change;
-    this.retryable = retryable;
-  }
-}
 
 export const isRetryableSyncError = (error: unknown): boolean => {
   if (!error || typeof error !== 'object') return true;
@@ -223,7 +210,7 @@ const runQueue = async (userId: string, executeChange: ExecutePendingChange): Pr
       // The failed snapshot may already have been replaced by a newer local
       // version. Do not block that newer version behind a stale failure.
       if (!stillCurrent) continue;
-      if (retryable) throw new OfflineSyncError(change, error, true);
+      if (retryable) throw error instanceof Error ? error : new Error(String(error));
       // Keep a permanently invalid record for repair without blocking
       // independent changes later in the queue.
     }

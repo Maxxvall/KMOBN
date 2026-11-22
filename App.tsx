@@ -255,6 +255,13 @@ const App: React.FC = () => {
     const setRecoverySubmitting = useCallback((v: React.SetStateAction<boolean>) => setAuthState(p => ({ ...p, recoverySubmitting: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.recoverySubmitting) : v })), []);
     const setView = useCallback((v: React.SetStateAction<View>) => setUiState(p => ({ ...p, view: typeof v === 'function' ? (v as (prev: View) => View)(p.view) : v })), []);
     const setSync = useCallback((v: React.SetStateAction<SyncState>) => setUiState(p => ({ ...p, sync: typeof v === 'function' ? (v as (prev: SyncState) => SyncState)(p.sync) : v })), []);
+    // One wrapper for every auto-hiding sync-banner message: same surface
+    // (sync state, not toast) and per-call duration as before. Returns the
+    // hide timer so effect call sites can still clear it on teardown.
+    const showSyncStatus = useCallback((message: string, type: SyncState['type'], durationMs: number): ReturnType<typeof setTimeout> => {
+        setSync({ visible: true, message, type });
+        return setTimeout(() => setSync(s => ({ ...s, visible: false })), durationMs);
+    }, [setSync]);
     const setShowPasswordRecoveryModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showPasswordRecoveryModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showPasswordRecoveryModal) : v })), []);
     const setShowLoginModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showLoginModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showLoginModal) : v })), []);
     const setShowPdfStyleModal = useCallback((v: React.SetStateAction<boolean>) => setUiState(p => ({ ...p, showPdfStyleModal: typeof v === 'function' ? (v as (prev: boolean) => boolean)(p.showPdfStyleModal) : v })), []);
@@ -386,6 +393,15 @@ const App: React.FC = () => {
         return savedHash !== currentHash;
     }, [dataHashes]);
 
+    // Shared tail for estimate list updates (cache events and history load):
+    // normalize version chains, then persist only when normalization changed
+    // something.
+    const applyNormalizedEstimates = useCallback((incoming: Estimate[]): Promise<void> => {
+        const { normalized, changed } = normalizeEstimateChains(incoming);
+        setEstimates(normalized);
+        return changed ? saveEstimates(normalized) : Promise.resolve();
+    }, [setEstimates]);
+
     const handleCacheUpdate = useCallback((detail: { key: CacheTableKey; data: unknown[]; partial?: boolean }) => {
         if (detail.key === 'estimates') {
             if (saveInFlightRef.current) return;
@@ -395,13 +411,9 @@ const App: React.FC = () => {
             const merged = detail.partial ? mergePartialRecordsById(estimatesRef.current, incoming) : incoming;
             const nextHash = memoizedFingerprint(merged);
             if (dataHashes.estimates === nextHash) return;
-            const { normalized, changed } = normalizeEstimateChains(merged);
-            setEstimates(normalized);
+            void applyNormalizedEstimates(merged);
             setLoadedFlags(prev => ({ ...prev, estimates: true }));
             setDataHashes(prev => ({ ...prev, estimates: nextHash }));
-            if (changed) {
-                void saveEstimates(normalized);
-            }
             return;
         }
 
@@ -428,7 +440,7 @@ const App: React.FC = () => {
             setLoadedFlags(prev => ({ ...prev, [detail.key]: true }));
             setDataHashes(prev => ({ ...prev, [detail.key]: nextHash }));
         }
-    }, [dataHashes, supabaseUser]);
+    }, [applyNormalizedEstimates, dataHashes, supabaseUser]);
 
     useEffect(() => {
         let active = true;
@@ -879,8 +891,7 @@ const App: React.FC = () => {
     const handleUpdatePassword = useCallback(async () => {
         if (!supabase) return;
         if (!recoveryPassword) {
-            setSync({ visible: true, message: 'Введите новый пароль', type: 'error' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
+            showSyncStatus('Введите новый пароль', 'error', 3000);
             return;
         }
         setRecoverySubmitting(true);
@@ -897,37 +908,29 @@ const App: React.FC = () => {
                 // ignore
             }
             setRecoveryPassword('');
-            setSync({ visible: true, message: 'Пароль обновлен. Войдите заново.', type: 'success' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            showSyncStatus('Пароль обновлен. Войдите заново.', 'success', 4000);
             await supabase.auth.signOut();
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Ошибка обновления пароля';
-            setSync({ visible: true, message, type: 'error' });
-            setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            showSyncStatus(message, 'error', 4000);
         } finally {
             setRecoverySubmitting(false);
         }
-    }, [recoveryPassword, setRecoveryPassword, setRecoveryRequired, setRecoverySubmitting, setShowPasswordRecoveryModal, setSync]);
+    }, [recoveryPassword, setRecoveryPassword, setRecoveryRequired, setRecoverySubmitting, setShowPasswordRecoveryModal, showSyncStatus]);
 
     // Show toast after successful offline sync
     useEffect(() => {
         if (offlineSync.syncedCount > 0) {
-            setSync({ visible: true, message: `Данные синхронизированы (${offlineSync.syncedCount})`, type: 'success' });
-            const timer = setTimeout(() => setSync(s => ({ ...s, visible: false })), 4000);
+            const timer = showSyncStatus(`Данные синхронизированы (${offlineSync.syncedCount})`, 'success', 4000);
             return () => clearTimeout(timer);
         }
-    }, [offlineSync.syncedCount, setSync]);
+    }, [offlineSync.syncedCount, showSyncStatus]);
 
     useEffect(() => {
         if (offlineSync.syncStatus !== 'error') return;
-        setSync({
-            visible: true,
-            message: 'Синхронизация не завершена. Изменения сохранены локально — повторите после восстановления связи.',
-            type: 'error',
-        });
-        const timer = setTimeout(() => setSync(current => ({ ...current, visible: false })), 5000);
+        const timer = showSyncStatus('Синхронизация не завершена. Изменения сохранены локально — повторите после восстановления связи.', 'error', 5000);
         return () => clearTimeout(timer);
-    }, [offlineSync.syncStatus, setSync]);
+    }, [offlineSync.syncStatus, showSyncStatus]);
 
     useEffect(() => {
         if (!supabaseUser || offlineSync.legacyPendingCount === 0) {
@@ -981,11 +984,7 @@ const App: React.FC = () => {
             if (loadedEstimates.length === 0) {
                 setEstimates([]);
             } else {
-                const { normalized, changed } = normalizeEstimateChains(loadedEstimates);
-                setEstimates(normalized);
-                if (changed) {
-                    await saveEstimates(normalized);
-                }
+                await applyNormalizedEstimates(loadedEstimates);
             }
             setTemplates(loadedTemplates || []);
             setLoadedFlags(prev => ({ ...prev, estimates: true, templates: true }));
@@ -995,21 +994,19 @@ const App: React.FC = () => {
                 templates: memoizedFingerprint(loadedTemplates || []),
             }));
             if (showToast) {
-                setSync({ visible: true, message: 'Данные загружены', type: 'success' });
-                setTimeout(() => setSync(s => ({ ...s, visible: false })), 3000);
+                showSyncStatus('Данные загружены', 'success', 3000);
             }
         } catch (error) {
             console.error('Failed to load history data:', error);
             setEstimates([]);
             setTemplates([]);
             if (showToast) {
-                setSync({ visible: true, message: 'Ошибка загрузки данных', type: 'error' });
-                setTimeout(() => setSync(s => ({ ...s, visible: false })), 5000);
+                showSyncStatus('Ошибка загрузки данных', 'error', 5000);
             }
         } finally {
             setIsLoading(false);
         }
-    }, [estimates, loadedFlags.estimates, loadedFlags.templates, setSync, templates]);
+    }, [applyNormalizedEstimates, estimates, loadedFlags.estimates, loadedFlags.templates, showSyncStatus, templates]);
 
     const refreshHouseEstimates = useCallback(async (): Promise<Estimate[]> => {
         const loadedEstimates = await refreshEstimatesFromRemote();
@@ -1361,6 +1358,7 @@ const App: React.FC = () => {
         setPendingView,
         setViewAfterSave,
         setSync,
+        showSyncStatus,
     });
 
     const handleEditPendingEstimate = useCallback((estimateId: string) => {
