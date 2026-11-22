@@ -2,10 +2,14 @@
 
 **Требования:** R19
 **Зависит от:** —
-**Зона:** `hooks/useOfflineSync.ts` · `components/StatusIndicators.tsx`
+**Зона:** `hooks/useOfflineSync.ts` · `components/StatusIndicators.tsx` · `App.tsx` — ТОЛЬКО строки :2202 и :2234 (удаление `retryAt={offlineSync.retryAt}`); остальной App.tsx не трогать
 **Волна:** 2
 **Ревью:** нет (закрывается повторным ревью ремонта)
 **Модель:** обычная
+
+## Перезапуск после BLOCKED (первая попытка вернулась с точной картой блокера)
+
+Первая попытка вернула BLOCKED: зона была без App.tsx, а единственные вызовы StatusIndicators — App.tsx:2202 и :2234 (`retryAt={offlineSync.retryAt}`); удаление поля хука даёт TS2332/TS2322 в этих строках, которые vitest/eslint не ловят. Зона расширена ровно на эти 2 строки (решение уже есть в спеке R19 — ветка удаляется вместе с retry-полем). grep-проверка первой попытки: retryAt/setRetryAt существуют только в трёх файлах; строки «Повтор синхронизации»/retryTime — только в StatusIndicators.tsx:60-61; других потребителей StatusIndicators нет.
 
 ## Что должно заработать
 
