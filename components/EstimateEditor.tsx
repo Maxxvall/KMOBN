@@ -717,6 +717,36 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
         }
     };
 
+    // Same draft mechanism for the actual (fact) quantity/price inputs: while
+    // typing, only the draft string changes; the parsed number reaches
+    // item.actual on blur/Enter via updateActualItem. Empty input parses to 0,
+    // garbage falls back to the last committed actual value.
+    const actualDraftKey = (itemId: string, field: 'quantity' | 'price') => `${itemId}:actual:${field}`;
+
+    const getActualDraftValue = (item: EstimateItem, field: 'quantity' | 'price'): string => {
+        const draft = numericDrafts[actualDraftKey(item.id, field)];
+        return draft !== undefined ? draft : String(item.actual?.[field] ?? '');
+    };
+
+    const handleActualDraftChange = (itemId: string, field: 'quantity' | 'price', value: string) => {
+        setNumericDrafts(prev => ({ ...prev, [actualDraftKey(itemId, field)]: value }));
+    };
+
+    const commitActualDraft = (item: EstimateItem, field: 'quantity' | 'price', rawValue: string) => {
+        const key = actualDraftKey(item.id, field);
+        setNumericDrafts(prev => {
+            if (!(key in prev)) return prev;
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+        const current = item.actual?.[field];
+        const parsed = safeNumber(rawValue, typeof current === 'number' ? current : 0);
+        if (parsed !== current) {
+            updateActualItem(item.id, field, parsed);
+        }
+    };
+
     // Update multiple fields on an item atomically
     const updateItemFields = (itemId: string, fields: Partial<EstimateItem>) => {
         setEstimate(prev => {
@@ -2080,8 +2110,28 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                                     <option value="м3">м3</option>
                                                                                 </select>
                                                                             </td>
-                                                                            <td className="p-1 w-32"><input type="number" value={item.actual?.quantity ?? ''} onChange={e => updateActualItem(item.id, 'quantity', e.target.value)} className={inputStyles + " text-right text-sm"} /></td>
-                                                                            <td className="p-1 w-32"><input type="number" value={item.actual?.price ?? ''} onChange={e => updateActualItem(item.id, 'price', e.target.value)} className={inputStyles + " text-right text-sm"} /></td>
+                                                                            <td className="p-1 w-32">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    value={getActualDraftValue(item, 'quantity')}
+                                                                                    onChange={e => handleActualDraftChange(item.id, 'quantity', e.target.value)}
+                                                                                    onBlur={e => commitActualDraft(item, 'quantity', e.currentTarget.value)}
+                                                                                    onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); } }}
+                                                                                    className={inputStyles + " text-right text-sm"}
+                                                                                />
+                                                                            </td>
+                                                                            <td className="p-1 w-32">
+                                                                                <input
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    value={getActualDraftValue(item, 'price')}
+                                                                                    onChange={e => handleActualDraftChange(item.id, 'price', e.target.value)}
+                                                                                    onBlur={e => commitActualDraft(item, 'price', e.currentTarget.value)}
+                                                                                    onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); } }}
+                                                                                    className={inputStyles + " text-right text-sm"}
+                                                                                />
+                                                                            </td>
                                                                             <td className={`p-1 w-28 text-right font-semibold ${((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? 'text-red-300' : ((calculateActualItemTotal(item) ?? item.total) - item.total) < 0 ? 'text-emerald-300' : 'text-text-secondary'}`}>
                                                                                 {(((calculateActualItemTotal(item) ?? item.total) - item.total) > 0 ? '+' : '')}{((calculateActualItemTotal(item) ?? item.total) - item.total).toLocaleString('ru-RU')} ₽
                                                                             </td>
@@ -2274,11 +2324,27 @@ const EstimateEditor: React.FC<EstimateEditorProps> = ({ initialEstimate, templa
                                                                         <div className="grid grid-cols-3 gap-2">
                                                                             <div>
                                                                                 <label className="text-xs text-text-secondary block mb-1">Кол-во</label>
-                                                                                <input type="number" value={item.actual?.quantity ?? ''} onChange={e => updateActualItem(item.id, 'quantity', e.target.value)} className="w-full min-h-[44px] rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9" />
+                                                                                <input
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    value={getActualDraftValue(item, 'quantity')}
+                                                                                    onChange={e => handleActualDraftChange(item.id, 'quantity', e.target.value)}
+                                                                                    onBlur={e => commitActualDraft(item, 'quantity', e.currentTarget.value)}
+                                                                                    onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); } }}
+                                                                                    className="w-full min-h-[44px] rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9"
+                                                                                />
                                                                             </div>
                                                                             <div>
                                                                                 <label className="text-xs text-text-secondary block mb-1">Цена</label>
-                                                                                <input type="number" value={item.actual?.price ?? ''} onChange={e => updateActualItem(item.id, 'price', e.target.value)} className="w-full min-h-[44px] rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9" />
+                                                                                <input
+                                                                                    type="text"
+                                                                                    inputMode="decimal"
+                                                                                    value={getActualDraftValue(item, 'price')}
+                                                                                    onChange={e => handleActualDraftChange(item.id, 'price', e.target.value)}
+                                                                                    onBlur={e => commitActualDraft(item, 'price', e.currentTarget.value)}
+                                                                                    onKeyDown={e => { if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); } }}
+                                                                                    className="w-full min-h-[44px] rounded-md border border-border bg-background p-2 text-right text-sm text-text-primary md:min-h-9"
+                                                                                />
                                                                             </div>
                                                                             <div>
                                                                                 <label className="text-xs text-text-secondary block mb-1">Ед.</label>
