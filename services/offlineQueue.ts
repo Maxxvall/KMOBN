@@ -273,15 +273,17 @@ const getQuarantined = async (db: IDBDatabase): Promise<QuarantinedChange[]> => 
 // Legacy v1 records only exist while an old database is upgraded to the
 // current schema, which happens at the first open of the session. The sweep
 // therefore runs once per session at that first open; later reads skip it
-// instead of scanning the whole store every time. offlineQueue.close() ends
-// the session, so a reconnect rescans once more.
+// instead of scanning the whole store every time. A failed sweep (aborted
+// transaction, IDB quota) leaves the guard unset, so the next open retries
+// instead of hiding legacy records until the session ends.
+// offlineQueue.close() ends the session, so a reconnect rescans once more.
 let quarantineDoneForSession = false;
 
 const openQueueDb = async (): Promise<IDBDatabase> => {
   const db = await openQueueDbConnection();
   if (!quarantineDoneForSession) {
-    quarantineDoneForSession = true;
     await quarantineLegacyChanges(db);
+    quarantineDoneForSession = true;
   }
   return db;
 };
